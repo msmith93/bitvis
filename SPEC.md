@@ -21,9 +21,13 @@ op)`, per-op step modules, one timing file, Framer Motion chip flights.
 - No localStorage/sessionStorage. All state in React state.
 
 ## Cluster topology (fixed)
-- **1 control plane** hosting four visible actors: **kube-apiserver**,
-  **etcd**, **kube-scheduler**, **kube-controller-manager**, plus a tray for
-  unscheduled (Pending, unbound) pods.
+- **1 control-plane node** (`control-plane`) — drawn as a real node with its
+  own kubelet, hosting the four control-plane components **as static pods**
+  (kubeadm-style stacked topology): **kube-apiserver**, **etcd**,
+  **kube-scheduler**, **kube-controller-manager**. It carries the
+  `node-role.kubernetes.io/control-plane:NoSchedule` taint, so user workloads
+  never land on it. The stage also shows a tray for unscheduled (Pending,
+  unbound) pods, which exist only as API objects.
 - **3 worker nodes** (`node-1..3`), each with a kubelet badge and a stack of
   pod chips. Capacity capped at 4 pods per node (demo-size limit).
 - Single `default` namespace; workloads are Deployments only.
@@ -93,6 +97,9 @@ the terminal. Read-only ops have no `derive` and never fold into state.
 - Phases progress Pending → ContainerCreating → Running; deletion shows
   Terminating. A Pending pod with no node sits in the control-plane tray, not
   on a node.
+- The control plane is not magic infrastructure floating above the cluster —
+  its components run ON a node (as static pods run by that node's kubelet).
+  The scheduler filters the control-plane node out via its NoSchedule taint.
 - Pod names follow the real convention: `<deployment>-<pod-template-hash>-<suffix>`.
 
 ## UI layout
@@ -125,6 +132,10 @@ Documented so reviewers can verify the teaching stays honest:
 - No kube-proxy, Services, DNS, or networking (roadmap).
 - The controller-manager is drawn as one box; Deployment and ReplicaSet
   controllers are named in the step text but not drawn separately.
+- One control-plane node with stacked etcd (no HA / external etcd); managed
+  clouds (EKS/GKE/AKS) instead host the control plane on machines you never
+  see. The control-plane static pods live in `kube-system`, which is why they
+  don't appear in `kubectl get pods` (we only show `default`).
 - Events are simplified (no counts/timestamps beyond ordering).
 - `kubectl scale` to the current count prints an explanation instead of a
   no-op walkthrough.

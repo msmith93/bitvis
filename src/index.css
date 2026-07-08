@@ -138,22 +138,43 @@ code {
   background: var(--panel);
   padding: 12px 14px;
 }
-.cp-head {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
+.cp-node-head {
   margin-bottom: 10px;
-}
-.cp-title {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  color: var(--accent-soft);
-  font-weight: 600;
+  gap: 12px;
 }
 .cp-sub {
   font-size: 11px;
   color: var(--muted);
+  flex: 1;
+  text-align: right;
+  padding-right: 4px;
+}
+.head-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.role-badge {
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--accent-soft);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+.taint-badge {
+  font-size: 9.5px;
+  font-family: var(--mono);
+  color: var(--warn);
+  border: 1px dashed var(--warn);
+  border-radius: 999px;
+  padding: 1px 7px;
+  opacity: 0.85;
+  white-space: nowrap;
+  cursor: help;
 }
 .cp-actors {
   display: grid;
@@ -175,10 +196,31 @@ code {
   box-shadow: 0 0 0 1px var(--accent), 0 0 22px rgba(50, 108, 229, 0.45);
   transform: translateY(-1px);
 }
+.actor-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
 .actor-label {
   font-family: var(--mono);
   font-size: 12.5px;
   font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.static-pod-tag {
+  font-size: 8.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .actor-sub {
   font-size: 11px;

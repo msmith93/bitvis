@@ -17,9 +17,22 @@ export default function ClusterStage({ cluster, extra }) {
   return (
     <div className="stage">
       <div className="control-plane">
-        <div className="cp-head">
-          <span className="cp-title">control plane</span>
-          <span className="cp-sub">every arrow goes through the API server</span>
+        <div className="node-head cp-node-head">
+          <span className="head-group">
+            <span className="node-name">control-plane</span>
+            <span className="role-badge">node</span>
+            <span
+              className="taint-badge"
+              title="node-role.kubernetes.io/control-plane:NoSchedule — the scheduler filters this node out for user workloads"
+            >
+              taint: NoSchedule
+            </span>
+          </span>
+          <span className="cp-sub">
+            the control plane runs ON a node — these are static pods managed by
+            its kubelet
+          </span>
+          <span className="kubelet-badge">kubelet</span>
         </div>
         <div className="cp-actors">
           <ActorBox
@@ -52,7 +65,7 @@ export default function ClusterStage({ cluster, extra }) {
           data-fly="tray"
         >
           <span className="tray-label">
-            unscheduled pods · no node assigned
+            Pending pods · exist only as API objects, no node assigned
           </span>
           <div className="tray-chips">
             <AnimatePresence mode="popLayout">
@@ -91,10 +104,16 @@ export default function ClusterStage({ cluster, extra }) {
   )
 }
 
+// In a kubeadm-style cluster these components are static pods on the
+// control-plane node, run by its kubelet directly from manifest files —
+// the API server can't schedule itself into existence.
 function ActorBox({ id, label, sub, active }) {
   return (
     <div className={'actor-box' + (active ? ' active' : '')} data-fly={id}>
-      <span className="actor-label">{label}</span>
+      <span className="actor-label-row">
+        <span className="actor-label">{label}</span>
+        <span className="static-pod-tag">static pod</span>
+      </span>
       <span className="actor-sub">{sub}</span>
     </div>
   )
@@ -107,7 +126,10 @@ function NodeCol({ node, pods, active, kubeletActive }) {
       data-fly={node.id}
     >
       <div className="node-head">
-        <span className="node-name">{node.name}</span>
+        <span className="head-group">
+          <span className="node-name">{node.name}</span>
+          <span className="role-badge">worker</span>
+        </span>
         <span className={'kubelet-badge' + (kubeletActive ? ' active' : '')}>
           kubelet
         </span>

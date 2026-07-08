@@ -9,7 +9,9 @@ through the whole story: the request hits the **kube-apiserver** (the only
 front door), desired state lands in **etcd**, the **controller-manager**'s
 reconciliation loops create a ReplicaSet and its Pods, the **kube-scheduler**
 binds each pod to a worker node, and the **kubelets** pull images and start
-containers. Then `kubectl delete pod <name>` and watch the ReplicaSet
+containers. The control plane itself is drawn honestly: a real node running
+those components as static pods, tainted `NoSchedule` so your workloads stay
+on the workers. Then `kubectl delete pod <name>` and watch the ReplicaSet
 controller heal the drift with a brand-new pod — the "aha" of declarative
 infrastructure.
 

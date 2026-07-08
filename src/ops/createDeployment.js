@@ -41,7 +41,7 @@ const STEPS = [
     ms: 1900,
     title: '5 · Scheduler binds each Pod to a node',
     blurb:
-      'The kube-scheduler watches for Pods with no nodeName. For each one it filters and scores the worker nodes (here: least loaded wins) and writes the chosen nodeName back through the API server. That is ALL the scheduler does — it decides placement; it never starts anything.',
+      'The kube-scheduler watches for Pods with no nodeName. For each one it filters the nodes — the control-plane node is excluded by its NoSchedule taint — then scores the survivors (here: least loaded wins) and writes the chosen nodeName back through the API server. That is ALL the scheduler does — it decides placement; it never starts anything.',
   },
   {
     key: 'kubelet',

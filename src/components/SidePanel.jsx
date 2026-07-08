@@ -22,10 +22,13 @@ export default function SidePanel({ cluster, op }) {
             <div className="explain-op">welcome</div>
             <h2>Run a kubectl command below</h2>
             <p>
-              This is a simulated Kubernetes cluster: one control plane, three
-              worker nodes, and nothing running yet. Type a command in the
-              terminal (or click a preset) and step through what the control
-              plane actually does with it. Start with{' '}
+              This is a simulated Kubernetes cluster: four nodes, nothing
+              running yet. The control plane is itself a node — kube-apiserver,
+              etcd, the scheduler, and the controller-manager run on it as
+              static pods, and its NoSchedule taint keeps your workloads on the
+              three workers. Type a command in the terminal (or click a preset)
+              and step through what the control plane actually does with it.
+              Start with{' '}
               <code>kubectl create deployment web --image=nginx --replicas=3</code>.
             </p>
           </>

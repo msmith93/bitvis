@@ -28,7 +28,9 @@ simulated client-side — no backend, no localStorage, all state in React.
 Kubernetes-accuracy guardrails (kubectl talks only to the API server; only the
 API server touches etcd; controllers/scheduler are watch loops; desired state
 lands in etcd before anything acts; pods never move — replacements get new
-names; the scheduler only binds, the kubelet runs). Treat those guardrails as
+names; the scheduler only binds, the kubelet runs; the control plane runs ON
+a node as static pods, kept free of workloads by its NoSchedule taint). Treat
+those guardrails as
 correctness requirements — read `SPEC.md` before changing the model.
 
 ## Architecture
