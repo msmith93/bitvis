@@ -22,6 +22,15 @@ npm install
 npm run dev
 ```
 
+## Deploy
+
+Hosted at [kubevis.bitsculpt.top](https://kubevis.bitsculpt.top) via the same
+S3 + CloudFront + Route 53 CDK stack as opensearchvis:
+
+```bash
+./scripts/deploy.sh   # needs the `bitsculpt` AWS profile
+```
+
 ## Supported commands (v1)
 
 ```
