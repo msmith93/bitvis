@@ -40,8 +40,13 @@ op)`, per-op step modules, one timing file, Framer Motion chip flights.
    - `kubectl create deployment <name> --image=<img> [--replicas=<n>]`
    - `kubectl scale deployment <name> --replicas=<n>`
    - `kubectl delete pod <name>`
+   - `kubectl cordon|uncordon|drain <node>` (drain accepts and ignores
+     `--ignore-daemonsets` / `--force`)
    - `kubectl get pods|deployments|replicasets|nodes|events`
    - `help`, `clear`
+   A "simulate:" bar above the stage triggers the things kubectl can't do:
+   Pod Crash, Node Crash, Recover Node, and Upgrade Node (enabled only for a
+   drained node — upgrades happen on the machine, outside the API).
 2. Every command becomes an **op** that walks discrete steps on the stage.
    A stepper (Prev / Next / Play / Pause) controls and scrubs the active op.
 3. The right panel shows the current step's explanation, the etcd
@@ -82,6 +87,42 @@ crash — same loop either way.
 kubectl → API server → etcd read → response formatted as a kubectl table in
 the terminal. Read-only ops have no `derive` and never fold into state.
 
+### cordon / uncordon (3 / 4 steps)
+Cordon flips ONE field (`spec.unschedulable`) via the API server; the
+scheduler filters the node out; running pods untouched — cordon ≠ drain.
+Uncordon flips it back AND the scheduler re-evaluates any stuck Pending pods
+(its watch on unbound pods never stops) — they bind to the freed node.
+
+### drain (7 steps)
+Client-side choreography — there is no Drain API object. kubectl cordons the
+node, then posts an Eviction per pod (where PDBs would gate in real life) →
+pods Terminating → removed → RS controllers see drift → replacements Pending
+→ scheduler binds them to the REMAINING schedulable nodes (or leaves them
+Pending when full) → node empty and still cordoned: safe to upgrade/reboot.
+
+### pod crash (scenario, 4 steps)
+A container process exits. The Pod object still exists, so the ReplicaSet
+controller does nothing — the KUBELET restarts the container in place
+(restartPolicy Always, with CrashLoopBackOff backoff on repeats). Same pod
+name, same node; RESTARTS increments in `get pods`. The deliberate
+counterpoint to `delete pod`.
+
+### node crash (scenario, 6 steps)
+The kubelet's heartbeats stop; nothing announces the failure. The node
+controller marks the node NotReady after a grace period; its pods go
+stale/Unknown; after the tolerance window the control plane deletes the stale
+Pod objects; RS controllers replace them; the scheduler binds replacements to
+healthy nodes. The op ENDS with the node still NotReady — recovery is a
+separate scenario (Recover Node: rejoins Ready and EMPTY; stuck Pending pods
+may bind to it; pods never move back).
+
+### upgrade node (scenario, 4 steps; requires a drained node)
+The part kubectl cannot do: the kubelet is upgraded ON the machine. The node
+briefly drops out, rejoins at the new version (visible skew in `get nodes`),
+and is still cordoned — the cordon is desired state in etcd, not machine
+state. Finish with `kubectl uncordon`. Fleet pattern: drain → upgrade →
+uncordon, one node at a time.
+
 ## Accuracy guardrails (don't get these wrong)
 - kubectl talks **only to the API server**. Every animated arrow originates or
   terminates at the API server; kubectl never touches nodes or etcd.
@@ -103,6 +144,19 @@ the terminal. Read-only ops have no `derive` and never fold into state.
 - The control plane is not magic infrastructure floating above the cluster —
   its components run ON a node (as static pods run by that node's kubelet).
   The scheduler filters the control-plane node out via its NoSchedule taint.
+- Restarts vs replacements: a crashed CONTAINER is restarted in place by the
+  kubelet (RS uninvolved, restart count increments); a lost POD OBJECT
+  (delete, eviction, node failure) is replaced by the RS controller with a
+  new name. Never conflate the two loops.
+- Drain is kubectl-side: cordon + per-pod Evictions. No Drain object exists.
+- A dead node is detected only by ABSENCE of kubelet heartbeats; the node
+  controller marks NotReady, and stale pods are evicted after a tolerance
+  window. Replacements never "move back" when the node returns.
+- Node upgrades happen outside the Kubernetes API (drain → upgrade the
+  machine → uncordon). Version skew across nodes mid-upgrade is normal.
+- Pods with no feasible node stay Pending, and the scheduler binds them the
+  moment capacity returns (uncordon / node recovery) — it never stops
+  watching unbound pods.
 - Pod names follow the real convention: `<deployment>-<pod-template-hash>-<suffix>`.
 
 ## UI layout
@@ -142,6 +196,9 @@ Documented so reviewers can verify the teaching stays honest:
   see. The control-plane static pods live in `kube-system`, which is why they
   don't appear in `kubectl get pods` (we only show `default`).
 - Events are simplified (no counts/timestamps beyond ordering).
+- Node-failure timings (40s heartbeat grace, ~5 min pod tolerance) and crash
+  backoff are compressed into steps; no PodDisruptionBudgets during drain;
+  upgrades bump a single hardcoded version (v1.30.0 → v1.31.0).
 - `kubectl scale` to the current count prints an explanation instead of a
   no-op walkthrough.
 
@@ -150,7 +207,5 @@ Documented so reviewers can verify the teaching stays honest:
   ReplicaSet, maxSurge/maxUnavailable choreography, rollback.
 - Services & traffic: `kubectl expose` — selector matching, Endpoints,
   animated request load-balancing across pods.
-- Node ops: `cordon` / `drain` / `uncordon`, simulated node failure →
-  mass rescheduling (pods replaced, not moved).
 - `kubectl describe pod` — inspector with per-object event history.
 - Probes & CrashLoopBackOff; `kubectl logs`; HPA.

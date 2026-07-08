@@ -2,12 +2,13 @@
 // parser only decides WHAT the user asked for and validates it against the
 // committed cluster; App turns the result into an op payload and starts it.
 
+import { MAX_REPLICAS, EVENTS_SHOWN } from './constants'
 import {
-  MAX_REPLICAS,
-  MAX_TOTAL_PODS,
-  EVENTS_SHOWN,
-} from './constants'
-import { WORKER_NODES, CONTROL_PLANE_NODE, livePodCount } from './cluster'
+  WORKER_NODES,
+  CONTROL_PLANE_NODE,
+  BASE_VERSION,
+  schedulableCapacity,
+} from './cluster'
 
 const RESOURCE_ALIASES = {
   pod: 'pods', pods: 'pods', po: 'pods',
@@ -24,10 +25,12 @@ export const HELP_LINES = [
   '  kubectl create deployment <name> --image=<image> [--replicas=<n>]',
   '  kubectl scale deployment <name> --replicas=<n>',
   '  kubectl delete pod <name>',
+  '  kubectl cordon | uncordon | drain <node>',
   '  kubectl get pods | deployments | replicasets | nodes | events',
   '  help · clear',
   '',
-  `Simulator limits: replicas 0-${MAX_REPLICAS}, ${MAX_TOTAL_PODS} pods total.`,
+  `Simulator limits: replicas 0-${MAX_REPLICAS}, 4 pods per worker node.`,
+  'The simulate bar above the stage triggers pod/node crashes, recovery and upgrades.',
 ]
 
 // Split into words, folding `--flag=value` and `--flag value` into flags.
@@ -88,8 +91,8 @@ export function parseCommand(input, base) {
       const replicas = flags.replicas === undefined ? 1 : Number(flags.replicas)
       if (!Number.isInteger(replicas) || replicas < 1 || replicas > MAX_REPLICAS)
         return err(`error: --replicas must be an integer between 1 and ${MAX_REPLICAS} (simulator limit)`)
-      if (livePodCount(base) + replicas > MAX_TOTAL_PODS)
-        return err(`error: simulator capacity reached — the 3 worker nodes hold at most ${MAX_TOTAL_PODS} pods`)
+      if (schedulableCapacity(base) < replicas)
+        return err('error: not enough free capacity on schedulable Ready nodes (4 pods per worker; cordoned/NotReady nodes don’t count)')
       return { kind: 'create', name, image: flags.image, replicas }
     }
 
@@ -107,9 +110,11 @@ export function parseCommand(input, base) {
       const replicas = Number(flags.replicas)
       if (!Number.isInteger(replicas) || replicas < 0 || replicas > MAX_REPLICAS)
         return err(`error: --replicas must be an integer between 0 and ${MAX_REPLICAS} (simulator limit)`)
-      if (replicas > dep.replicas &&
-          livePodCount(base) + (replicas - dep.replicas) > MAX_TOTAL_PODS)
-        return err(`error: simulator capacity reached — the 3 worker nodes hold at most ${MAX_TOTAL_PODS} pods`)
+      if (
+        replicas > dep.replicas &&
+        schedulableCapacity(base) < replicas - dep.replicas
+      )
+        return err('error: not enough free capacity on schedulable Ready nodes (4 pods per worker; cordoned/NotReady nodes don’t count)')
       return { kind: 'scale', name, replicas, from: dep.replicas }
     }
 
@@ -125,13 +130,32 @@ export function parseCommand(input, base) {
       return { kind: 'deletePod', podName }
     }
 
+    case 'cordon':
+    case 'uncordon':
+    case 'drain': {
+      const nodeId = args[2]
+      if (nodeId === CONTROL_PLANE_NODE)
+        return err(`error: this simulator doesn't ${verb} the control-plane node — its components are static pods, which drain ignores anyway`)
+      const node = base.nodes[nodeId]
+      if (!node)
+        return err(`Error from server (NotFound): nodes "${nodeId ?? ''}" not found`)
+      if (!node.ready && verb !== 'uncordon')
+        return err(`error: node "${nodeId}" is NotReady — recover it first (simulate bar)`)
+      if (verb === 'cordon' && node.unschedulable)
+        return { kind: 'info', message: `node/${nodeId} already cordoned` }
+      if (verb === 'uncordon' && !node.unschedulable)
+        return { kind: 'info', message: `node/${nodeId} already uncordoned` }
+      // Real drains usually need --ignore-daemonsets; we have none, so the
+      // flag is accepted and ignored (same for --force). Drain never blocks
+      // on capacity: evicted pods may legitimately stay Pending.
+      return { kind: verb, node: nodeId }
+    }
+
     case 'apply':
     case 'rollout':
     case 'expose':
     case 'describe':
     case 'logs':
-    case 'drain':
-    case 'cordon':
       return err(`error: "kubectl ${verb}" isn't in this simulator yet — see the roadmap in the README`)
 
     default:
@@ -172,7 +196,7 @@ export function formatGet(resource, cluster) {
           p.name,
           p.phase === 'Running' ? '1/1' : '0/1',
           p.phase,
-          0,
+          p.restarts ?? 0,
           ageStr(p.createdAt),
           p.node ?? '<none>',
         ]),
@@ -214,16 +238,24 @@ export function formatGet(resource, cluster) {
         ]),
       )
     }
-    case 'nodes':
+    case 'nodes': {
+      const status = (n) =>
+        !n.ready
+          ? 'NotReady'
+          : n.unschedulable
+          ? 'Ready,SchedulingDisabled'
+          : 'Ready'
       return table(
         ['NAME', 'STATUS', 'ROLES', 'AGE', 'VERSION'],
         [
-          [CONTROL_PLANE_NODE, 'Ready', 'control-plane', ageStr(START_TS), 'v1.30.0'],
-          ...WORKER_NODES.map((w) => [
-            w.id, 'Ready', '<none>', ageStr(START_TS), 'v1.30.0',
-          ]),
+          [CONTROL_PLANE_NODE, 'Ready', 'control-plane', ageStr(START_TS), BASE_VERSION],
+          ...WORKER_NODES.map((w) => {
+            const n = cluster.nodes[w.id]
+            return [w.id, status(n), '<none>', ageStr(START_TS), n.version]
+          }),
         ],
       )
+    }
     case 'events': {
       const evs = cluster.events.slice(-EVENTS_SHOWN)
       if (evs.length === 0) return ['No events found in default namespace.']

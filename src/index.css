@@ -124,6 +124,36 @@ code {
   cursor: default;
 }
 
+/* ================= scenario bar ================= */
+.scenario-bar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.scenario-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--muted);
+}
+.scenario-btn {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+.scenario-btn:hover:not(:disabled) {
+  border-color: var(--warn);
+}
+.scenario-btn:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
 /* ================= stage: control plane ================= */
 .stage {
   display: flex;
@@ -268,6 +298,40 @@ code {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent), 0 0 24px rgba(50, 108, 229, 0.35);
 }
+/* NotReady: the machine is gone; the cluster only sees silence */
+.node-col.down {
+  opacity: 0.55;
+  border-color: var(--danger);
+  border-style: dashed;
+}
+.node-col.down .kubelet-badge {
+  text-decoration: line-through;
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.node-version {
+  font-size: 9.5px;
+  font-family: var(--mono);
+  color: var(--muted);
+}
+.status-badge {
+  font-size: 9.5px;
+  font-family: var(--mono);
+  border-radius: 999px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+.status-badge.cordoned {
+  color: var(--warn);
+  border: 1px dashed var(--warn);
+  cursor: help;
+}
+.status-badge.notready {
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
 /* the control-plane node: same card as the workers, subtly tinted */
 .node-col.control-plane {
   background: linear-gradient(
@@ -371,6 +435,23 @@ code {
 .pod-chip.phase-terminating .pod-phase {
   color: var(--danger);
 }
+.pod-chip.phase-crashloopbackoff {
+  border-color: var(--danger);
+}
+.pod-chip.phase-crashloopbackoff .phase-dot {
+  background: var(--danger);
+  animation: pulse 0.55s ease-in-out infinite;
+}
+.pod-chip.phase-crashloopbackoff .pod-phase {
+  color: var(--danger);
+}
+.pod-chip.phase-unknown {
+  opacity: 0.45;
+  border-style: dashed;
+}
+.pod-chip.phase-unknown .phase-dot {
+  background: var(--pending);
+}
 .pulling {
   color: var(--muted);
   overflow: hidden;
@@ -395,8 +476,12 @@ code {
 .phase-text-containercreating {
   color: var(--warn) !important;
 }
-.phase-text-terminating {
+.phase-text-terminating,
+.phase-text-crashloopbackoff {
   color: var(--danger) !important;
+}
+.phase-text-unknown {
+  color: var(--pending) !important;
 }
 
 /* ================= chip flights ================= */

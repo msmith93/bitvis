@@ -3,16 +3,29 @@ import {
   initialCluster,
   planPlacements,
   podsOfRs,
+  podsOnNode,
   podSuffix,
   rsHash,
+  stuckPendingPods,
+  UPGRADED_VERSION,
+  WORKER_NODES,
 } from './cluster'
 import { formatGet, HELP_LINES, parseCommand } from './kubectl'
 import { OPS, stepsFor } from './ops'
 import { useOpLifecycle } from './useOpLifecycle'
 import ClusterStage from './components/ClusterStage'
+import ScenarioBar from './components/ScenarioBar'
 import SidePanel from './components/SidePanel'
 import Stepper from './components/Stepper'
 import Terminal from './components/Terminal'
+
+// A copy of the cluster with one node's state patched — used to plan
+// placements for the world an op is ABOUT to create (e.g. where do evicted
+// pods land once this node counts as cordoned?).
+const withNode = (c, nodeId, patch) => ({
+  ...c,
+  nodes: { ...c.nodes, [nodeId]: { ...c.nodes[nodeId], ...patch } },
+})
 
 // One color per deployment; its ReplicaSet's pods inherit it so you can track
 // ownership on the stage at a glance (opensearchvis's doc colors).
@@ -167,6 +180,67 @@ export default function App() {
         return
       }
 
+      case 'info':
+        appendLines([{ kind: 'out', text: parsed.message }])
+        return
+
+      case 'cordon': {
+        appendLines([{ kind: 'out', text: `node/${parsed.node} cordoned` }])
+        life.start('cordon', { id: opId(), ts: Date.now(), node: parsed.node })
+        return
+      }
+
+      case 'uncordon': {
+        appendLines([{ kind: 'out', text: `node/${parsed.node} uncordoned` }])
+        // Plan against the world where this node is schedulable again — that's
+        // what the scheduler will see when it re-evaluates the stuck pods.
+        const hypo = withNode(base, parsed.node, { unschedulable: false })
+        const stuck = stuckPendingPods(base)
+        const placements = planPlacements(hypo, stuck.length)
+        life.start('uncordon', {
+          id: opId(),
+          ts: Date.now(),
+          node: parsed.node,
+          stuckPods: stuck.map((p, i) => ({
+            name: p.name,
+            placement: placements[i],
+          })),
+        })
+        return
+      }
+
+      case 'drain': {
+        const victims = podsOnNode(base, parsed.node)
+        appendLines([
+          { kind: 'out', text: `node/${parsed.node} cordoned` },
+          ...victims.map((v) => ({
+            kind: 'out',
+            text: `evicting pod default/${v.name}`,
+          })),
+        ])
+        const hypo = withNode(base, parsed.node, { unschedulable: true })
+        const placements = planPlacements(
+          hypo,
+          victims.length,
+          victims.map((v) => v.name),
+        )
+        life.start('drain', {
+          id: opId(),
+          ts: Date.now(),
+          node: parsed.node,
+          victims: victims.map((v, i) => ({
+            name: v.name,
+            rsName: v.rs,
+            deployment: v.deployment,
+            image: v.image,
+            color: v.color,
+            newName: `${v.rs}-${podSuffix(seq.current.name++)}`,
+            placement: placements[i],
+          })),
+        })
+        return
+      }
+
       case 'deletePod': {
         const pod = base.pods[parsed.podName]
         appendLines([{ kind: 'out', text: `pod "${pod.name}" deleted` }])
@@ -218,8 +292,167 @@ export default function App() {
       label: 'delete a pod',
       cmd: `kubectl delete pod ${firstRunningPod.name}`,
     })
+  const workerStates = WORKER_NODES.map((w) => presetBase.nodes[w.id])
+  const drainCandidate = workerStates
+    .filter((n) => n.ready && !n.unschedulable)
+    .sort(
+      (a, b) =>
+        podsOnNode(presetBase, b.id).length - podsOnNode(presetBase, a.id).length,
+    )[0]
+  const cordonedNode = workerStates.find((n) => n.ready && n.unschedulable)
+  if (drainCandidate && podsOnNode(presetBase, drainCandidate.id).length > 0)
+    presets.push({
+      label: `drain ${drainCandidate.id}`,
+      cmd: `kubectl drain ${drainCandidate.id} --ignore-daemonsets`,
+    })
+  if (cordonedNode)
+    presets.push({
+      label: `uncordon ${cordonedNode.id}`,
+      cmd: `kubectl uncordon ${cordonedNode.id}`,
+    })
+  if (workerStates.some((n) => !n.ready || n.unschedulable))
+    presets.push({ label: 'get nodes', cmd: 'kubectl get nodes' })
   if (presetBase.events.length > 0)
     presets.push({ label: 'get events', cmd: 'kubectl get events' })
+
+  // ---- scenarios (the simulate bar) — targets picked at click time --------
+  const runningPods = Object.values(presetBase.pods).filter(
+    (p) => p.phase === 'Running',
+  )
+  const notReadyNode = workerStates.find((n) => !n.ready)
+  const drainedNode = workerStates.find(
+    (n) =>
+      n.ready &&
+      n.unschedulable &&
+      n.version !== UPGRADED_VERSION &&
+      podsOnNode(presetBase, n.id).length === 0,
+  )
+
+  const scenarioOp = (type, payload, echo) => {
+    appendLines([{ kind: 'info', text: echo }])
+    life.start(type, { id: `op${seq.current.op++}`, ts: Date.now(), ...payload })
+  }
+
+  const scenarios = [
+    {
+      key: 'podCrash',
+      icon: '⚡',
+      label: 'Pod Crash',
+      enabled: runningPods.length > 0,
+      tooltip:
+        'A container process exits — the kubelet restarts it in place. No scheduler, no ReplicaSet.',
+      run: () => {
+        const pods = Object.values(life.base.pods).filter(
+          (p) => p.phase === 'Running',
+        )
+        const pod = pods[Math.floor(Math.random() * pods.length)]
+        scenarioOp(
+          'podCrash',
+          { podName: pod.name, node: pod.node },
+          `⚡ scenario: container crash in ${pod.name} on ${pod.node}`,
+        )
+      },
+    },
+    {
+      key: 'nodeCrash',
+      icon: '💥',
+      label: 'Node Crash',
+      enabled: workerStates.some((n) => n.ready),
+      tooltip:
+        'A worker goes silent — node controller marks it NotReady, its pods are replaced elsewhere. Stays down until recovered.',
+      run: () => {
+        const base = life.base
+        const candidates = WORKER_NODES.map((w) => base.nodes[w.id]).filter(
+          (n) => n.ready,
+        )
+        let target = candidates[0]
+        for (const n of candidates)
+          if (podsOnNode(base, n.id).length > podsOnNode(base, target.id).length)
+            target = n
+        const victims = podsOnNode(base, target.id)
+        const placements = planPlacements(
+          withNode(base, target.id, { ready: false }),
+          victims.length,
+          victims.map((v) => v.name),
+        )
+        scenarioOp(
+          'nodeCrash',
+          {
+            node: target.id,
+            victims: victims.map((v, i) => ({
+              name: v.name,
+              rsName: v.rs,
+              deployment: v.deployment,
+              image: v.image,
+              color: v.color,
+              newName: `${v.rs}-${podSuffix(seq.current.name++)}`,
+              placement: placements[i],
+            })),
+          },
+          `💥 scenario: ${target.id} crashed with ${victims.length} pod${victims.length === 1 ? '' : 's'} on it`,
+        )
+      },
+    },
+    {
+      key: 'recover',
+      icon: '♻',
+      label: 'Recover Node',
+      enabled: !!notReadyNode,
+      tooltip: notReadyNode
+        ? `Reboot ${notReadyNode.id} — it rejoins empty; pods never move back.`
+        : 'No node is down. Crash one first.',
+      run: () => {
+        const base = life.base
+        const target = WORKER_NODES.map((w) => base.nodes[w.id]).find(
+          (n) => !n.ready,
+        )
+        const stuck = stuckPendingPods(base)
+        const placements = planPlacements(
+          withNode(base, target.id, { ready: true }),
+          stuck.length,
+        )
+        scenarioOp(
+          'recoverNode',
+          {
+            node: target.id,
+            stuckPods: stuck.map((p, i) => ({
+              name: p.name,
+              placement: placements[i],
+            })),
+          },
+          `♻ scenario: ${target.id} rebooted and rejoining the cluster`,
+        )
+      },
+    },
+    {
+      key: 'upgrade',
+      icon: '⬆',
+      label: 'Upgrade Node',
+      enabled: !!drainedNode,
+      tooltip: drainedNode
+        ? `Upgrade ${drainedNode.id}'s kubelet to ${UPGRADED_VERSION} — it's drained, so nothing can be disrupted.`
+        : 'Needs a drained node: kubectl drain <node> first (upgrades happen outside kubectl).',
+      run: () => {
+        const base = life.base
+        const target = WORKER_NODES.map((w) => base.nodes[w.id]).find(
+          (n) =>
+            n.ready &&
+            n.unschedulable &&
+            n.version !== UPGRADED_VERSION &&
+            podsOnNode(base, n.id).length === 0,
+        )
+        scenarioOp(
+          'upgradeNode',
+          {
+            node: target.id,
+            fromVersion: target.version,
+            toVersion: UPGRADED_VERSION,
+          },
+          `⬆ scenario: upgrading kubelet on ${target.id} to ${UPGRADED_VERSION}`,
+        )
+      },
+    },
+  ]
 
   return (
     <div className="app">
@@ -235,6 +468,7 @@ export default function App() {
 
       <div className="main">
         <div className="stage-col">
+          <ScenarioBar scenarios={scenarios} disabled={!life.canStartNew} />
           <ClusterStage cluster={life.derived} extra={life.extra} />
         </div>
         <SidePanel cluster={life.derived} op={life.op} />

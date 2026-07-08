@@ -40,16 +40,22 @@ visible state from `(cluster, op)`**, which lets the stepper scrub any
 operation forwards and backwards.
 
 - **`cluster`** (`src/cluster.js`) is the committed state:
-  `{ deployments, replicaSets, pods, events }`. Topology is fixed (1 control
-  plane + 3 workers in `WORKER_NODES`). `planPlacements` is the deterministic
-  least-loaded scheduling stand-in; `rsHash`/`podSuffix` generate real-looking
-  names from counters App holds. `cloneCluster` shallow-clones containers, so
-  `derive` must REPLACE objects (spread), never mutate them.
+  `{ nodes, deployments, replicaSets, pods, events }`. Topology is fixed (1
+  control plane + 3 workers in `WORKER_NODES`), but worker STATE is dynamic:
+  `nodes[id] = { ready, unschedulable, version }` (cordon/drain/crash/
+  upgrade). `planPlacements` is the deterministic scheduling stand-in —
+  filters to Ready+schedulable workers with a free slot (MAX_PODS_PER_NODE),
+  least-loaded wins, and returns null when nothing is feasible (the pod stays
+  Pending; uncordon/recover ops re-bind `stuckPendingPods`).
+  `rsHash`/`podSuffix` generate real-looking names from counters App holds.
+  `cloneCluster` shallow-clones containers, so `derive` must REPLACE objects
+  (spread), never mutate them.
 
 - **`op`** = `{ type, step, payload }` (held by `useOpLifecycle`). Each op type
-  (`createDeployment`, `scaleUp`, `scaleDown`, `deletePod`, `get`) is one
-  module in `src/ops/` declaring `{ type, label, steps, derive?, extra?,
-  duration? }`; each step has the explanation text shown in the right panel
+  (`createDeployment`, `scaleUp`, `scaleDown`, `deletePod`, `get`, `cordon`,
+  `uncordon`, `drain`, and the scenario ops `podCrash`, `nodeCrash`,
+  `recoverNode`, `upgradeNode`) is one module in `src/ops/` declaring
+  `{ type, label, steps, derive?, extra?, duration? }`; each step has the explanation text shown in the right panel
   and driven by the bottom `Stepper`. Payloads precompute every name and
   placement at start-time so `derive` is pure and scrubbing is deterministic.
   Adding a kubectl verb = one new module + a registry entry in
@@ -87,5 +93,6 @@ operation forwards and backwards.
   node columns, pod chips), `ChipFlight` (viewport-coordinate chip flights
   between `data-fly` elements), `Terminal` (scrollback/prompt/history/presets;
   disabled while an op is mid-walk), `SidePanel` (step blurb + etcd tree +
-  events), `Stepper`. Framer Motion drives stage animations; `PodChip` is
+  events), `Stepper`, `ScenarioBar` (the simulate bar; App picks each
+  scenario's target at click time and echoes it into the terminal). Framer Motion drives stage animations; `PodChip` is
   `forwardRef` because `AnimatePresence popLayout` measures exiting children.

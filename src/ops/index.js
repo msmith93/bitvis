@@ -3,6 +3,11 @@ import createDeployment from './createDeployment'
 import { scaleUp, scaleDown } from './scale'
 import deletePod from './deletePod'
 import getResource from './getResource'
+import { cordon, uncordon } from './cordon'
+import drain from './drain'
+import podCrash from './podCrash'
+import { nodeCrash, recoverNode } from './nodeCrash'
+import upgradeNode from './upgradeNode'
 
 // Every terminal command becomes an `op = { type, step, payload }`. Each type
 // is one self-contained module in this directory declaring its steps, its
@@ -17,6 +22,13 @@ export const OPS = {
   scaleDown,
   deletePod,
   get: getResource,
+  cordon,
+  uncordon,
+  drain,
+  podCrash,
+  nodeCrash,
+  recoverNode,
+  upgradeNode,
 }
 
 export const stepsFor = (type) => OPS[type]?.steps || []

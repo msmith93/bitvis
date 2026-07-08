@@ -122,6 +122,7 @@ export const scaleUp = {
           color: p.color,
           node: s >= 3 ? p.placements[i] : null,
           phase: s >= 5 ? 'Running' : s >= 4 ? 'ContainerCreating' : 'Pending',
+          restarts: 0,
           createdAt: p.ts,
         }
         c.events.push({

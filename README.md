@@ -39,8 +39,24 @@ S3 + CloudFront + Route 53 CDK stack as opensearchvis:
 kubectl create deployment <name> --image=<image> [--replicas=<n>]
 kubectl scale deployment <name> --replicas=<n>
 kubectl delete pod <name>
+kubectl cordon | uncordon | drain <node>
 kubectl get pods | deployments | replicasets | nodes | events
 help · clear
+```
+
+A **simulate bar** above the stage covers what kubectl can't type: **Pod
+Crash** (the kubelet restarts the container in place — no ReplicaSet
+involved), **Node Crash** (heartbeats stop, the node controller marks it
+NotReady, pods are replaced on healthy nodes; the node stays down),
+**Recover Node**, and **Upgrade Node**.
+
+### The zero-downtime upgrade walkthrough
+
+```
+kubectl drain node-1 --ignore-daemonsets   # cordon + evict; pods land elsewhere
+[⬆ Upgrade Node]                           # kubelet upgraded on the machine
+kubectl uncordon node-1                    # back in the scheduler's pool
+kubectl get nodes                          # mixed versions mid-upgrade — normal
 ```
 
 Use the **stepper** (Prev / Next / Play / Pause) to scrub any operation

@@ -88,6 +88,7 @@ export default {
         color: p.color,
         node: s >= 4 ? p.placement : null,
         phase: s >= 6 ? 'Running' : s >= 5 ? 'ContainerCreating' : 'Pending',
+        restarts: 0,
         createdAt: p.ts,
       }
       c.events.push({

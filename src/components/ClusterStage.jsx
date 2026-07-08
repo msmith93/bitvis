@@ -85,6 +85,7 @@ export default function ClusterStage({ cluster, extra }) {
           <NodeCol
             key={w.id}
             node={w}
+            state={cluster.nodes[w.id]}
             pods={pods.filter((p) => p.node === w.id)}
             active={focus.has(w.id)}
             kubeletActive={focus.has(`kubelet:${w.id}`)}
@@ -119,10 +120,15 @@ function ActorBox({ id, label, sub, active }) {
   )
 }
 
-function NodeCol({ node, pods, active, kubeletActive }) {
+function NodeCol({ node, state, pods, active, kubeletActive }) {
+  const down = state && !state.ready
   return (
     <div
-      className={'node-col' + (active || kubeletActive ? ' active' : '')}
+      className={
+        'node-col' +
+        (active || kubeletActive ? ' active' : '') +
+        (down ? ' down' : '')
+      }
       data-fly={node.id}
     >
       <div className="node-head">
@@ -133,6 +139,18 @@ function NodeCol({ node, pods, active, kubeletActive }) {
         <span className={'kubelet-badge' + (kubeletActive ? ' active' : '')}>
           kubelet
         </span>
+      </div>
+      <div className="badge-row">
+        <span className="node-version">{state?.version}</span>
+        {down && <span className="status-badge notready">NotReady</span>}
+        {state?.unschedulable && (
+          <span
+            className="status-badge cordoned"
+            title="spec.unschedulable = true — the scheduler filters this node out"
+          >
+            SchedulingDisabled
+          </span>
+        )}
       </div>
       <div className="pod-slots">
         <AnimatePresence mode="popLayout">
