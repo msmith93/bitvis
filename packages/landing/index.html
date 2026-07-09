@@ -26,6 +26,14 @@
 
       <ul class="grid" id="grid"></ul>
 
+      <section class="section" id="games-section" hidden>
+        <div class="section-head">
+          <h2 class="section-title">Games</h2>
+          <p class="section-sub">Not a visualization — a game you play in the browser.</p>
+        </div>
+        <ul class="grid" id="games"></ul>
+      </section>
+
       <footer class="foot">
         <span>More visualizations coming.</span>
         <a href="https://github.com/msmith93/bitvis">Source on GitHub</a>
@@ -34,8 +42,6 @@
 
     <script src="sites.js"></script>
     <script>
-      // Render each site in window.SITES as a full-card link.
-      const grid = document.getElementById('grid');
       const esc = (s) =>
         String(s).replace(
           /[&<>"']/g,
@@ -49,22 +55,34 @@
             })[c]
         );
 
-      for (const site of window.SITES || []) {
-        const li = document.createElement('li');
-        li.className = 'card';
-        li.style.setProperty('--accent', site.accent);
-        li.innerHTML = `
-          <a class="card-link" href="${esc(site.url)}">
-            <div class="card-top">
-              <span class="icon" aria-hidden="true">${esc(site.icon)}</span>
-              <span class="tag">${esc(site.tag)}</span>
-            </div>
-            <h2 class="card-title">${esc(site.title)}</h2>
-            <p class="card-tagline">${esc(site.tagline)}</p>
-            <p class="card-blurb">${esc(site.blurb)}</p>
-            <span class="card-cta">Open ${esc(site.title)} <span aria-hidden="true">→</span></span>
-          </a>`;
-        grid.appendChild(li);
+      // Render a list of entries as full-card links into the given grid.
+      function renderCards(list, gridEl) {
+        for (const site of list || []) {
+          const li = document.createElement('li');
+          li.className = 'card';
+          li.style.setProperty('--accent', site.accent);
+          li.innerHTML = `
+            <a class="card-link" href="${esc(site.url)}">
+              <div class="card-top">
+                <span class="icon" aria-hidden="true">${esc(site.icon)}</span>
+                <span class="tag">${esc(site.tag)}</span>
+              </div>
+              <h2 class="card-title">${esc(site.title)}</h2>
+              <p class="card-tagline">${esc(site.tagline)}</p>
+              <p class="card-blurb">${esc(site.blurb)}</p>
+              <span class="card-cta">Open ${esc(site.title)} <span aria-hidden="true">→</span></span>
+            </a>`;
+          gridEl.appendChild(li);
+        }
+      }
+
+      renderCards(window.SITES, document.getElementById('grid'));
+
+      // Only show the games section if there are any games to list.
+      const games = window.GAMES || [];
+      if (games.length) {
+        renderCards(games, document.getElementById('games'));
+        document.getElementById('games-section').hidden = false;
       }
     </script>
   </body>
