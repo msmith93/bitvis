@@ -14,6 +14,7 @@ import { formatGet, HELP_LINES, parseCommand } from './kubectl'
 import { OPS, stepsFor } from './ops'
 import { useOpLifecycle } from './useOpLifecycle'
 import { useTraffic } from './useTraffic'
+import { useWalkthrough } from './useWalkthrough'
 import ClusterStage from './components/ClusterStage'
 import RequestFlight from './components/RequestFlight'
 import ScenarioBar from './components/ScenarioBar'
@@ -21,6 +22,7 @@ import SidePanel from './components/SidePanel'
 import Stepper from './components/Stepper'
 import Terminal from './components/Terminal'
 import TrafficRail from './components/TrafficRail'
+import Walkthrough from './components/Walkthrough'
 
 // A copy of the cluster with one node's state patched — used to plan
 // placements for the world an op is ABOUT to create (e.g. where do evicted
@@ -47,6 +49,19 @@ const WELCOME = [
   'Type "help" for the supported commands, or click a preset above.',
 ]
 
+// Ops each tour step tolerates; anything else started mid-tour means the user
+// went off script, so the tour bows out. `get` is read-only and always
+// harmless. The welcome card has no entry, so poking around before starting
+// the tour never kills it.
+const TOUR_ALLOWED = {
+  'create-deployment': ['createDeployment', 'get'],
+  'watch-create': ['get'],
+  'crash-node': ['nodeCrash', 'get'],
+  'watch-crash': ['get'],
+  'recover-node': ['recoverNode', 'get'],
+  finish: ['get'],
+}
+
 // App owns UI state only: terminal scrollback, naming counters, presets.
 // Everything cluster-shaped lives in useOpLifecycle; see src/ops/.
 export default function App() {
@@ -60,6 +75,34 @@ export default function App() {
   const seq = useRef({ line: 0, op: 0, name: 0, dep: 0, svc: 1 })
   const printed = useRef(new Set())
   const traffic = useTraffic(life.derived)
+
+  // First-run guided tour. Predicates read the DERIVED cluster (base is null
+  // mid-walk) so steps track the rendered state.
+  const tour = useWalkthrough(
+    {
+      opType: life.op?.type ?? null,
+      opStep: life.op ? life.op.step : -1,
+      opDone: life.opDone,
+      playing: life.playing,
+      deploymentCount: Object.keys(life.derived.deployments).length,
+      notReadyNodes: WORKER_NODES.filter((w) => !life.derived.nodes[w.id].ready)
+        .length,
+    },
+    { pause: life.pause },
+  )
+
+  // Off-script detector: one choke point instead of aborting at every
+  // op-starting call site. Payload ids are unique, so each started op is
+  // checked against the current step's allow-list exactly once.
+  const lastTourOp = useRef(null)
+  useEffect(() => {
+    const op = life.op
+    if (!op || op.payload.id === lastTourOp.current) return
+    lastTourOp.current = op.payload.id
+    if (tour.status !== 'running' || !tour.step) return
+    const allowed = TOUR_ALLOWED[tour.step.id]
+    if (allowed && !allowed.includes(op.type)) tour.abort()
+  })
 
   function appendLines(entries) {
     setLines((ls) => [
@@ -308,6 +351,7 @@ export default function App() {
   }
 
   function resetCluster() {
+    tour.abort()
     life.resetTo(initialCluster())
     printed.current.clear()
     setLines([
@@ -326,6 +370,7 @@ export default function App() {
     presets.push({
       label: 'create deployment',
       cmd: 'kubectl create deployment web --image=nginx --replicas=3',
+      tour: 'preset-create',
     })
   presets.push({ label: 'get pods', cmd: 'kubectl get pods' })
   if (firstDep)
@@ -556,6 +601,8 @@ export default function App() {
         onPlay={life.play}
         onPause={life.pause}
       />
+
+      <Walkthrough tour={tour} />
     </div>
   )
 }

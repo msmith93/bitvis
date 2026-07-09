@@ -123,6 +123,11 @@ code {
   opacity: 0.45;
   cursor: default;
 }
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
 
 /* ================= scenario bar ================= */
 .scenario-bar {
@@ -863,4 +868,121 @@ code {
 }
 .term-input:disabled {
   opacity: 0.6;
+}
+
+/* ================= WALKTHROUGH TOUR ================= */
+/* z-index 70: above the chip flights (60) — the highest app layer. */
+.tour-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  pointer-events: none;
+}
+/* Four rects boxed around the spotlight hole; they swallow stray clicks while
+   the hole between them lets the real control receive its click. */
+.tour-dim {
+  position: fixed;
+  background: rgba(0, 11, 18, 0.6);
+  pointer-events: auto;
+}
+.tour-ring {
+  position: fixed;
+  left: 0;
+  top: 0;
+  border: 2px solid var(--accent);
+  border-radius: 10px;
+  box-shadow: 0 0 18px rgba(50, 108, 229, 0.45);
+  pointer-events: none;
+}
+.tour-tip {
+  position: fixed;
+  width: 280px;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  padding: 14px 16px;
+  pointer-events: auto;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
+}
+.tour-tip h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+.tour-tip p {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.tour-tip-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.tour-step-count {
+  font-size: 11px;
+  color: var(--muted);
+}
+.tour-skip {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  text-decoration: underline;
+  padding: 0;
+}
+.tour-skip:hover {
+  color: var(--text);
+}
+
+/* centered welcome / finish cards */
+.tour-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgba(0, 11, 18, 0.72);
+  backdrop-filter: blur(3px);
+}
+.tour-card-root {
+  position: fixed;
+  inset: 0;
+  z-index: 71;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.tour-card {
+  pointer-events: auto;
+  width: min(480px, 92vw);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 22px 24px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+.tour-card h2 {
+  margin: 0 0 10px;
+  font-size: 17px;
+}
+.tour-card p {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+  margin: 0 0 10px;
+}
+.tour-card-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: 16px;
+}
+.tour-tip-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.tour-cta {
+  padding: 4px 12px;
+  font-size: 12px;
 }

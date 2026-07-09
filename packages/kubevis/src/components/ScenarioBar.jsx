@@ -10,6 +10,7 @@ export default function ScenarioBar({ scenarios, disabled }) {
         <button
           key={s.key}
           className="scenario-btn"
+          data-tour={'scenario-' + s.key}
           disabled={disabled || !s.enabled}
           title={s.tooltip}
           onClick={s.run}

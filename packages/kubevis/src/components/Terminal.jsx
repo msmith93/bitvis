@@ -61,6 +61,7 @@ export default function Terminal({ lines, onCommand, disabled, presets }) {
           <button
             key={p.cmd}
             className="preset-chip"
+            data-tour={p.tour}
             disabled={disabled}
             title={p.cmd}
             onClick={() => submit(p.cmd)}

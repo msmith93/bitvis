@@ -35,7 +35,7 @@ export default function RequestFlight({ flight }) {
   return (
     <div className="chip-flight-layer">
       <motion.span
-        className={'req-chip' + (fail ? ' fail' : '')}
+        className="req-chip"
         initial={{ x: xs[0], y: ys[0], opacity: 0 }}
         animate={{ x: xs, y: ys, opacity: [0, 1, 1] }}
         transition={{ duration: outMs, ease: 'linear', opacity: { duration: 0.2 } }}

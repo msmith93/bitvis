@@ -9,7 +9,7 @@ export default function SidePanel({ cluster, op }) {
   const current = op ? steps[op.step] : null
 
   return (
-    <div className="side-panel">
+    <div className="side-panel" data-tour="side-panel">
       <div className="explain-card">
         {current ? (
           <>
