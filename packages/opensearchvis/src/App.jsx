@@ -454,6 +454,7 @@ export default function App() {
         onNext={() => step(1)}
         onPlay={play}
         onPause={pause}
+        highlightPlay={tour.status === 'running' && tour.step?.id === 'stepper'}
       />
 
       {/* ---------------- Overlay: indexing experience ---------------- */}
@@ -483,6 +484,7 @@ export default function App() {
         docs={derived.docs}
         query={op?.type === 'search' ? op.payload.query : ''}
         onClose={closeZoom}
+        highlightClose={tour.status === 'running'}
       />
 
       {/* ---------------- Cookie consent (GDPR regions only) ---------------- */}

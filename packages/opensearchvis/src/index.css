@@ -149,6 +149,25 @@ textarea:focus {
 .btn.block {
   width: 100%;
 }
+/* Tour attention pulse — nudges the one control the guided tour wants next
+   (footer Play, inspector Close) without disabling its neighbours. */
+@keyframes tour-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(0, 163, 224, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(0, 163, 224, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(0, 163, 224, 0);
+  }
+}
+.btn.tour-pulse {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #06222a;
+  animation: tour-pulse 1.4s ease-out infinite;
+}
 .btn-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -912,6 +931,11 @@ table.ii td.term {
 }
 .si-close:hover {
   border-color: var(--accent);
+}
+.si-close.tour-pulse {
+  border-color: var(--accent);
+  color: var(--accent);
+  animation: tour-pulse 1.4s ease-out infinite;
 }
 .si-segs {
   display: flex;

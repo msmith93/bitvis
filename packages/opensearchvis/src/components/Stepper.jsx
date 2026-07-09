@@ -10,6 +10,7 @@ export default function Stepper({
   onPlay,
   onPause,
   dataTour,
+  highlightPlay,
 }) {
   const active = steps.length > 0
   const atStart = !active || step <= 0
@@ -28,7 +29,11 @@ export default function Stepper({
             ❚❚ Pause
           </button>
         ) : (
-          <button className="btn" onClick={onPlay} disabled={!active || atEnd}>
+          <button
+            className={'btn' + (highlightPlay ? ' tour-pulse' : '')}
+            onClick={onPlay}
+            disabled={!active || atEnd}
+          >
             ▶ Play
           </button>
         )}

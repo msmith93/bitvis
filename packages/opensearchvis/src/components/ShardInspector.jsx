@@ -22,7 +22,7 @@ import Stepper from './Stepper'
 // walks the six query-phase steps. Transitions are animated end-to-end: query
 // tokens fly to the segments, matched doc-ids fly up into the candidate lane, and
 // the candidate chips glide into their scored / ranked positions (framer layout).
-export default function ShardInspector({ shard, search, docs, query, onClose }) {
+export default function ShardInspector({ shard, search, docs, query, onClose, highlightClose }) {
   const open = !!shard && !!search
 
   let initial = { opacity: 0, scale: 0.25 }
@@ -69,6 +69,7 @@ export default function ShardInspector({ shard, search, docs, query, onClose }) 
               docs={docs}
               query={query}
               onClose={onClose}
+              highlightClose={highlightClose}
             />
           </motion.div>
         </motion.div>
@@ -77,7 +78,7 @@ export default function ShardInspector({ shard, search, docs, query, onClose }) 
   )
 }
 
-function InspectorBody({ shard, search, docs, query, onClose }) {
+function InspectorBody({ shard, search, docs, query, onClose, highlightClose }) {
   const sv = search.serving[shard.id]
   const terms = search.terms
   const local = useMemo(
@@ -209,7 +210,11 @@ function InspectorBody({ shard, search, docs, query, onClose }) {
           <span className={'role-badge ' + sv.role}>{sv.role}</span> on {sv.node}
           <span className="si-sub"> — local search</span>
         </div>
-        <button className="si-close" onClick={onClose} title="Close">
+        <button
+          className={'si-close' + (highlightClose ? ' tour-pulse' : '')}
+          onClick={onClose}
+          title="Close"
+        >
           ✕
         </button>
       </div>
