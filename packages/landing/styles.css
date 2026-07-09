@@ -117,6 +117,30 @@ body {
   --accent: #326ce5;
 }
 
+/* ---------------- separate section (e.g. games) ---------------- */
+.section {
+  margin-top: clamp(40px, 7vw, 68px);
+}
+.section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+  padding-top: clamp(28px, 5vw, 44px);
+  margin-bottom: 22px;
+  border-top: 1px solid var(--border);
+}
+.section-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+.section-sub {
+  margin: 0;
+  font-size: 14.5px;
+  color: var(--muted);
+}
+
 .card-link {
   display: flex;
   flex-direction: column;

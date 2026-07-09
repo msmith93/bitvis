@@ -25,3 +25,19 @@ window.SITES = [
     accent: '#00a3e0',
   },
 ];
+
+// Games — a separate category from the visualizations, shown in their own
+// section at the bottom. Same card shape; adding one = append an entry here.
+window.GAMES = [
+  {
+    id: 'asteroid',
+    title: 'asteroid',
+    tag: 'Coding game',
+    tagline: 'A coding game you play in the browser.',
+    blurb:
+      'Not a visualization — a game where you write code to play. Jump in and give it a go.',
+    url: 'https://asteroid.bitsculpt.top',
+    icon: '☄', // ☄ comet / asteroid
+    accent: '#a06cff',
+  },
+];
