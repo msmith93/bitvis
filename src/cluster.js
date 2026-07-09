@@ -28,6 +28,10 @@ export function initialCluster() {
         { id: w.id, ready: true, unschedulable: false, version: BASE_VERSION },
       ]),
     ),
+    // name -> { name, selector (deployment name), port, clusterIP, createdAt }
+    services: {},
+    // name -> { name, host, path, serviceName, servicePort, createdAt }
+    ingresses: {},
     // name -> { name, image, replicas, rsName, color, createdAt }
     deployments: {},
     // name -> { name, deployment, image, replicas, createdAt }
@@ -46,6 +50,8 @@ export function initialCluster() {
 export function cloneCluster(c) {
   return {
     nodes: { ...c.nodes },
+    services: { ...c.services },
+    ingresses: { ...c.ingresses },
     deployments: { ...c.deployments },
     replicaSets: { ...c.replicaSets },
     pods: { ...c.pods },
@@ -152,4 +158,39 @@ export function podsOfRs(cluster, rsName) {
 // Pods currently bound to a node (any phase — they occupy the node visually).
 export function podsOnNode(cluster, nodeId) {
   return Object.values(cluster.pods).filter((p) => p.node === nodeId)
+}
+
+// ---- Serving ----------------------------------------------------------------
+// A Service's READY endpoints: pods matching its selector that are actually
+// Running. Pending/ContainerCreating/Terminating/CrashLoopBackOff/Unknown
+// pods are pruned, mirroring how the Endpoints controller tracks readiness.
+export function serviceEndpoints(cluster, svc) {
+  return Object.values(cluster.pods).filter(
+    (p) => p.deployment === svc.selector && p.phase === 'Running',
+  )
+}
+
+// Trace one synthetic HTTP request through the serving chain and report where
+// it dies (first missing hop wins) — used by the traffic rail every second
+// and by `kubectl get endpoints`.
+//   'no-rule'      → no Ingress object: the controller answers 404
+//   'no-service'   → rule points at a Service that doesn't exist: 503
+//   'no-endpoints' → Service exists but has no ready pods: 503
+//   'ok'           → a ready endpoint serves the request
+export function routeRequest(cluster) {
+  const ingresses = Object.values(cluster.ingresses)
+  if (ingresses.length === 0) return { outcome: 'no-rule' }
+  const ingress = ingresses[0] // demo: single rule
+  const service = cluster.services[ingress.serviceName]
+  if (!service) return { outcome: 'no-service', ingress }
+  const endpoints = serviceEndpoints(cluster, service)
+  if (endpoints.length === 0) return { outcome: 'no-endpoints', ingress, service }
+  return { outcome: 'ok', ingress, service, endpoints }
+}
+
+// Deterministic fake pod IP for `kubectl get endpoints` (10.244.x.y).
+export function fakePodIP(podName) {
+  let h = 0
+  for (let i = 0; i < podName.length; i++) h = (h * 31 + podName.charCodeAt(i)) >>> 0
+  return `10.244.${(h % 3) + 1}.${(h >> 4) % 250 + 2}`
 }

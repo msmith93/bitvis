@@ -8,6 +8,8 @@ import {
   CONTROL_PLANE_NODE,
   BASE_VERSION,
   schedulableCapacity,
+  serviceEndpoints,
+  fakePodIP,
 } from './cluster'
 
 const RESOURCE_ALIASES = {
@@ -16,6 +18,9 @@ const RESOURCE_ALIASES = {
   replicaset: 'replicasets', replicasets: 'replicasets', rs: 'replicasets',
   node: 'nodes', nodes: 'nodes', no: 'nodes',
   event: 'events', events: 'events', ev: 'events',
+  service: 'services', services: 'services', svc: 'services',
+  ingress: 'ingress', ingresses: 'ingress', ing: 'ingress',
+  endpoints: 'endpoints', endpoint: 'endpoints', ep: 'endpoints',
 }
 
 const NAME_RE = /^[a-z]([a-z0-9-]*[a-z0-9])?$/
@@ -24,9 +29,12 @@ export const HELP_LINES = [
   'Supported commands:',
   '  kubectl create deployment <name> --image=<image> [--replicas=<n>]',
   '  kubectl scale deployment <name> --replicas=<n>',
-  '  kubectl delete pod <name>',
+  '  kubectl delete pod | service | ingress <name>',
   '  kubectl cordon | uncordon | drain <node>',
-  '  kubectl get pods | deployments | replicasets | nodes | events',
+  '  kubectl expose deployment <name> [--port=<n>]',
+  '  kubectl create ingress <name> --rule=<host>/*=<service>:<port>',
+  '  kubectl get pods | deployments | replicasets | nodes | events |',
+  '              services | ingress | endpoints',
   '  help · clear',
   '',
   `Simulator limits: replicas 0-${MAX_REPLICAS}, 4 pods per worker node.`,
@@ -78,9 +86,46 @@ export function parseCommand(input, base) {
       return { kind: 'get', resource }
     }
 
+    case 'expose': {
+      if (args[2] !== 'deployment' && !(args[2] || '').startsWith('deployment/'))
+        return err('error: usage: kubectl expose deployment <name> [--port=<n>]')
+      const name = args[2].startsWith('deployment/')
+        ? args[2].split('/')[1]
+        : args[3]
+      if (!base.deployments[name])
+        return err(`Error from server (NotFound): deployments.apps "${name ?? ''}" not found`)
+      if (base.services[name])
+        return err(`Error from server (AlreadyExists): services "${name}" already exists`)
+      const port = flags.port === undefined ? 80 : Number(flags.port)
+      if (!Number.isInteger(port) || port < 1 || port > 65535)
+        return err('error: --port must be a valid port number')
+      return { kind: 'expose', name, port }
+    }
+
     case 'create': {
+      if (args[2] === 'ingress') {
+        const name = args[3]
+        if (!name || !NAME_RE.test(name))
+          return err('error: a lowercase DNS-style ingress name is required')
+        if (base.ingresses[name])
+          return err(`Error from server (AlreadyExists): ingresses.networking.k8s.io "${name}" already exists`)
+        const rule = (flags.rule || '').replace(/^["']|["']$/g, '')
+        if (!rule)
+          return err('error: required flag(s) "rule" not set — e.g. --rule=demo.kubevis.dev/*=web:80')
+        // <host>/<path>=<service>:<port> — service:port sits after the LAST '='
+        const eq = rule.lastIndexOf('=')
+        const left = eq >= 0 ? rule.slice(0, eq) : ''
+        const right = eq >= 0 ? rule.slice(eq + 1) : ''
+        const [serviceName, portStr] = right.split(':')
+        const servicePort = Number(portStr)
+        const host = left.split('/')[0]
+        const path = left.slice(host.length) || '/*'
+        if (!host || !serviceName || !Number.isInteger(servicePort))
+          return err('error: could not parse --rule — expected <host>/<path>=<service>:<port>, e.g. demo.kubevis.dev/*=web:80')
+        return { kind: 'createIngress', name, host, path, serviceName, servicePort }
+      }
       if (args[2] !== 'deployment')
-        return err(`error: this simulator can only create deployments (got "${args[2] ?? ''}")`)
+        return err(`error: this simulator can only create deployments and ingresses (got "${args[2] ?? ''}")`)
       const name = args[3]
       if (!name || !NAME_RE.test(name))
         return err('error: a lowercase DNS-style name is required, e.g. kubectl create deployment web --image=nginx')
@@ -119,9 +164,23 @@ export function parseCommand(input, base) {
     }
 
     case 'delete': {
-      if (args[2] !== 'pod' && !(args[2] || '').startsWith('pod/'))
-        return err('error: this simulator can only delete pods (watch the ReplicaSet fight back)')
-      const podName = args[2].startsWith('pod/') ? args[2].split('/')[1] : args[3]
+      const kindArg = args[2] || ''
+      const slashName = kindArg.includes('/') ? kindArg.split('/')[1] : null
+      if (kindArg === 'service' || kindArg === 'svc' || kindArg.startsWith('service/') || kindArg.startsWith('svc/')) {
+        const name = slashName ?? args[3]
+        if (!base.services[name])
+          return err(`Error from server (NotFound): services "${name ?? ''}" not found`)
+        return { kind: 'deleteService', name }
+      }
+      if (kindArg === 'ingress' || kindArg === 'ing' || kindArg.startsWith('ingress/') || kindArg.startsWith('ing/')) {
+        const name = slashName ?? args[3]
+        if (!base.ingresses[name])
+          return err(`Error from server (NotFound): ingresses.networking.k8s.io "${name ?? ''}" not found`)
+        return { kind: 'deleteIngress', name }
+      }
+      if (kindArg !== 'pod' && !kindArg.startsWith('pod/'))
+        return err('error: this simulator can only delete pods, services and ingresses')
+      const podName = kindArg.startsWith('pod/') ? slashName : args[3]
       const pod = base.pods[podName]
       if (!pod)
         return err(`Error from server (NotFound): pods "${podName ?? ''}" not found`)
@@ -153,7 +212,6 @@ export function parseCommand(input, base) {
 
     case 'apply':
     case 'rollout':
-    case 'expose':
     case 'describe':
     case 'logs':
       return err(`error: "kubectl ${verb}" isn't in this simulator yet — see the roadmap in the README`)
@@ -254,6 +312,41 @@ export function formatGet(resource, cluster) {
             return [w.id, status(n), '<none>', ageStr(START_TS), n.version]
           }),
         ],
+      )
+    }
+    case 'services': {
+      const svcs = Object.values(cluster.services)
+      if (svcs.length === 0) return ['No resources found in default namespace.']
+      return table(
+        ['NAME', 'TYPE', 'CLUSTER-IP', 'PORT(S)', 'AGE'],
+        svcs.map((s) => [
+          s.name, 'ClusterIP', s.clusterIP, `${s.port}/TCP`, ageStr(s.createdAt),
+        ]),
+      )
+    }
+    case 'ingress': {
+      const ings = Object.values(cluster.ingresses)
+      if (ings.length === 0) return ['No resources found in default namespace.']
+      return table(
+        ['NAME', 'CLASS', 'HOSTS', 'PORTS', 'AGE'],
+        ings.map((i) => [i.name, 'nginx', i.host, 80, ageStr(i.createdAt)]),
+      )
+    }
+    case 'endpoints': {
+      const svcs = Object.values(cluster.services)
+      if (svcs.length === 0) return ['No resources found in default namespace.']
+      return table(
+        ['NAME', 'ENDPOINTS', 'AGE'],
+        svcs.map((s) => {
+          const eps = serviceEndpoints(cluster, s)
+          return [
+            s.name,
+            eps.length === 0
+              ? '<none>'
+              : eps.map((p) => `${fakePodIP(p.name)}:${s.port}`).join(','),
+            ageStr(s.createdAt),
+          ]
+        }),
       )
     }
     case 'events': {

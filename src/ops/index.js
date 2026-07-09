@@ -8,6 +8,9 @@ import drain from './drain'
 import podCrash from './podCrash'
 import { nodeCrash, recoverNode } from './nodeCrash'
 import upgradeNode from './upgradeNode'
+import expose from './expose'
+import createIngress from './createIngress'
+import { deleteService, deleteIngress } from './deleteRoute'
 
 // Every terminal command becomes an `op = { type, step, payload }`. Each type
 // is one self-contained module in this directory declaring its steps, its
@@ -29,6 +32,10 @@ export const OPS = {
   nodeCrash,
   recoverNode,
   upgradeNode,
+  expose,
+  createIngress,
+  deleteService,
+  deleteIngress,
 }
 
 export const stepsFor = (type) => OPS[type]?.steps || []

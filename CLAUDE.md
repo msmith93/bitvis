@@ -53,7 +53,8 @@ operation forwards and backwards.
 
 - **`op`** = `{ type, step, payload }` (held by `useOpLifecycle`). Each op type
   (`createDeployment`, `scaleUp`, `scaleDown`, `deletePod`, `get`, `cordon`,
-  `uncordon`, `drain`, and the scenario ops `podCrash`, `nodeCrash`,
+  `uncordon`, `drain`, `expose`, `createIngress`, `deleteService`,
+  `deleteIngress`, and the scenario ops `podCrash`, `nodeCrash`,
   `recoverNode`, `upgradeNode`) is one module in `src/ops/` declaring
   `{ type, label, steps, derive?, extra?, duration? }`; each step has the explanation text shown in the right panel
   and driven by the bottom `Stepper`. Payloads precompute every name and
@@ -97,5 +98,15 @@ operation forwards and backwards.
   between `data-fly` elements), `Terminal` (scrollback/prompt/history/presets;
   disabled while an op is mid-walk), `SidePanel` (step blurb + etcd tree +
   events), `Stepper`, `ScenarioBar` (the simulate bar; App picks each
-  scenario's target at click time and echoes it into the terminal). Framer Motion drives stage animations; `PodChip` is
+  scenario's target at click time and echoes it into the terminal),
+  `TrafficRail` + `RequestFlight` (the serving chain UI).
+
+- **Traffic** (`src/useTraffic.js`) is an ambient layer OUTSIDE the op
+  machinery: a 1 Hz ticker evaluates `routeRequest(derived)` (in
+  `src/cluster.js` — ingress rule → Service → ready endpoints, first missing
+  hop wins: 404/503) against the currently rendered cluster, so requests
+  react to mid-op states and scrubbing. Flights are decorative, pruned
+  records; stats/ticker on the rail are the substance. `services` and
+  `ingresses` live in cluster state; `serviceEndpoints` counts only Running
+  pods. Framer Motion drives stage animations; `PodChip` is
   `forwardRef` because `AnimatePresence popLayout` measures exiting children.

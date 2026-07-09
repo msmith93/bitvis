@@ -44,7 +44,10 @@ op)`, per-op step modules, one timing file, Framer Motion chip flights.
    - `kubectl delete pod <name>`
    - `kubectl cordon|uncordon|drain <node>` (drain accepts and ignores
      `--ignore-daemonsets` / `--force`)
-   - `kubectl get pods|deployments|replicasets|nodes|events`
+   - `kubectl expose deployment <name> [--port=<n>]`
+   - `kubectl create ingress <name> --rule=<host>/<path>=<svc>:<port>`
+   - `kubectl delete service|ingress <name>`
+   - `kubectl get pods|deployments|replicasets|nodes|events|services|ingress|endpoints`
    - `help`, `clear`
    A "simulate:" bar above the stage triggers the things kubectl can't do:
    Pod Crash, Node Crash, Recover Node, and Upgrade Node (enabled only for a
@@ -121,6 +124,28 @@ healthy nodes. The op ENDS with the node still NotReady — recovery is a
 separate scenario (Recover Node: rejoins Ready and EMPTY; stuck Pending pods
 may bind to it; pods never move back).
 
+### expose (4 steps)
+kubectl → API server → Service object in etcd (a stable ClusterIP + label
+selector; NOTHING starts running) → Endpoints controller materializes the
+selector into a live list of READY pod addresses → kube-proxy programs every
+node's routing. Pruning is automatic: only Running pods are endpoints.
+
+### create ingress (4 steps)
+An Ingress is a routing RULE, not a proxy. kubectl → API server → rule in
+etcd → the ingress controller (running all along, answering 404) watches
+Ingress objects and programs the route. Deleting the Service (503) or the
+Ingress (404) breaks a different link — the rail shows which.
+
+### The traffic rail (ambient, outside the op machinery)
+A synthetic user fires one request per second, always on (pausable). Each
+tick traces routeRequest against the currently RENDERED cluster: ingress
+rule → Service → ready endpoint (round-robin), so traffic reacts live to
+mid-op states, scrubbing, drains, and crashes. Failures die at the first
+missing hop: no rule → 404 at the controller; missing Service or zero ready
+endpoints → 503. The rail shows the user (✓/✗ ticker + counters), the
+ingress controller (its rules), and one chip per Service with a live
+endpoint count.
+
 ### upgrade node (scenario, 4 steps; requires a drained node)
 The part kubectl cannot do: the kubelet is upgraded ON the machine. The node
 briefly drops out, rejoins at the new version (visible skew in `get nodes`),
@@ -162,6 +187,13 @@ uncordon, one node at a time.
 - Pods with no feasible node stay Pending, and the scheduler binds them the
   moment capacity returns (uncordon / node recovery) — it never stops
   watching unbound pods.
+- A Service is a stable virtual IP + label selector — creating one runs
+  nothing. Endpoints contain only READY (Running) pods; the Endpoints
+  controller prunes the rest, which is why traffic never hits a dead pod.
+- An Ingress is a rule OBJECT implemented by an ingress controller that runs
+  in the cluster; with no rules it still answers (404). A request fails at
+  the first missing hop: no rule → 404, missing Service or zero ready
+  endpoints → 503. Deleting a Service breaks serving without touching pods.
 - Pod names follow the real convention: `<deployment>-<pod-template-hash>-<suffix>`.
 
 ## UI layout
@@ -206,13 +238,19 @@ Documented so reviewers can verify the teaching stays honest:
 - Node-failure timings (40s heartbeat grace, ~5 min pod tolerance) and crash
   backoff are compressed into steps; no PodDisruptionBudgets during drain;
   upgrades bump a single hardcoded version (v1.30.0 → v1.31.0).
+- Serving: the ingress controller is drawn as a fixed rail box (really pods
+  in the cluster); kube-proxy's per-node routing is collapsed into one
+  Service chip; load-balancing is round-robin (a stand-in for iptables
+  randomness); Endpoints-controller latency is instant; a single Ingress
+  rule is honored (the first); readiness == phase Running (no probes);
+  synthetic traffic evaluates the rendered (derived) cluster, so it reacts
+  to scrubbing.
 - `kubectl scale` to the current count prints an explanation instead of a
   no-op walkthrough.
 
 ## Roadmap (future ops, in rough priority order)
 - Rolling updates: `kubectl set image` + `rollout status/undo` — second
-  ReplicaSet, maxSurge/maxUnavailable choreography, rollback.
-- Services & traffic: `kubectl expose` — selector matching, Endpoints,
-  animated request load-balancing across pods.
+  ReplicaSet, maxSurge/maxUnavailable choreography, rollback (now extra fun
+  with live traffic: zero failed requests during a well-configured rollout).
 - `kubectl describe pod` — inspector with per-object event history.
 - Probes & CrashLoopBackOff; `kubectl logs`; HPA.

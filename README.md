@@ -38,11 +38,28 @@ S3 + CloudFront + Route 53 CDK stack as opensearchvis:
 ```
 kubectl create deployment <name> --image=<image> [--replicas=<n>]
 kubectl scale deployment <name> --replicas=<n>
-kubectl delete pod <name>
+kubectl delete pod | service | ingress <name>
 kubectl cordon | uncordon | drain <node>
-kubectl get pods | deployments | replicasets | nodes | events
+kubectl expose deployment <name> [--port=<n>]
+kubectl create ingress <name> --rule=<host>/*=<service>:<port>
+kubectl get pods | deployments | replicasets | nodes | events | services | ingress | endpoints
 help · clear
 ```
+
+### Serve real (fake) traffic
+
+A synthetic user sends one request per second through the ingress controller
+— failing with 404s until you build the serving chain:
+
+```
+kubectl create deployment web --image=nginx --replicas=3
+kubectl expose deployment web --port=80
+kubectl create ingress web --rule=demo.kubevis.dev/*=web:80
+```
+
+…and the ✗s turn to ✓s. Then delete a pod, drain a node, or crash one —
+traffic keeps flowing as long as one replica serves. Scale to 0 or delete
+the service and watch the 503s. That's the whole pitch of Kubernetes, live.
 
 A **simulate bar** above the stage covers what kubectl can't type: **Pod
 Crash** (the kubelet restarts the container in place — no ReplicaSet

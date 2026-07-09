@@ -13,11 +13,14 @@ import {
 import { formatGet, HELP_LINES, parseCommand } from './kubectl'
 import { OPS, stepsFor } from './ops'
 import { useOpLifecycle } from './useOpLifecycle'
+import { useTraffic } from './useTraffic'
 import ClusterStage from './components/ClusterStage'
+import RequestFlight from './components/RequestFlight'
 import ScenarioBar from './components/ScenarioBar'
 import SidePanel from './components/SidePanel'
 import Stepper from './components/Stepper'
 import Terminal from './components/Terminal'
+import TrafficRail from './components/TrafficRail'
 
 // A copy of the cluster with one node's state patched — used to plan
 // placements for the world an op is ABOUT to create (e.g. where do evicted
@@ -54,8 +57,9 @@ export default function App() {
   // Monotonic counters for line ids, op ids, names, colors. Refs (not state):
   // they must tick inside event handlers without re-rendering, and payloads
   // capture their values at start-time so scrubbing never regenerates names.
-  const seq = useRef({ line: 0, op: 0, name: 0, dep: 0 })
+  const seq = useRef({ line: 0, op: 0, name: 0, dep: 0, svc: 1 })
   const printed = useRef(new Set())
+  const traffic = useTraffic(life.derived)
 
   function appendLines(entries) {
     setLines((ls) => [
@@ -184,6 +188,48 @@ export default function App() {
         appendLines([{ kind: 'out', text: parsed.message }])
         return
 
+      case 'expose': {
+        appendLines([{ kind: 'out', text: `service/${parsed.name} exposed` }])
+        life.start('expose', {
+          id: opId(),
+          ts: Date.now(),
+          name: parsed.name,
+          port: parsed.port,
+          clusterIP: `10.96.0.${seq.current.svc++}`,
+        })
+        return
+      }
+
+      case 'createIngress': {
+        appendLines([
+          { kind: 'out', text: `ingress.networking.k8s.io/${parsed.name} created` },
+        ])
+        life.start('createIngress', {
+          id: opId(),
+          ts: Date.now(),
+          name: parsed.name,
+          host: parsed.host,
+          path: parsed.path,
+          serviceName: parsed.serviceName,
+          servicePort: parsed.servicePort,
+        })
+        return
+      }
+
+      case 'deleteService': {
+        appendLines([{ kind: 'out', text: `service "${parsed.name}" deleted` }])
+        life.start('deleteService', { id: opId(), ts: Date.now(), name: parsed.name })
+        return
+      }
+
+      case 'deleteIngress': {
+        appendLines([
+          { kind: 'out', text: `ingress.networking.k8s.io "${parsed.name}" deleted` },
+        ])
+        life.start('deleteIngress', { id: opId(), ts: Date.now(), name: parsed.name })
+        return
+      }
+
       case 'cordon': {
         appendLines([{ kind: 'out', text: `node/${parsed.node} cordoned` }])
         life.start('cordon', { id: opId(), ts: Date.now(), node: parsed.node })
@@ -309,6 +355,17 @@ export default function App() {
     presets.push({
       label: `uncordon ${cordonedNode.id}`,
       cmd: `kubectl uncordon ${cordonedNode.id}`,
+    })
+  if (firstDep && !presetBase.services[firstDep.name])
+    presets.push({
+      label: `expose ${firstDep.name}`,
+      cmd: `kubectl expose deployment ${firstDep.name} --port=80`,
+    })
+  const firstSvc = Object.values(presetBase.services)[0]
+  if (firstSvc && Object.keys(presetBase.ingresses).length === 0)
+    presets.push({
+      label: 'create ingress',
+      cmd: `kubectl create ingress ${firstSvc.name} --rule=demo.kubevis.dev/*=${firstSvc.name}:${firstSvc.port}`,
     })
   if (workerStates.some((n) => !n.ready || n.unschedulable))
     presets.push({ label: 'get nodes', cmd: 'kubectl get nodes' })
@@ -469,7 +526,15 @@ export default function App() {
       <div className="main">
         <div className="stage-col">
           <ScenarioBar scenarios={scenarios} disabled={!life.canStartNew} />
+          <TrafficRail
+            cluster={life.derived}
+            traffic={traffic}
+            focus={new Set(life.extra.focus ?? [])}
+          />
           <ClusterStage cluster={life.derived} extra={life.extra} />
+          {traffic.flights.map((f) => (
+            <RequestFlight key={f.id} flight={f} />
+          ))}
         </div>
         <SidePanel cluster={life.derived} op={life.op} />
       </div>

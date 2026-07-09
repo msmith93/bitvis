@@ -154,6 +154,103 @@ code {
   cursor: default;
 }
 
+/* ================= traffic rail ================= */
+.traffic-rail {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.rail-box {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel);
+  padding: 6px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  justify-content: center;
+  transition: border-color 0.25s, box-shadow 0.25s;
+}
+.rail-box.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), 0 0 18px rgba(50, 108, 229, 0.4);
+}
+.rail-title {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+}
+.rail-sub {
+  font-size: 10.5px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rail-warn {
+  color: var(--warn);
+}
+.rail-good {
+  color: var(--good);
+}
+.rail-rule {
+  font-family: var(--mono);
+}
+.rail-arrow {
+  align-self: center;
+  color: var(--muted);
+  font-size: 14px;
+}
+.rail-empty {
+  border-style: dashed;
+}
+.ticker {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 2px;
+}
+.tick-ok {
+  color: var(--good);
+}
+.tick-fail {
+  color: var(--danger);
+}
+.counts {
+  white-space: nowrap;
+}
+.rail-pause {
+  align-self: center;
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
+/* synthetic request chips (RequestFlight) */
+.req-chip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #07101f;
+  background: var(--accent-soft);
+  padding: 2px 7px;
+  border-radius: 5px;
+  box-shadow: 0 2px 10px rgba(50, 108, 229, 0.45);
+  white-space: nowrap;
+}
+.req-chip.ok {
+  background: var(--good);
+  box-shadow: 0 2px 10px rgba(78, 201, 122, 0.5);
+}
+.req-chip.fail {
+  background: var(--danger);
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(224, 87, 74, 0.5);
+}
+
 /* ================= stage: control plane ================= */
 .stage {
   display: flex;
