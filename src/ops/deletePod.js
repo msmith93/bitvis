@@ -139,24 +139,24 @@ export default {
         return { focus: ['apiserver', 'etcd', p.node], flights: [] }
       case 3:
         return {
-          focus: ['controller', 'apiserver', 'tray'],
+          focus: ['controller', 'apiserver'],
           flights: [
             {
               key: `${p.id}:3`,
               tokens: chip,
               fromSel: '[data-fly="controller"]',
-              toSel: '[data-fly="tray"]',
+              toSel: '[data-fly="apiserver"]',
             },
           ],
         }
       case 4:
         return {
-          focus: ['scheduler', 'tray', p.placement],
+          focus: ['scheduler', 'apiserver', p.placement],
           flights: [
             {
               key: `${p.id}:4`,
               tokens: chip,
-              fromSel: '[data-fly="tray"]',
+              fromSel: '[data-fly="apiserver"]',
               toSel: `[data-fly="${p.placement}"]`,
             },
           ],

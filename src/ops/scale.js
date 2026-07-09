@@ -31,7 +31,7 @@ const UP_STEPS = [
     ms: 2100,
     title: '3 · ReplicaSet controller sees the gap',
     blurb:
-      'The ReplicaSet controller’s watch fires: desired went up, actual is still the old count. It creates exactly the missing number of Pod objects — Pending, unscheduled, waiting in the tray.',
+      'The ReplicaSet controller’s watch fires: desired went up, actual is still the old count. It creates exactly the missing number of Pod objects — Pending, unscheduled, existing only as records in etcd (watch the cluster-state panel).',
   },
   {
     key: 'schedule',
@@ -194,23 +194,23 @@ export const scaleUp = {
         }
       case 2:
         return {
-          focus: ['controller', 'apiserver', 'tray'],
+          focus: ['controller', 'apiserver'],
           flights: [
             {
               key: `${p.id}:2`,
               tokens: chips,
               fromSel: '[data-fly="controller"]',
-              toSel: '[data-fly="tray"]',
+              toSel: '[data-fly="apiserver"]',
             },
           ],
         }
       case 3:
         return {
-          focus: ['scheduler', 'tray', ...new Set(p.placements)],
+          focus: ['scheduler', 'apiserver', ...new Set(p.placements)],
           flights: p.placements.map((node, i) => ({
             key: `${p.id}:3:${i}`,
             tokens: [chips[i]],
-            fromSel: '[data-fly="tray"]',
+            fromSel: '[data-fly="apiserver"]',
             toSel: `[data-fly="${node}"]`,
           })),
         }

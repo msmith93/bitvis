@@ -45,7 +45,7 @@ const STEPS = [
     ms: 2300,
     title: '5 · ReplicaSet controllers see the drift',
     blurb:
-      'Eviction looks identical to any other pod loss: desired > actual. The ReplicaSet controllers create replacement Pod objects — new names, Pending, unscheduled.',
+      'Eviction looks identical to any other pod loss: desired > actual. The ReplicaSet controllers create replacement Pod objects — new names, Pending, unscheduled. Note the order: evict FIRST, replace after. Drains have no surge (pre-creating spares is a rolling-update concept, maxSurge); availability during a drain comes from running enough replicas and from PodDisruptionBudgets.',
   },
   {
     key: 'schedule',
@@ -168,23 +168,23 @@ export default {
         return { focus: [`kubelet:${p.node}`, p.node], flights: [] }
       case 4:
         return {
-          focus: ['controller', 'apiserver', 'tray'],
+          focus: ['controller', 'apiserver'],
           flights: [
             {
               key: `${p.id}:4`,
               tokens: chips(p.victims),
               fromSel: '[data-fly="controller"]',
-              toSel: '[data-fly="tray"]',
+              toSel: '[data-fly="apiserver"]',
             },
           ],
         }
       case 5:
         return {
-          focus: ['scheduler', 'tray', ...new Set(placed.map((v) => v.placement))],
+          focus: ['scheduler', 'apiserver', ...new Set(placed.map((v) => v.placement))],
           flights: placed.map((v, i) => ({
             key: `${p.id}:5:${i}`,
             tokens: [{ id: `${p.id}-pl-${i}`, term: 'Pod', color: v.color }],
-            fromSel: '[data-fly="tray"]',
+            fromSel: '[data-fly="apiserver"]',
             toSel: `[data-fly="${v.placement}"]`,
           })),
         }

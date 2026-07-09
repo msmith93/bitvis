@@ -168,7 +168,7 @@ export const uncordon = {
         return { focus: ['apiserver', 'etcd', p.node], flights: [] }
       case 2:
         return {
-          focus: ['scheduler', 'tray', ...new Set(bound.map((sp) => sp.placement))],
+          focus: ['scheduler', 'apiserver', ...new Set(bound.map((sp) => sp.placement))],
           flights: bound.map((sp, i) => ({
             key: `${p.id}:2:${i}`,
             tokens: [
@@ -178,7 +178,7 @@ export const uncordon = {
                 color: cluster.pods[sp.name]?.color,
               },
             ],
-            fromSel: '[data-fly="tray"]',
+            fromSel: '[data-fly="apiserver"]',
             toSel: `[data-fly="${sp.placement}"]`,
           })),
         }

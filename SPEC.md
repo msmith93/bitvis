@@ -29,8 +29,10 @@ op)`, per-op step modules, one timing file, Framer Motion chip flights.
   never land on it — dedicated, workload-free control-plane nodes are the
   production norm for self-hosted clusters, and the stage depicts that. It is
   drawn in the SAME row as the workers: it's just a node with a different
-  role. The stage also shows a strip for unscheduled (Pending, unbound) pods,
-  which exist only as API objects and sit on no node.
+  role. Unscheduled (Pending, unbound) pods appear ONLY in the side panel's
+  etcd cluster-state tree (highlighted) plus a "waiting" counter on the
+  kube-scheduler box — a pod with no node is just a record in etcd, so it has
+  no place on the stage.
 - **3 worker nodes** (`node-1..3`), each with a kubelet badge and a stack of
   pod chips. Capacity capped at 4 pods per node (demo-size limit).
 - Single `default` namespace; workloads are Deployments only.
@@ -62,7 +64,7 @@ op)`, per-op step modules, one timing file, Framer Motion chip flights.
 3. **Deployment controller** — watch fires; creates the ReplicaSet (via the
    API server).
 4. **ReplicaSet controller** — desired N vs actual 0; creates N Pod objects,
-   Pending, unbound (shown in the tray).
+   Pending, unbound (visible in the etcd tree + scheduler "waiting" pill).
 5. **Scheduler binds** — filters/scores nodes (least-loaded stand-in), writes
    only `nodeName` back. The scheduler never starts anything.
 6. **Kubelet** — each bound node's kubelet pulls the image and starts the
@@ -99,6 +101,9 @@ node, then posts an Eviction per pod (where PDBs would gate in real life) →
 pods Terminating → removed → RS controllers see drift → replacements Pending
 → scheduler binds them to the REMAINING schedulable nodes (or leaves them
 Pending when full) → node empty and still cordoned: safe to upgrade/reboot.
+Order matters and is accurate: evict FIRST, replace after — drains have no
+surge (that's a rolling-update concept, maxSurge); availability comes from
+replicas + PodDisruptionBudgets.
 
 ### pod crash (scenario, 4 steps)
 A container process exits. The Pod object still exists, so the ReplicaSet
@@ -139,8 +144,8 @@ uncordon, one node at a time.
 - The scheduler only sets `nodeName` (binds); only the kubelet starts
   containers.
 - Phases progress Pending → ContainerCreating → Running; deletion shows
-  Terminating. A Pending pod with no node sits in the control-plane tray, not
-  on a node.
+  Terminating. A Pending pod with no node is never drawn on any node — it
+  exists only in the etcd tree (side panel) until the scheduler binds it.
 - The control plane is not magic infrastructure floating above the cluster —
   its components run ON a node (as static pods run by that node's kubelet).
   The scheduler filters the control-plane node out via its NoSchedule taint.
@@ -161,9 +166,11 @@ uncordon, one node at a time.
 
 ## UI layout
 - Top: title bar + Reset cluster.
-- Center: the stage — a slim full-width strip for Pending (unscheduled) pods,
-  then ONE row of four node columns: the control-plane node first (tinted,
-  with its static-pod actor boxes stacked inside), then the 3 workers.
+- Center: the stage — the simulate bar, then ONE row of four node columns:
+  the control-plane node first (tinted, with its static-pod actor boxes
+  stacked inside), then the 3 workers. Node cards size to their content.
+  Unscheduled pods are NOT drawn on the stage (see topology note); the
+  kube-scheduler box carries an "N waiting" pill while any exist.
   Highlights and chip flights follow the active op step.
 - Right: explanation panel + etcd desired-state tree + event stream.
 - Bottom: the terminal (presets row, scrollback, prompt with ↑/↓ history),

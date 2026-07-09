@@ -34,7 +34,7 @@ const STEPS = [
     ms: 1900,
     title: '4 · ReplicaSet controller creates Pods',
     blurb:
-      'The ReplicaSet controller sees desired = N pods, actual = 0, and creates N Pod objects. They are Pending: records in etcd with no node assigned — see the unscheduled tray. A Pod object is a promise, not a process.',
+      'The ReplicaSet controller sees desired = N pods, actual = 0, and creates N Pod objects. They are Pending: records in etcd with no node assigned — see them in the cluster-state panel, and the scheduler’s “waiting” counter. A Pod object is a promise, not a process.',
   },
   {
     key: 'schedule',
@@ -106,23 +106,23 @@ function choreography(op) {
       }
     case 3:
       return {
-        focus: ['controller', 'apiserver', 'tray'],
+        focus: ['controller', 'apiserver'],
         flights: [
           {
             key: `${p.id}:3`,
             tokens: podChips,
             fromSel: '[data-fly="controller"]',
-            toSel: '[data-fly="tray"]',
+            toSel: '[data-fly="apiserver"]',
           },
         ],
       }
     case 4:
       return {
-        focus: ['scheduler', 'tray', ...new Set(p.placements)],
+        focus: ['scheduler', 'apiserver', ...new Set(p.placements)],
         flights: p.placements.map((node, i) => ({
           key: `${p.id}:4:${i}`,
           tokens: [podChips[i]],
-          fromSel: '[data-fly="tray"]',
+          fromSel: '[data-fly="apiserver"]',
           toSel: `[data-fly="${node}"]`,
         })),
       }

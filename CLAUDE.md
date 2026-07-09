@@ -67,7 +67,10 @@ operation forwards and backwards.
     steps `<= op.step`. Single source of the rendered cluster.
   - `opExtra(cluster, op)` returns transient step info: `focus` (which actor
     boxes/nodes/kubelets glow), `flights` (chip flights between
-    `data-fly`-tagged elements), and `output` for get tables.
+    `data-fly`-tagged elements — pod-creation flights land on the apiserver,
+    binding flights go apiserver → node; unscheduled pods are visible only in
+    the SidePanel etcd tree plus the scheduler's "waiting" pill), and
+    `output` for get tables.
   - `applyOp(cluster, op)` = `deriveCluster` at the last step; folds a finished
     op into committed state (no-op for `get`, which has no `derive`).
     `start()` folds the previous finished op before beginning a new one.

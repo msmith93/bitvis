@@ -163,7 +163,7 @@ export const nodeCrash = {
         return { focus: [p.node], flights: [] }
       case 3:
         return {
-          focus: ['controller', 'apiserver', 'tray'],
+          focus: ['controller', 'apiserver'],
           flights: [
             {
               key: `${p.id}:3`,
@@ -173,17 +173,17 @@ export const nodeCrash = {
                 color: v.color,
               })),
               fromSel: '[data-fly="controller"]',
-              toSel: '[data-fly="tray"]',
+              toSel: '[data-fly="apiserver"]',
             },
           ],
         }
       case 4:
         return {
-          focus: ['scheduler', 'tray', ...new Set(placed.map((v) => v.placement))],
+          focus: ['scheduler', 'apiserver', ...new Set(placed.map((v) => v.placement))],
           flights: placed.map((v, i) => ({
             key: `${p.id}:4:${i}`,
             tokens: [{ id: `${p.id}-pl-${i}`, term: 'Pod', color: v.color }],
-            fromSel: '[data-fly="tray"]',
+            fromSel: '[data-fly="apiserver"]',
             toSel: `[data-fly="${v.placement}"]`,
           })),
         }
@@ -244,7 +244,7 @@ export const recoverNode = {
         return { focus: ['controller', 'apiserver', p.node], flights: [] }
       case 2:
         return {
-          focus: ['scheduler', 'tray', ...new Set(bound.map((sp) => sp.placement))],
+          focus: ['scheduler', 'apiserver', ...new Set(bound.map((sp) => sp.placement))],
           flights: bound.map((sp, i) => ({
             key: `${p.id}:2:${i}`,
             tokens: [
@@ -254,7 +254,7 @@ export const recoverNode = {
                 color: cluster.pods[sp.name]?.color,
               },
             ],
-            fromSel: '[data-fly="tray"]',
+            fromSel: '[data-fly="apiserver"]',
             toSel: `[data-fly="${sp.placement}"]`,
           })),
         }

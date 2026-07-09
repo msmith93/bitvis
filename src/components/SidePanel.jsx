@@ -94,7 +94,13 @@ function DeploymentTree({ dep, cluster }) {
           <span className="obj-name" style={{ color: p.color }}>
             {p.name}
           </span>
-          <span className={'obj-meta phase-text-' + p.phase.toLowerCase()}>
+          <span
+            className={
+              'obj-meta phase-text-' +
+              p.phase.toLowerCase() +
+              (p.node ? '' : ' unscheduled')
+            }
+          >
             {p.phase}
             {p.node ? ` · ${p.node}` : ' · unscheduled'}
           </span>

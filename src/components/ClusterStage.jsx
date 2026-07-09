@@ -4,10 +4,13 @@ import { WORKER_NODES } from '../cluster'
 import { POD_APPEAR_DELAY_S } from '../timing'
 import ChipFlight from './ChipFlight'
 
-// The centre stage: the control plane (four actor boxes + the unscheduled-pod
-// tray) above the three worker-node columns. Highlights and chip flights are
-// driven entirely by the current op's extra() — the derived cluster is the
-// single source of what exists; extra says what glows and what flies.
+// The centre stage: one row of four node columns — the control-plane node
+// (its four static-pod actor boxes stacked inside) then the three workers.
+// Unscheduled pods appear ONLY in the side panel's etcd tree plus a "waiting"
+// counter on the kube-scheduler box: a pod with no node is just a record.
+// Highlights and chip flights are driven entirely by the current op's
+// extra() — the derived cluster is the single source of what exists; extra
+// says what glows and what flies.
 export default function ClusterStage({ cluster, extra }) {
   const focus = new Set(extra.focus ?? [])
   const flights = extra.flights ?? []
@@ -19,23 +22,6 @@ export default function ClusterStage({ cluster, extra }) {
 
   return (
     <div className="stage">
-      <div
-        className={'pending-strip' + (focus.has('tray') ? ' active' : '')}
-        data-fly="tray"
-      >
-        <span className="tray-label">
-          Pending pods · exist only as API objects, no node assigned
-        </span>
-        <div className="tray-chips">
-          <AnimatePresence mode="popLayout">
-            {pendingPods.length === 0 && <span className="empty-note">none</span>}
-            {pendingPods.map((p) => (
-              <PodChip key={p.name} pod={p} />
-            ))}
-          </AnimatePresence>
-        </div>
-      </div>
-
       <div className="nodes-row">
         <div className={'node-col control-plane' + (cpActive ? ' active' : '')}>
           <div className="node-head">
@@ -71,6 +57,12 @@ export default function ClusterStage({ cluster, extra }) {
               label="kube-scheduler"
               sub="binds pods to nodes"
               active={focus.has('scheduler')}
+              pill={
+                pendingPods.length > 0
+                  ? `${pendingPods.length} waiting`
+                  : undefined
+              }
+              pillTitle="Pod objects with no node assigned — they exist only in etcd until the scheduler can place them (see the cluster-state panel)"
             />
             <ActorBox
               id="controller"
@@ -108,14 +100,21 @@ export default function ClusterStage({ cluster, extra }) {
 // In a kubeadm-style cluster these components are static pods on the
 // control-plane node, run by its kubelet directly from manifest files —
 // the API server can't schedule itself into existence.
-function ActorBox({ id, label, sub, active }) {
+function ActorBox({ id, label, sub, active, pill, pillTitle }) {
   return (
     <div className={'actor-box' + (active ? ' active' : '')} data-fly={id}>
       <span className="actor-label-row">
         <span className="actor-label">{label}</span>
         <span className="static-pod-tag">static pod</span>
       </span>
-      <span className="actor-sub">{sub}</span>
+      <span className="actor-sub">
+        {sub}
+        {pill && (
+          <span className="waiting-pill" title={pillTitle}>
+            {pill}
+          </span>
+        )}
+      </span>
     </div>
   )
 }
