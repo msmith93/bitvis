@@ -1,16 +1,22 @@
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with
-code in this repository.
+code in this package.
+
+> This app is `packages/kubevis` in the **bitvis** monorepo (npm workspaces).
+> Run `npm install` once at the repo root. Deploy infra lives at the repo root
+> (`infra/`, `scripts/`), not here.
 
 ## Commands
+
+Run from this package dir, or from the repo root with `-w @bitvis/kubevis`:
 
 - `npm run dev` — start the Vite dev server (the primary way to run/verify).
 - `npm run build` — production build to `dist/`.
 - `npm run preview` — serve the built `dist/` locally.
-- `./scripts/deploy.sh` — build + CDK deploy (S3/CloudFront/Route 53, see
-  `infra/`) to https://kubevis.bitsculpt.top. Requires the `bitsculpt` AWS
-  profile, so it only runs on the owner's machine.
+- `../../scripts/deploy.sh KubevisStack` — build + CDK deploy (S3/CloudFront/
+  Route 53, see the root `infra/`) to https://kubevis.bitsculpt.top. Requires the
+  `bitsculpt` AWS profile, so it only runs on the owner's machine.
 
 There is no test runner, linter, or formatter configured. The deliverable is a
 screen-recordable proof-of-concept (see `SPEC.md`), so "verify" means running

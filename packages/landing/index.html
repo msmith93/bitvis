@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%23326ce5'/%3E%3Ccircle cx='34' cy='34' r='11' fill='%23fff'/%3E%3Ccircle cx='66' cy='34' r='11' fill='%2300a3e0'/%3E%3Ccircle cx='34' cy='66' r='11' fill='%2300a3e0'/%3E%3Ccircle cx='66' cy='66' r='11' fill='%23fff'/%3E%3C/svg%3E"
+    />
+    <title>bitvis · interactive systems visualizations</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <header class="hero">
+        <div class="mark" aria-hidden="true">
+          <span></span><span></span><span></span><span></span>
+        </div>
+        <h1>bitvis</h1>
+        <p class="lede">
+          Interactive, step-by-step visualizations that make distributed
+          systems make sense. Pick one and watch how it actually works —
+          simulated end-to-end in your browser.
+        </p>
+      </header>
+
+      <ul class="grid" id="grid"></ul>
+
+      <footer class="foot">
+        <span>More visualizations coming.</span>
+        <a href="https://github.com/msmith93/bitvis">Source on GitHub</a>
+      </footer>
+    </main>
+
+    <script src="sites.js"></script>
+    <script>
+      // Render each site in window.SITES as a full-card link.
+      const grid = document.getElementById('grid');
+      const esc = (s) =>
+        String(s).replace(
+          /[&<>"']/g,
+          (c) =>
+            ({
+              '&': '&amp;',
+              '<': '&lt;',
+              '>': '&gt;',
+              '"': '&quot;',
+              "'": '&#39;',
+            })[c]
+        );
+
+      for (const site of window.SITES || []) {
+        const li = document.createElement('li');
+        li.className = 'card';
+        li.style.setProperty('--accent', site.accent);
+        li.innerHTML = `
+          <a class="card-link" href="${esc(site.url)}">
+            <div class="card-top">
+              <span class="icon" aria-hidden="true">${esc(site.icon)}</span>
+              <span class="tag">${esc(site.tag)}</span>
+            </div>
+            <h2 class="card-title">${esc(site.title)}</h2>
+            <p class="card-tagline">${esc(site.tagline)}</p>
+            <p class="card-blurb">${esc(site.blurb)}</p>
+            <span class="card-cta">Open ${esc(site.title)} <span aria-hidden="true">→</span></span>
+          </a>`;
+        grid.appendChild(li);
+      }
+    </script>
+  </body>
+</html>

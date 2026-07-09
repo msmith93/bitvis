@@ -12,6 +12,10 @@ interface StaticSiteProps extends cdk.StackProps {
   domainName: string;
   subDomain: string;
   hostedZoneId: string;
+  // Directory (relative to infra/) uploaded to S3. For built apps this is the
+  // package's dist/ (e.g. '../packages/kubevis/dist'); for the plain-static
+  // landing page it's the source dir directly ('../packages/landing').
+  sourceDir: string;
 }
 
 export class StaticSiteStack extends cdk.Stack {
@@ -72,10 +76,10 @@ export class StaticSiteStack extends cdk.Stack {
       httpVersion: cloudfront.HttpVersion.HTTP2_AND_3,
     });
 
-    // Sync dist/ to S3 and invalidate CloudFront cache on every deploy.
-    // dist/ must be built before running cdk deploy (scripts/deploy.sh handles this).
+    // Sync the site's asset dir to S3 and invalidate CloudFront on every deploy.
+    // For built apps, dist/ must exist before running cdk deploy (scripts/deploy.sh handles this).
     new s3deploy.BucketDeployment(this, 'DeploySite', {
-      sources: [s3deploy.Source.asset('../dist')],
+      sources: [s3deploy.Source.asset(props.sourceDir)],
       destinationBucket: siteBucket,
       distribution,
       distributionPaths: ['/*'],

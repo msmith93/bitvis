@@ -1,20 +1,15 @@
 {
-  "name": "kubevis",
+  "name": "bitvis",
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "framer-motion": "^11.3.19",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
-  },
-  "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.1",
-    "vite": "^5.4.1"
+    "dev:kubevis": "npm run dev -w @bitvis/kubevis",
+    "dev:opensearchvis": "npm run dev -w @bitvis/opensearchvis",
+    "build": "npm run build --workspaces --if-present",
+    "preview": "npm run preview --workspaces --if-present"
   }
 }
