@@ -64,7 +64,7 @@ export default function CookieBanner({ onAccept, onDecline }) {
             fontSize: '14px',
             fontWeight: 'bold',
             color: '#04121b',
-            backgroundColor: '#00a3e0',
+            backgroundColor: '#1287b1',
             border: 'none',
             borderRadius: '6px',
             cursor: 'pointer',
@@ -74,9 +74,10 @@ export default function CookieBanner({ onAccept, onDecline }) {
           onMouseEnter={(e) => {
             e.currentTarget.style.backgroundColor = '#2bb8ef'
             e.currentTarget.style.transform = 'scale(1.05)'
+            /* hover brightens the Cassandra blue */
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = '#00a3e0'
+            e.currentTarget.style.backgroundColor = '#1287b1'
             e.currentTarget.style.transform = 'scale(1)'
           }}
         >

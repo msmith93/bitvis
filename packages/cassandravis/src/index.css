@@ -1,13 +1,14 @@
 :root {
-  --bg: #00131c;
-  --panel: #00263a;
-  --panel-2: #003b5c;
-  --border: #0d4b6e;
+  /* Apache Cassandra palette — deep blue with the Cassandra "eye" blue accent */
+  --bg: #0b1a2b;
+  --panel: #12253a;
+  --panel-2: #1a3550;
+  --border: #274863;
   --text: #e6f1f7;
   --muted: #8fb4c9;
-  --accent: #00a3e0;
-  --accent-2: #005eb8;
-  --accent-soft: #b9d9eb;
+  --accent: #1287b1;
+  --accent-2: #0d5a86;
+  --accent-soft: #7fc7e0;
   --warn: #e0a04a;
   --danger: #e0574a;
   --good: #4ec97a;

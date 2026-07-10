@@ -1,8 +1,9 @@
 :root {
-  --bg: #0a0e1a;
-  --panel: #111830;
-  --panel-2: #182242;
-  --border: #263258;
+  /* Kubernetes palette — dark navy tinted toward the #326CE5 Kubernetes blue */
+  --bg: #0a1224;
+  --panel: #121d38;
+  --panel-2: #1a2a4d;
+  --border: #29406e;
   --text: #e8edfa;
   --muted: #93a1c8;
   --accent: #326ce5; /* kubernetes blue */
