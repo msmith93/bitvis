@@ -24,6 +24,17 @@ window.SITES = [
     icon: '⌕', // ⌕ search
     accent: '#00a3e0',
   },
+  {
+    id: 'cassandravis',
+    title: 'cassandravis',
+    tag: 'Cassandra',
+    tagline: 'How a leaderless NoSQL store replicates and stores data.',
+    blurb:
+      'Put a key and watch it hash onto the consistent-hashing ring, fan out to 3 replicas, and ack at your chosen quorum — then crash a node to see hinted handoff, read repair, Merkle-tree repair, and the LSM tree underneath.',
+    url: 'https://cassandravis.bitsculpt.top',
+    icon: '◍', // ◍ the token ring
+    accent: '#1287b1',
+  },
 ];
 
 // Games — a separate category from the visualizations, shown in their own

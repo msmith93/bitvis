@@ -7,6 +7,7 @@
     "packages/*"
   ],
   "scripts": {
+    "dev:cassandravis": "npm run dev -w @bitvis/cassandravis",
     "dev:kubevis": "npm run dev -w @bitvis/kubevis",
     "dev:opensearchvis": "npm run dev -w @bitvis/opensearchvis",
     "build": "npm run build --workspaces --if-present",

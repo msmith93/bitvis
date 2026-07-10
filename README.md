@@ -13,6 +13,7 @@ the landing page that ties them together.
 | --- | --- | --- |
 | [`packages/kubevis`](packages/kubevis) | [kubevis.bitsculpt.top](https://kubevis.bitsculpt.top) | How Kubernetes turns kubectl commands into running pods (control plane, scheduler, self-healing). |
 | [`packages/opensearchvis`](packages/opensearchvis) | [opensearchvis.bitsculpt.top](https://opensearchvis.bitsculpt.top) | How OpenSearch indexes and searches a distributed cluster (segments, refresh/flush/merge, scatter-gather). |
+| [`packages/cassandravis`](packages/cassandravis) | [cassandravis.bitsculpt.top](https://cassandravis.bitsculpt.top) | How a leaderless NoSQL store (Cassandra) replicates and stores data (the ring, tunable quorums, hinted handoff, read repair, the LSM tree). |
 | [`packages/landing`](packages/landing) | [bitvis.bitsculpt.top](https://bitvis.bitsculpt.top) | The landing page — a plain static card grid linking to every visualization. |
 
 Each visualization is an independent Vite + React app. They share tooling and
@@ -32,6 +33,7 @@ Then run any app's dev server:
 ```bash
 npm run dev:kubevis          # or:  npm run dev -w @bitvis/kubevis
 npm run dev:opensearchvis    # or:  npm run dev -w @bitvis/opensearchvis
+npm run dev:cassandravis     # or:  npm run dev -w @bitvis/cassandravis
 npm run build                # build every app to packages/*/dist
 ```
 

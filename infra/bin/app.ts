@@ -33,6 +33,12 @@ new StaticSiteStack(app, 'OpensearchvisStack', {
   sourceDir: '../packages/opensearchvis/dist',
 });
 
+new StaticSiteStack(app, 'CassandravisStack', {
+  ...common,
+  subDomain: 'cassandravis',
+  sourceDir: '../packages/cassandravis/dist',
+});
+
 // The landing page — plain static, no build step, so its source dir is uploaded directly.
 new StaticSiteStack(app, 'LandingStack', {
   ...common,
