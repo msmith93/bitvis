@@ -1,14 +1,14 @@
 /**
  * Analytics service for Google Analytics 4 with GDPR compliance.
  *
- * Mirrors the approach used in the asteroid-mining game (cursorastroid):
- * analytics is loaded lazily, only after consent where GDPR applies, and the
- * gtag script is injected at runtime rather than hardcoded into index.html.
+ * Mirrors the approach used in the sibling visualizers: analytics is loaded
+ * lazily, only after consent where GDPR applies, and the gtag script is
+ * injected at runtime rather than hardcoded into index.html.
  */
 
 // GA4 Measurement ID for this property. With no id, App skips analytics and the
 // cookie banner entirely.
-export const GA_MEASUREMENT_ID = 'G-2BGCQ1NRD0'
+export const GA_MEASUREMENT_ID = 'G-1EY7XPBYV1'
 
 // GDPR-enforced countries: EU member states, UK, EEA countries
 const GDPR_COUNTRIES = [

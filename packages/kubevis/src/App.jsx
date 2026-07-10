@@ -16,6 +16,7 @@ import { useOpLifecycle } from './useOpLifecycle'
 import { useTraffic } from './useTraffic'
 import { useWalkthrough } from './useWalkthrough'
 import ClusterStage from './components/ClusterStage'
+import CookieBanner from './components/CookieBanner'
 import RequestFlight from './components/RequestFlight'
 import ScenarioBar from './components/ScenarioBar'
 import SidePanel from './components/SidePanel'
@@ -24,6 +25,13 @@ import Terminal from './components/Terminal'
 import TrafficBeams from './components/TrafficBeams'
 import TrafficRail from './components/TrafficRail'
 import Walkthrough from './components/Walkthrough'
+import {
+  GA_MEASUREMENT_ID,
+  detectGDPRRegion,
+  hasConsented,
+  setConsent,
+  initializeGA4,
+} from './analytics'
 
 // A copy of the cluster with one node's state patched — used to plan
 // placements for the world an op is ABOUT to create (e.g. where do evicted
@@ -75,6 +83,32 @@ export default function App() {
   // capture their values at start-time so scrubbing never regenerates names.
   const seq = useRef({ line: 0, op: 0, name: 0, dep: 0, svc: 1 })
   const printed = useRef(new Set())
+  const [showCookieBanner, setShowCookieBanner] = useState(false)
+
+  // Initialize analytics with GDPR compliance (skipped entirely without an id
+  // or in development).
+  useEffect(() => {
+    const initAnalytics = async () => {
+      if (!GA_MEASUREMENT_ID || import.meta.env.DEV) return
+      const consent = hasConsented()
+      if (consent === 'accepted') return initializeGA4(GA_MEASUREMENT_ID)
+      if (consent === 'declined') return
+      const isGDPR = await detectGDPRRegion()
+      if (isGDPR) setShowCookieBanner(true)
+      else initializeGA4(GA_MEASUREMENT_ID)
+    }
+    initAnalytics()
+  }, [])
+
+  function handleAcceptCookies() {
+    setConsent(true)
+    setShowCookieBanner(false)
+    if (GA_MEASUREMENT_ID && !import.meta.env.DEV) initializeGA4(GA_MEASUREMENT_ID)
+  }
+  function handleDeclineCookies() {
+    setConsent(false)
+    setShowCookieBanner(false)
+  }
   const traffic = useTraffic(life.derived, {
     commit: life.commit,
     canStartNew: life.canStartNew,
@@ -620,6 +654,11 @@ export default function App() {
       />
 
       <Walkthrough tour={tour} />
+
+      {/* ---------------- Cookie consent (GDPR regions only) ---------------- */}
+      {showCookieBanner && (
+        <CookieBanner onAccept={handleAcceptCookies} onDecline={handleDeclineCookies} />
+      )}
     </div>
   )
 }
