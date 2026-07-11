@@ -2145,3 +2145,357 @@ table.ii td.term {
   box-shadow: 0 2px 12px rgba(0, 163, 224, 0.5);
   white-space: nowrap;
 }
+
+/* ---------------- close-ups (stepped zoom overlays) ---------------- */
+/* the 🔍 variant for close-ups: inline in a flex row (the base class is
+   absolutely positioned for the read-path glass), coordinator blue */
+.magnify-btn.cu-btn {
+  position: static;
+  margin-left: auto;
+  border-color: var(--accent-2);
+  background: rgba(0, 94, 184, 0.16);
+}
+.magnify-btn.cu-btn:hover {
+  background: rgba(0, 94, 184, 0.34);
+}
+/* inside a node head, ALL glasses flow inline so two never stack on the same
+   corner (the read-path 🔍 and a close-up 🔍 can coexist on the coordinator) */
+.node-head .magnify-btn {
+  position: static;
+}
+.node-head .magnify-btn:first-of-type {
+  margin-left: auto;
+}
+.node-head .magnify-btn + .magnify-btn {
+  margin-left: 4px;
+}
+.ring-zoom-wrap {
+  position: relative;
+}
+.ring-zoom-wrap .magnify-btn.ring-zoom {
+  position: absolute;
+  top: 2px;
+  right: calc(50% - 132px);
+  margin: 0;
+}
+.merkle-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.closeup-card {
+  background: var(--panel);
+  border: 1px solid var(--accent-2);
+  border-radius: 12px;
+  padding: 14px 18px;
+  max-width: 720px;
+  width: 100%;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.55);
+}
+.closeup-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.closeup-head h3 {
+  margin: 0;
+  font-size: 14.5px;
+  flex: 1;
+}
+.closeup-explain {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent-2);
+  border-radius: 8px;
+  padding: 9px 12px;
+  margin-bottom: 10px;
+}
+.closeup-explain h4 {
+  margin: 0 0 5px;
+  font-size: 13px;
+}
+.closeup-explain p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.closeup-scroll {
+  flex: 1;
+  min-height: 120px;
+  overflow-y: auto;
+}
+.closeup-stepper .stepper {
+  border-top: 1px solid var(--border);
+  background: transparent;
+  padding: 8px 0 0;
+  gap: 10px;
+}
+.closeup-stepper .op-label {
+  min-width: 0;
+  font-size: 10px;
+}
+
+/* generic stage rows */
+.cu-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+.cu-row,
+.cu-banner,
+.cu-hashrow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 6px 10px;
+}
+.cu-banner {
+  border-style: dashed;
+}
+.cu-row.ok {
+  border-color: var(--good);
+}
+.cu-row.bad {
+  border-color: var(--danger);
+}
+.cu-row.dim {
+  opacity: 0.65;
+}
+.cu-row.hint {
+  border-style: dashed;
+  border-color: var(--warn);
+}
+.cu-cell.right {
+  margin-left: auto;
+  text-align: right;
+}
+.cu-cell.dim,
+.cu-note {
+  color: var(--muted);
+}
+.cu-cell.mono,
+.mono {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11.5px;
+}
+.cu-cell.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.cu-note {
+  font-size: 11px;
+}
+.cu-struck {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+.cu-verdict {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 7px 10px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.cu-verdict.ok {
+  border-color: var(--good);
+  color: var(--good);
+}
+.cu-verdict.bad {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* quorum meter */
+.cu-meter {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 4px 0 6px;
+}
+.cu-meter-cell {
+  width: 34px;
+  height: 12px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+.cu-meter-cell.filled {
+  background: var(--good);
+  border-color: var(--good);
+}
+.cu-meter-cell.dead {
+  background: repeating-linear-gradient(-45deg, transparent 0 4px, rgba(224, 87, 74, 0.4) 4px 8px);
+  border-color: var(--danger);
+}
+.cu-meter-cell.threshold {
+  box-shadow: 2px 0 0 0 var(--accent);
+}
+.cu-meter-label {
+  font-size: 10.5px;
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+}
+
+/* ring-walk hash trace */
+.cu-hashgrid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cu-token {
+  font-family: ui-monospace, monospace;
+  font-weight: 700;
+  color: var(--accent);
+  border: 1px dashed var(--accent);
+  border-radius: 999px;
+  padding: 1px 9px;
+}
+.cu-replica {
+  border: 1px solid;
+  border-radius: 999px;
+  padding: 0 8px;
+  margin-left: 5px;
+  font-size: 11px;
+  color: var(--text);
+}
+
+/* bloom bits */
+.cu-bits {
+  display: flex;
+  gap: 2px;
+}
+.cu-bit {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-family: ui-monospace, monospace;
+  font-size: 9.5px;
+  color: var(--muted);
+}
+.cu-bit.set {
+  background: rgba(0, 94, 184, 0.35);
+  border-color: var(--accent-2);
+  color: var(--text);
+}
+
+/* compaction versions */
+.cu-versioned {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* gossip phi bars */
+.cu-phi {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 120px;
+}
+.cu-phi-track {
+  position: relative;
+  flex: 1;
+  height: 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.cu-phi-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--warn);
+  border-radius: 4px;
+}
+.cu-phi-fill.over {
+  background: var(--danger);
+}
+.cu-phi-mark {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: var(--accent);
+}
+
+/* merkle trees */
+.cu-tree {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+.cu-tree-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+}
+.cu-tree-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.cu-root {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  border: 1.5px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 9px;
+}
+.cu-root.match {
+  border-color: var(--good);
+  color: var(--good);
+}
+.cu-root.mismatch {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.cu-tree-trunk {
+  width: 1px;
+  height: 10px;
+  background: var(--border);
+}
+.cu-leaves {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+}
+.cu-leaf {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 2px 7px;
+  font-size: 10.5px;
+}
+.cu-leaf.match {
+  border-color: var(--good);
+}
+.cu-leaf.mismatch {
+  border-color: var(--danger);
+}

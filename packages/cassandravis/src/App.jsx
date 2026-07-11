@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   initialCluster,
   replicaWalk,
@@ -16,6 +16,7 @@ import ConsistencyPicker from './components/ConsistencyPicker'
 import QuorumPanel from './components/QuorumPanel'
 import MerkleView from './components/MerkleView'
 import NodeInspector from './components/NodeInspector'
+import { CloseUp, buildCloseUp, closeUpStillValid } from './closeups'
 import ScenarioBar from './components/ScenarioBar'
 import Stepper from './components/Stepper'
 import CookieBanner from './components/CookieBanner'
@@ -46,6 +47,7 @@ export default function App() {
     derived,
     extra,
     base,
+    cluster,
     canStartNew,
     hasKeys,
     hasMemtable,
@@ -64,6 +66,7 @@ export default function App() {
   const [w, setW] = useState(CL.QUORUM)
   const [r, setR] = useState(CL.QUORUM)
   const [inspectNode, setInspectNode] = useState(null) // nodeId being zoomed, or null
+  const [closeUp, setCloseUp] = useState(null) // { kind, node? } — open close-up, or null
   const [sampleLoaded, setSampleLoaded] = useState(false)
   const [showCookieBanner, setShowCookieBanner] = useState(false)
 
@@ -130,6 +133,23 @@ export default function App() {
 
   const keyColor = (k) =>
     base?.keys[k]?.color ?? KEY_COLORS[Object.keys(base?.keys ?? {}).length % KEY_COLORS.length]
+
+  // ---- close-ups (zoom overlays): opening one freezes the timeline; an
+  // effect closes it as soon as the op/step it belongs to is no longer
+  // current, so a stale overlay can never linger. ------------------------
+  function openCloseUp(cu) {
+    pause()
+    setCloseUp(cu)
+  }
+  // `base` is null mid-op by design; the committed `cluster` IS the pre-op
+  // state the storage close-ups (write path, flush, compact, hint) must show.
+  const closeUpCtx = useMemo(
+    () => (closeUp && op ? buildCloseUp(closeUp, { op, base: cluster, derived }) : null),
+    [closeUp, op, cluster, derived],
+  )
+  useEffect(() => {
+    if (closeUp && !closeUpStillValid(op, closeUp, derived)) setCloseUp(null)
+  }, [op, closeUp, derived])
 
   // ---- payload builders: everything impure (timestamps, liveness, replica
   // sets, divergence) is computed HERE against the folded cluster, so the op
@@ -487,6 +507,7 @@ export default function App() {
               pause()
               setInspectNode(nid)
             }}
+            onCloseUp={openCloseUp}
           />
         </div>
 
@@ -510,7 +531,13 @@ export default function App() {
           )}
 
           {extra.quorum && <QuorumPanel quorum={extra.quorum} />}
-          {extra.merkle && <MerkleView merkle={extra.merkle} keys={derived.keys} />}
+          {extra.merkle && (
+            <MerkleView
+              merkle={extra.merkle}
+              keys={derived.keys}
+              onCloseUp={() => openCloseUp({ kind: 'merkle' })}
+            />
+          )}
         </div>
       </div>
 
@@ -540,13 +567,17 @@ export default function App() {
         onClose={() => setInspectNode(null)}
       />
 
+      {/* ---------------- Overlay: stepped close-ups (quorum math, ring walk,
+           Merkle trees, compaction, gossip, …) ---------------- */}
+      <CloseUp ctx={closeUpCtx} onClose={() => setCloseUp(null)} />
+
       {/* ---------------- Cookie consent (GDPR regions only) ---------------- */}
       {showCookieBanner && (
         <CookieBanner onAccept={handleAcceptCookies} onDecline={handleDeclineCookies} />
       )}
 
       {/* ---------------- Overlay: first-run guided tour ---------------- */}
-      <Walkthrough tour={tour} allowEscape={inspectNode == null} />
+      <Walkthrough tour={tour} allowEscape={inspectNode == null && closeUp == null} />
     </div>
   )
 }

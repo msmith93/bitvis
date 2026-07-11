@@ -1,10 +1,11 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { COORDINATOR, NODE_COLORS } from '../cluster'
+import { closeUpForNode, ringCloseUp } from '../closeups'
 import Ring from './Ring'
 
 // The centre stage: a client pill, the token ring, and the node cards.
 // Highlights and badges are driven by the current operation + step (opExtra).
-export default function ClusterStage({ cluster, extra, op, onInspect }) {
+export default function ClusterStage({ cluster, extra, op, onInspect, onCloseUp }) {
   const focus = new Set(extra.focus || [])
   const nodes = Object.values(cluster.nodes)
 
@@ -17,9 +18,22 @@ export default function ClusterStage({ cluster, extra, op, onInspect }) {
   // merely silent — no DOWN banner yet.
   const silentNode = extra.crash?.silent ? extra.crash.node : null
 
+  const ringZoom = ringCloseUp(op)
+
   return (
     <div className="cluster">
-      <Ring cluster={cluster} walkState={extra.ring} />
+      <div className="ring-zoom-wrap">
+        <Ring cluster={cluster} walkState={extra.ring} />
+        {ringZoom && (
+          <button
+            className="magnify-btn cu-btn ring-zoom"
+            title="Zoom into the partitioner: hash + ring walk"
+            onClick={() => onCloseUp?.({ kind: ringZoom })}
+          >
+            🔍
+          </button>
+        )}
+      </div>
 
       <div className="nodes-grid">
         {nodes.map((node) => (
@@ -30,8 +44,10 @@ export default function ClusterStage({ cluster, extra, op, onInspect }) {
             active={focus.has(node.id)}
             silent={silentNode === node.id}
             inspectable={inspectable.has(node.id)}
+            closeUpKind={closeUpForNode(op, node.id, cluster)}
             compactSelecting={extra.compact?.selecting && extra.compact.targets.includes(node.id)}
             onInspect={onInspect}
+            onCloseUp={onCloseUp}
           />
         ))}
       </div>
@@ -39,7 +55,27 @@ export default function ClusterStage({ cluster, extra, op, onInspect }) {
   )
 }
 
-function NodeCard({ node, keys, active, silent, inspectable, compactSelecting, onInspect }) {
+const CU_TITLES = {
+  quorum: "Zoom into the coordinator's quorum math",
+  writepath: "Zoom into this replica's local write path",
+  readrepair: 'Zoom into the read repair decision',
+  flush: 'Zoom into the flush: memtable → SSTable + bloom',
+  compact: 'Zoom into the per-key merge',
+  gossip: "Zoom into this peer's failure detector",
+  hint: 'Zoom into the hint replay',
+}
+
+function NodeCard({
+  node,
+  keys,
+  active,
+  silent,
+  inspectable,
+  closeUpKind,
+  compactSelecting,
+  onInspect,
+  onCloseUp,
+}) {
   const memEntries = Object.entries(node.memtable)
   return (
     <div
@@ -62,6 +98,15 @@ function NodeCard({ node, keys, active, silent, inspectable, compactSelecting, o
         <span className="node-name">{node.id}</span>
         <span className="node-tokens">t{node.tokens.join(' · t')}</span>
         {node.id === COORDINATOR && <span className="badge-coord">coordinator</span>}
+        {closeUpKind && (
+          <button
+            className="magnify-btn cu-btn"
+            title={CU_TITLES[closeUpKind]}
+            onClick={() => onCloseUp?.({ kind: closeUpKind, node: node.id })}
+          >
+            🔍
+          </button>
+        )}
         {inspectable && node.up && (
           <button
             className="magnify-btn"

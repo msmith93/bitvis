@@ -17,7 +17,7 @@ function fnv(s) {
 const leafHash = (entry) =>
   entry ? fnv(`${entry.value}|${entry.ts}|${entry.tombstone ? 1 : 0}`) : '––––'
 
-export default function MerkleView({ merkle, keys }) {
+export default function MerkleView({ merkle, keys, onCloseUp }) {
   if (!merkle) return null
   const { comparisons, compared, streamed } = merkle
 
@@ -49,7 +49,18 @@ export default function MerkleView({ merkle, keys }) {
 
   return (
     <div className="merkle-panel">
-      <p className="section-title">Repair · Merkle trees (roots → leaves)</p>
+      <p className="section-title merkle-title">
+        Repair · Merkle trees (roots → leaves)
+        {onCloseUp && (
+          <button
+            className="magnify-btn cu-btn"
+            title="Zoom into the Merkle trees, root to leaf"
+            onClick={onCloseUp}
+          >
+            🔍
+          </button>
+        )}
+      </p>
       {comparisons.length === 0 && <div className="empty-note">no keys stored yet</div>}
 
       {comparisons.length > 0 && (
