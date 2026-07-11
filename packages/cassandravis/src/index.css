@@ -240,7 +240,7 @@ textarea:focus {
 .cluster {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
 }
 .nodes-row {
   display: grid;
@@ -382,12 +382,12 @@ textarea:focus {
 .seg-stack {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
 }
 .mini-seg {
   border: 1px solid var(--border);
   border-radius: 7px;
-  padding: 6px 7px;
+  padding: 4px 6px;
   background: var(--panel);
 }
 .mini-seg.committed {
@@ -405,9 +405,9 @@ textarea:focus {
   align-items: center;
   gap: 4px;
   font-family: ui-monospace, Menlo, monospace;
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 700;
-  margin-bottom: 5px;
+  margin-bottom: 3px;
 }
 .lock {
   font-size: 10px;
@@ -1558,11 +1558,6 @@ table.ii td.term {
 }
 
 /* ---------------- client pill ---------------- */
-.client-row {
-  display: flex;
-  justify-content: center;
-  margin: 2px 0 0;
-}
 .client-pill {
   background: var(--panel-2);
   border: 1px solid var(--border);
@@ -1579,7 +1574,10 @@ table.ii td.term {
   margin: 0;
 }
 .ring-svg {
-  width: min(330px, 100%);
+  /* Rendered at 0.8× of the original 330px so the center column fits a laptop
+     viewport without scrolling; the in-SVG font sizes below are bumped to
+     compensate, so labels render at the same physical size as before. */
+  width: min(264px, 100%);
   height: auto;
 }
 .ring-circle {
@@ -1598,7 +1596,7 @@ table.ii td.term {
 }
 .ring-token-label {
   fill: var(--muted);
-  font-size: 8.5px;
+  font-size: 9.5px;
   text-anchor: middle;
   dominant-baseline: middle;
   font-family: ui-monospace, monospace;
@@ -1620,7 +1618,7 @@ table.ii td.term {
 }
 .ring-marker-label {
   fill: var(--accent);
-  font-size: 9.5px;
+  font-size: 10.5px;
   font-weight: 700;
   text-anchor: middle;
   font-family: ui-monospace, monospace;
@@ -1638,7 +1636,7 @@ table.ii td.term {
 }
 .ring-walk-note {
   fill: var(--muted);
-  font-size: 8.5px;
+  font-size: 9.5px;
   font-style: italic;
 }
 .ring-walk-note.taken {
@@ -1648,14 +1646,14 @@ table.ii td.term {
 }
 .ring-center-label {
   fill: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   text-anchor: middle;
   letter-spacing: 1px;
   text-transform: uppercase;
 }
 .ring-center-sub {
   fill: var(--muted);
-  font-size: 9.5px;
+  font-size: 10.5px;
   text-anchor: middle;
   opacity: 0.7;
   font-family: ui-monospace, monospace;
@@ -1665,8 +1663,8 @@ table.ii td.term {
 .nodes-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 8px;
+  gap: 8px;
+  margin-top: 6px;
 }
 .node-card {
   position: relative;
@@ -1674,8 +1672,8 @@ table.ii td.term {
   border: 1px solid var(--border);
   border-top: 3px solid var(--node-accent, var(--border));
   border-radius: 10px;
-  padding: 9px 10px 10px;
-  min-height: 120px;
+  padding: 7px 8px 8px;
+  min-height: 90px;
   transition: box-shadow 0.25s, border-color 0.25s, opacity 0.25s;
 }
 .node-card.active {
@@ -1751,19 +1749,25 @@ table.ii td.term {
   border: 1px dashed var(--warn);
   border-radius: 7px;
   padding: 5px 7px 6px;
-  margin-bottom: 6px;
+  margin-bottom: 5px;
 }
 .store-label {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.6px;
   color: var(--muted);
-  margin-bottom: 4px;
+  margin-bottom: 3px;
 }
-.commitlog-line {
-  color: var(--muted);
-  font-size: 10.5px;
-  margin-bottom: 6px;
+.store-label-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.commitlog-count {
+  margin-left: auto;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 10px;
   font-family: ui-monospace, monospace;
 }
 .entry-chip {
@@ -1771,10 +1775,10 @@ table.ii td.term {
   align-items: center;
   gap: 4px;
   color: #04121b;
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 700;
   border-radius: 5px;
-  padding: 2px 7px;
+  padding: 1.5px 6px;
   font-family: ui-monospace, monospace;
   white-space: nowrap;
 }
@@ -1801,7 +1805,7 @@ table.ii td.term {
   padding: 0.5px 6px;
 }
 .hints-tray {
-  margin-top: 7px;
+  margin-top: 5px;
   background: rgba(224, 160, 74, 0.08);
   border: 1px dashed var(--warn);
   border-radius: 7px;

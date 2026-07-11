@@ -19,12 +19,6 @@ export default function ClusterStage({ cluster, extra, op, onInspect }) {
 
   return (
     <div className="cluster">
-      <div className="client-row">
-        <span className="client-pill" data-fly="client">
-          🧑‍💻 client
-        </span>
-      </div>
-
       <Ring cluster={cluster} walkState={extra.ring} />
 
       <div className="nodes-grid">
@@ -81,7 +75,15 @@ function NodeCard({ node, keys, active, silent, inspectable, compactSelecting, o
       </div>
 
       <div className="memtable-box">
-        <div className="store-label">memtable · in memory</div>
+        <div className="store-label store-label-row">
+          memtable · in memory
+          <span
+            className="commitlog-count"
+            title="commit log — append-only durability log; counts mutations since the last flush"
+          >
+            commit log: {node.commitLog}
+          </span>
+        </div>
         <div className="chip-row">
           {memEntries.length === 0 && <span className="empty-note small">empty</span>}
           <AnimatePresence>
@@ -91,8 +93,6 @@ function NodeCard({ node, keys, active, silent, inspectable, compactSelecting, o
           </AnimatePresence>
         </div>
       </div>
-
-      <div className="commitlog-line">commit log: {node.commitLog}</div>
 
       <div className="seg-stack">
         <AnimatePresence mode="popLayout">

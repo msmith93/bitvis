@@ -474,6 +474,9 @@ export default function App() {
         <div className="col">
           <div className="stage-head">
             <p className="section-title">Cluster</p>
+            <span className="client-pill" data-fly="client">
+              🧑‍💻 client
+            </span>
             <ScenarioBar scenarios={scenarios} disabled={!idle} />
           </div>
           <ClusterStage
