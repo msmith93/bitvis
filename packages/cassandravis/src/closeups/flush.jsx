@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion'
 import { NODE_COLORS } from '../cluster'
-import { Mut, fnv } from './shared'
+import { fnv, DictView } from './shared'
 
 const BLOOM_BITS = 16
 
@@ -44,41 +44,36 @@ export function build(nodeId, baseNode, sstName, keysMeta) {
           <span className="cu-cell">{nodeId} · memtable → {sstName}</span>
         </div>
 
-        <div className="cu-row">
-          <span className="cu-cell">memtable{step >= 3 ? ' (cleared)' : ' · sorted'}</span>
-          <span className="cu-cell chips">
-            {step >= 3 ? (
-              <span className="cu-note">empty — new writes start a fresh one</span>
-            ) : (
-              sorted.map(([k, e], i) => (
-                <motion.span
-                  key={k}
-                  initial={{ opacity: 0, y: 4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: step === 0 ? i * 0.15 : 0 }}
-                >
-                  <Mut k={k} value={e.value} ts={e.ts} tombstone={e.tombstone} color={keysMeta[k]?.color} />
-                </motion.span>
-              ))
-            )}
-          </span>
+        <div className="cu-row block">
+          <DictView
+            label={`memtable — a sorted map, in memory${step >= 3 ? ' (cleared)' : ''}`}
+            rows={
+              step >= 3
+                ? []
+                : sorted.map(([k, e]) => ({
+                    k,
+                    entry: e,
+                    color: keysMeta[k]?.color,
+                    state: step === 0 ? undefined : 'dim',
+                  }))
+            }
+            empty="empty — new writes start a fresh one"
+          />
         </div>
 
         {step >= 1 && (
-          <motion.div className="cu-row ok" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
-            <span className="cu-cell">🔒 {sstName} (immutable)</span>
-            <span className="cu-cell chips">
-              {sorted.map(([k, e], i) => (
-                <motion.span
-                  key={k}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: step === 1 ? i * 0.15 : 0 }}
-                >
-                  <Mut k={k} value={e.value} ts={e.ts} tombstone={e.tombstone} color={keysMeta[k]?.color} />
-                </motion.span>
-              ))}
-            </span>
+          <motion.div className="cu-row block ok" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
+            <DictView
+              label={`🔒 ${sstName} — immutable file on disk`}
+              note="same sorted rows, streamed sequentially"
+              rows={sorted.map(([k, e]) => ({
+                k,
+                entry: e,
+                color: keysMeta[k]?.color,
+                state: step === 1 ? 'new' : 'dim',
+              }))}
+              empty="empty"
+            />
           </motion.div>
         )}
 

@@ -33,9 +33,12 @@ hints vs sloppy quorum).
 - **Replication factor N = 3** (SimpleStrategy: walk clockwise from the key's
   token, take the first N *distinct physical* nodes — a vnode belonging to an
   already-chosen node is skipped).
-- **Coordinator:** node-1 (the node the client connects to). Any node can
-  coordinate; fixed for a clear, repeatable demo. The coordinator is a peer —
-  it is NOT a leader/primary.
+- **Coordinator:** the node the client's driver is connected to (starts as
+  node-1). Any node can coordinate; the coordinator is a peer — it is NOT a
+  leader/primary. It lives in cluster state: the "crash the coordinator"
+  scenario kills it and the driver reroutes to the next live peer, which
+  coordinates from then on (the role does NOT move back on recovery — there is
+  no role to win back).
 - **Consistency levels** (for N=3): ONE = 1, QUORUM = 2, ALL = 3, chosen
   independently for writes (W) and reads (R).
 - Ring tokens live in cluster state (not constants) so a joining node can
@@ -105,6 +108,20 @@ reclaimed at compaction.
    failure detector (phi-accrual, simplified) loses confidence.
 3. **Marked DOWN cluster-wide** — the sim converges in one step (flagged);
    the node's data is NOT re-replicated; it is just unavailable.
+
+### Crash the coordinator (scenario)
+The leaderless showcase — same crash mechanics, aimed at the one node that
+LOOKS special:
+1. **The coordinator goes silent** — heartbeats stop, like any node.
+2. **Gossip converges on DOWN — and nothing gets elected** — this is the
+   moment a leader-based store would detect the loss, run a failover election,
+   promote a follower, and stall writes until done. Here nothing starts,
+   because the coordinator owned nothing exclusive.
+3. **The driver picks the next live peer** — the client's driver already knows
+   every node; it opens a connection to another peer, which is now "the
+   coordinator" purely by being talked to. Subsequent requests genuinely flow
+   through it. The crashed node's replica data heals via hints/repair like any
+   crash; on recovery the client keeps its new connection.
 
 ### Recover node (scenario)
 1. **The node comes back** — gossip marks it UP.
@@ -184,7 +201,12 @@ Documented so reviewers can verify the teaching stays honest:
   num_tokens=16+ per node).
 - Timestamps are a logical counter, not microsecond wall clocks.
 - The "bloom filter" is exact membership over the SSTable's keys (never a
-  false positive); blurbs explain real false positives.
+  false positive); blurbs explain real false positives. Exception: the
+  read-path close-up renders a real 16-bit/2-probe filter from the table's
+  actual bits, so it can (rarely) show an honest false positive — "maybe → read
+  → not here". This never changes the returned value (last-write-wins is
+  identical), and the node cards / `readValue` keep the exact-membership
+  stand-in.
 - Reads contact R replicas with full reads (real Cassandra sends one data
   read + digest reads).
 - Read repair is always synchronous when divergence is seen (real: blocking
@@ -194,7 +216,9 @@ Documented so reviewers can verify the teaching stays honest:
 - Merkle trees are 2 levels over a handful of key buckets.
 - Gossip/failure detection converges in a single step; phi-accrual reduced to
   "heartbeats stopped".
-- Coordinator fixed to node-1; no partitioner/snitch/rack/DC config.
+- Coordinator starts at node-1 and moves only via the "crash the coordinator"
+  scenario (real drivers spread requests across MANY coordinators, often
+  per-request round-robin/token-aware); no partitioner/snitch/rack/DC config.
 - Commit-log replay on restart is modeled as the memtable simply surviving
   the crash (the net effect is identical); a recovered node relies on
   hints/repair only for the writes it missed while down.

@@ -3,7 +3,6 @@ import {
   initialCluster,
   replicaWalk,
   nodeEntryFor,
-  COORDINATOR,
   CL,
   N_REPLICAS,
   NODE_COLORS,
@@ -15,7 +14,6 @@ import ChipFlight from './components/ChipFlight'
 import ConsistencyPicker from './components/ConsistencyPicker'
 import QuorumPanel from './components/QuorumPanel'
 import MerkleView from './components/MerkleView'
-import NodeInspector from './components/NodeInspector'
 import { CloseUp, buildCloseUp, closeUpStillValid } from './closeups'
 import ScenarioBar from './components/ScenarioBar'
 import Stepper from './components/Stepper'
@@ -65,7 +63,6 @@ export default function App() {
   const [value, setValue] = useState(PRESETS[0].value)
   const [w, setW] = useState(CL.QUORUM)
   const [r, setR] = useState(CL.QUORUM)
-  const [inspectNode, setInspectNode] = useState(null) // nodeId being zoomed, or null
   const [closeUp, setCloseUp] = useState(null) // { kind, node? } — open close-up, or null
   const [sampleLoaded, setSampleLoaded] = useState(false)
   const [showCookieBanner, setShowCookieBanner] = useState(false)
@@ -84,17 +81,10 @@ export default function App() {
       opDone,
       downCount: downNodes.length,
       sampleLoaded,
+      closeUpKind: closeUp?.kind ?? null,
     },
     { pause },
   )
-
-  // The magnifier only lives on a get's query step and after. Close any open
-  // inspector when the op/step leaves the get so it can't linger as a stale
-  // overlay after scrubbing or starting a new op.
-  const inGetPhase = op?.type === 'get' && op.step >= 3
-  useEffect(() => {
-    if (!inGetPhase) setInspectNode(null)
-  }, [inGetPhase])
 
   // Initialize analytics with GDPR compliance (skipped entirely without an id
   // or in development).
@@ -166,6 +156,7 @@ export default function App() {
       tombstone,
       color: keyColor(k),
       w,
+      coord: base.coordinator,
       token,
       replicas,
       walk,
@@ -207,6 +198,7 @@ export default function App() {
       r,
       id: opNum.current++,
       color: keyColor(keyTrim),
+      coord: base.coordinator,
       token,
       replicas,
       walk,
@@ -264,15 +256,25 @@ export default function App() {
   }
 
   // Scenario targets are picked at click time: crash prefers a replica of the
-  // current key (so the very next put shows a hint), never the coordinator
-  // (it's our fixed demo entry point).
+  // current key (so the very next put shows a hint), never the current
+  // coordinator — killing THAT is its own scenario with its own story.
   function startCrash() {
     const { replicas } = replicaWalk(base, keyTrim || PRESETS[0].key)
-    const candidates = upNodes.map((n) => n.id).filter((nid) => nid !== COORDINATOR)
+    const candidates = upNodes.map((n) => n.id).filter((nid) => nid !== base.coordinator)
     const target =
       [...replicas].reverse().find((nid) => candidates.includes(nid)) ?? candidates[0]
     if (!target) return
     start('nodeCrash', { node: target })
+  }
+
+  // Crash the coordinator itself: the leaderless showcase. The client's driver
+  // reroutes to the next live peer, which simply becomes the new coordinator —
+  // no election. The role does NOT move back when the old node recovers.
+  function startCoordCrash() {
+    const target = base.coordinator
+    const next = upNodes.map((n) => n.id).find((nid) => nid !== target)
+    if (!next || !base.nodes[target].up) return
+    start('coordCrash', { node: target, next })
   }
 
   function startRecover() {
@@ -293,7 +295,9 @@ export default function App() {
   // read triggers read repair, and anti-entropy repair sees the divergence —
   // and it shows the coordinator being a replica of the key it coordinates.
   function loadSampleData() {
-    if (tour.step?.id !== 'welcome') tour.abort()
+    // Loading sample data mid-tour derails the script — abort, UNLESS the tour
+    // is the one asking for it (its own load-sample step) or hasn't started.
+    if (!['welcome', 'load-sample'].includes(tour.step?.id)) tour.abort()
     const c = initialCluster()
     let ts = 1
     const seed = (k, v, i, { where, skip } = {}) => {
@@ -326,7 +330,6 @@ export default function App() {
     clock.current = ts
     resetTo(c)
     setSampleLoaded(true)
-    setInspectNode(null)
   }
 
   function reset() {
@@ -344,8 +347,19 @@ export default function App() {
       icon: '💥',
       label: 'crash a node',
       tooltip: 'A replica of the current key goes silent',
-      enabled: idle && upNodes.some((n) => n.id !== COORDINATOR),
+      enabled: idle && upNodes.some((n) => n.id !== base?.coordinator),
       run: startCrash,
+    },
+    {
+      key: 'coord-crash',
+      icon: '☠️',
+      label: 'crash the coordinator',
+      tooltip: 'The node the client talks to dies — watch what does NOT happen (an election)',
+      enabled:
+        idle &&
+        !!base?.nodes[base.coordinator]?.up &&
+        upNodes.some((n) => n.id !== base?.coordinator),
+      run: startCoordCrash,
     },
     {
       key: 'recover',
@@ -503,10 +517,6 @@ export default function App() {
             cluster={derived}
             extra={extra}
             op={op}
-            onInspect={(nid) => {
-              pause()
-              setInspectNode(nid)
-            }}
             onCloseUp={openCloseUp}
           />
         </div>
@@ -524,8 +534,10 @@ export default function App() {
               <h3>Ready</h3>
               <p>
                 Put a key/value to begin — or load the sample data and try a
-                Get, a crash, or a Repair. There is no leader here: node-1 just
-                happens to be the node this client connects to.
+                Get, a crash, or a Repair. There is no leader here: the
+                "coordinator" is just the node this client happens to connect
+                to. Don't believe it? ☠️ crash the coordinator and watch what
+                does NOT happen.
               </p>
             </div>
           )}
@@ -560,13 +572,6 @@ export default function App() {
         <ChipFlight key={f.key} tokens={f.tokens} fromSel={f.fromSel} toSel={f.toSel} />
       ))}
 
-      {/* ---------------- Overlay: node read-path inspector ---------------- */}
-      <NodeInspector
-        node={inspectNode ? derived.nodes[inspectNode] : null}
-        opKey={op?.type === 'get' ? op.payload.key : ''}
-        onClose={() => setInspectNode(null)}
-      />
-
       {/* ---------------- Overlay: stepped close-ups (quorum math, ring walk,
            Merkle trees, compaction, gossip, …) ---------------- */}
       <CloseUp ctx={closeUpCtx} onClose={() => setCloseUp(null)} />
@@ -577,7 +582,7 @@ export default function App() {
       )}
 
       {/* ---------------- Overlay: first-run guided tour ---------------- */}
-      <Walkthrough tour={tour} allowEscape={inspectNode == null && closeUp == null} />
+      <Walkthrough tour={tour} allowEscape={closeUp == null} />
     </div>
   )
 }

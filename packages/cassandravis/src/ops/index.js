@@ -5,6 +5,7 @@ import del from './del'
 import flush from './flush'
 import compact from './compact'
 import { nodeCrash, recoverNode } from './nodeCrash'
+import coordCrash from './coordCrash'
 import repair from './repair'
 
 // Every user action becomes an `op = { type, step, payload }`. Each type is one
@@ -18,7 +19,7 @@ import repair from './repair'
 // get legitimately grow steps when the hinted-handoff or read-repair branch
 // applies. The payload is fixed at start() time, so the step list is static per
 // op instance and scrubbing stays deterministic.
-export const OPS = { put, get, del, flush, compact, nodeCrash, recoverNode, repair }
+export const OPS = { put, get, del, flush, compact, nodeCrash, coordCrash, recoverNode, repair }
 
 export const OP_LABELS = Object.fromEntries(
   Object.entries(OPS).map(([type, mod]) => [type, mod.label]),

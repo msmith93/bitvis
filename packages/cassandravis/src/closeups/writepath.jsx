@@ -1,13 +1,23 @@
 import { motion } from 'framer-motion'
 import { NODE_COLORS } from '../cluster'
-import { Mut } from './shared'
+import { Mut, DictView, sortedEntries } from './shared'
 
 // Close-up: ONE replica's local write path — commit log append, then memtable
-// upsert. `prev` is the entry this key shadows in the node's memtable (from the
-// cluster as it stood before this op), so the upsert visibly wins by timestamp.
-export function build(p, nodeId, baseNode, verb) {
+// upsert, with the rest of the memtable map and the untouched on-disk SSTables
+// shown for context. `prev` is the entry this key shadows in the node's memtable
+// (from the cluster as it stood before this op), so the upsert visibly wins by
+// timestamp. `baseNode` is the node BEFORE this write; `keysMeta` supplies the
+// other entries' display colors.
+export function build(p, nodeId, baseNode, verb, keysMeta = {}) {
   const prev = baseNode.memtable[p.key] || null
   const logN = baseNode.commitLog
+  // The OTHER keys already living in this memtable — so the map reads as a map,
+  // not a single cell. Sorted, like the memtable itself.
+  const others = Object.entries(baseNode.memtable)
+    .filter(([k]) => k !== p.key)
+    .sort(([a], [b]) => a.localeCompare(b))
+  const ssts = baseNode.sstables // oldest → newest, immutable, on disk
+
   const steps = [
     {
       key: 'arrive',
@@ -22,13 +32,24 @@ export function build(p, nodeId, baseNode, verb) {
     {
       key: 'mem',
       title: '3 · Upsert the memtable',
-      blurb: prev
-        ? `The in-memory memtable (a sorted map) gets the new version. The old ${prev.tombstone ? 'tombstone' : `value (${prev.value}, t${prev.ts})`} is shadowed — not because it was "overwritten in place", but because t${p.ts} > t${prev.ts} whenever anyone reads.`
-        : 'The in-memory memtable (a sorted map) gets the entry. Nothing on disk is touched — SSTables are immutable; this key reaches disk only when the memtable flushes.',
+      blurb: `The memtable is a sorted in-memory map — one entry per key, ${others.length + (prev ? 1 : 0)} already here. The write is just one upsert into that map. ${
+        prev
+          ? `${p.key} already had ${prev.tombstone ? 'a tombstone' : `${prev.value} (t${prev.ts})`}; the new version doesn't erase it in place — t${p.ts} > t${prev.ts} simply wins whenever anyone reads.`
+          : `${p.key} is new to the map; the other keys are untouched.`
+      }`,
+    },
+    {
+      key: 'disk',
+      title: '4 · Nothing reaches disk yet',
+      blurb: `The SSTables below are immutable files on disk — the write does NOT touch them. ${
+        ssts.length
+          ? `${nodeId} has ${ssts.length} of them from earlier flushes.`
+          : `${nodeId} has none yet — it hasn't flushed.`
+      } A memtable becomes a brand-new SSTable only when it fills up and FLUSHES (its own zoom). Until then this key lives only in memory + the commit log.`,
     },
     {
       key: 'ack',
-      title: '4 · Ack the coordinator',
+      title: '5 · Ack the coordinator',
       blurb: 'Log appended + memtable updated = this replica is done, and it says so. Whether the CLIENT gets a success depends on how many of these acks the coordinator collects versus W — that decision lives with the coordinator, not here.',
     },
   ]
@@ -57,29 +78,68 @@ export function build(p, nodeId, baseNode, verb) {
           )}
         </div>
 
-        <div className={'cu-row' + (step >= 2 ? ' ok' : ' dim')}>
-          <span className="cu-cell">memtable (sorted, in memory)</span>
-          <span className="cu-cell chips">
-            {prev && (
-              <Mut
-                k={p.key}
-                value={prev.value}
-                ts={prev.ts}
-                tombstone={prev.tombstone}
-                color={p.color}
-                struck={step >= 2}
-              />
-            )}
-            {step >= 2 && (
-              <motion.span initial={{ opacity: 0, scale: 0.7 }} animate={{ opacity: 1, scale: 1 }}>
-                <Mut k={p.key} value={p.value} ts={p.ts} tombstone={p.tombstone} color={p.color} />
-              </motion.span>
-            )}
-            {!prev && step < 2 && <span className="cu-note">no entry for {p.key} yet</span>}
-          </span>
+        <div className={'cu-row block' + (step >= 2 ? ' ok' : ' dim')}>
+          <DictView
+            label="memtable — a sorted map, in memory"
+            rows={[
+              // the rest of the map, in sorted order with the written key slotted in
+              ...others.map(([k, e]) => ({
+                k,
+                entry: e,
+                color: keysMeta[k]?.color,
+                state: 'dim',
+              })),
+              ...(prev
+                ? [
+                    {
+                      k: p.key,
+                      entry: prev,
+                      color: p.color,
+                      state: step >= 2 ? 'struck' : 'focus',
+                      annotation: step >= 2 ? `shadowed — t${p.ts} > t${prev.ts}` : undefined,
+                    },
+                  ]
+                : []),
+              ...(step >= 2
+                ? [
+                    {
+                      k: p.key,
+                      entry: { value: p.value, ts: p.ts, tombstone: p.tombstone },
+                      color: p.color,
+                      state: 'new',
+                      annotation: '← this write',
+                    },
+                  ]
+                : []),
+            ].sort((a, b) => a.k.localeCompare(b.k) || (a.entry?.ts ?? 0) - (b.entry?.ts ?? 0))}
+            empty={`no entries yet — this write starts the map`}
+          />
         </div>
 
-        {step >= 3 && (
+        <div className={'cu-sst-strip' + (step === 3 ? ' focus' : '')}>
+          <span className="cu-note">on disk · immutable · untouched by this write</span>
+          <div className="cu-sst-row">
+            {ssts.length === 0 ? (
+              <span className="cu-note">no SSTables yet — flush creates the first one</span>
+            ) : (
+              ssts.map((t) => (
+                <DictView
+                  key={t.id}
+                  label={`🔒 ${t.id} — immutable file on disk`}
+                  rows={sortedEntries(t.entries).map(([k, e]) => ({
+                    k,
+                    entry: e,
+                    color: keysMeta[k]?.color,
+                    state: 'dim',
+                  }))}
+                  empty="empty"
+                />
+              ))
+            )}
+          </div>
+        </div>
+
+        {step >= 4 && (
           <motion.div className="cu-verdict ok" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
             ✓ ack → coordinator — this replica's part is done; W is the coordinator's problem
           </motion.div>

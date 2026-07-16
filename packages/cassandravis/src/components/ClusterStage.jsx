@@ -1,18 +1,13 @@
 import { motion, AnimatePresence } from 'framer-motion'
-import { COORDINATOR, NODE_COLORS } from '../cluster'
+import { NODE_COLORS } from '../cluster'
 import { closeUpForNode, ringCloseUp } from '../closeups'
 import Ring from './Ring'
 
 // The centre stage: a client pill, the token ring, and the node cards.
 // Highlights and badges are driven by the current operation + step (opExtra).
-export default function ClusterStage({ cluster, extra, op, onInspect, onCloseUp }) {
+export default function ClusterStage({ cluster, extra, op, onCloseUp }) {
   const focus = new Set(extra.focus || [])
   const nodes = Object.values(cluster.nodes)
-
-  // During a get's query step (and after), contacted replicas can be zoomed
-  // into to see their local read path.
-  const inspectable =
-    op?.type === 'get' && op.step >= 3 ? new Set(op.payload.contacted) : new Set()
 
   // Mid-crash, before the cluster has "converged on DOWN", the crashed node is
   // merely silent — no DOWN banner yet.
@@ -43,10 +38,12 @@ export default function ClusterStage({ cluster, extra, op, onInspect, onCloseUp 
             keys={cluster.keys}
             active={focus.has(node.id)}
             silent={silentNode === node.id}
-            inspectable={inspectable.has(node.id)}
+            isCoordinator={node.id === cluster.coordinator}
+            // The tour spotlights ONE magnifier (querySelector takes the first
+            // match) — tag only the first contacted replica's.
+            tourMagnify={op?.type === 'get' && op.payload.contacted[0] === node.id}
             closeUpKind={closeUpForNode(op, node.id, cluster)}
             compactSelecting={extra.compact?.selecting && extra.compact.targets.includes(node.id)}
-            onInspect={onInspect}
             onCloseUp={onCloseUp}
           />
         ))}
@@ -56,8 +53,10 @@ export default function ClusterStage({ cluster, extra, op, onInspect, onCloseUp 
 }
 
 const CU_TITLES = {
+  coordinator: 'Zoom: why no election just happened (leader vs coordinator)',
   quorum: "Zoom into the coordinator's quorum math",
   writepath: "Zoom into this replica's local write path",
+  readpath: "Zoom into this replica's local read path (memtable → SSTables → bloom)",
   readrepair: 'Zoom into the read repair decision',
   flush: 'Zoom into the flush: memtable → SSTable + bloom',
   compact: 'Zoom into the per-key merge',
@@ -70,10 +69,10 @@ function NodeCard({
   keys,
   active,
   silent,
-  inspectable,
+  isCoordinator,
+  tourMagnify,
   closeUpKind,
   compactSelecting,
-  onInspect,
   onCloseUp,
 }) {
   const memEntries = Object.entries(node.memtable)
@@ -97,22 +96,13 @@ function NodeCard({
         <span className="node-dot" style={{ background: NODE_COLORS[node.id] }} />
         <span className="node-name">{node.id}</span>
         <span className="node-tokens">t{node.tokens.join(' · t')}</span>
-        {node.id === COORDINATOR && <span className="badge-coord">coordinator</span>}
+        {isCoordinator && <span className="badge-coord">coordinator</span>}
         {closeUpKind && (
           <button
             className="magnify-btn cu-btn"
+            data-tour={closeUpKind === 'readpath' && tourMagnify ? 'magnify' : undefined}
             title={CU_TITLES[closeUpKind]}
             onClick={() => onCloseUp?.({ kind: closeUpKind, node: node.id })}
-          >
-            🔍
-          </button>
-        )}
-        {inspectable && node.up && (
-          <button
-            className="magnify-btn"
-            data-tour="magnify"
-            title="Zoom into this node's local read path"
-            onClick={() => onInspect?.(node.id)}
           >
             🔍
           </button>

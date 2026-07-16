@@ -8,9 +8,11 @@ export const N_REPLICAS = 3
 export const VNODES_PER_NODE = 2
 
 // The node a client connects to and that coordinates a request. Any node can
-// coordinate — the coordinator is a peer, NOT a leader; fixed to node-1 for a
-// clear, repeatable demo.
-export const COORDINATOR = 'node-1'
+// coordinate — the coordinator is a peer, NOT a leader. It lives IN cluster
+// state (`cluster.coordinator`): it starts at node-1 and moves only when the
+// "crash the coordinator" scenario makes the client's driver pick another
+// live peer. Ops read it from their payload (`p.coord`), captured at start().
+const INITIAL_COORDINATOR = 'node-1'
 
 // Consistency levels for N=3. W and R are how many acks the coordinator WAITS
 // for — writes always go to all N replicas regardless.
@@ -39,6 +41,7 @@ const INITIAL_TOKENS = {
 
 export function initialCluster() {
   return {
+    coordinator: INITIAL_COORDINATOR,
     nodes: Object.fromEntries(
       NODE_IDS.map((id) => [
         id,
@@ -59,6 +62,7 @@ export function initialCluster() {
 
 export function cloneCluster(c) {
   return {
+    coordinator: c.coordinator,
     keys: { ...c.keys },
     nodes: Object.fromEntries(
       Object.entries(c.nodes).map(([id, n]) => [

@@ -1,11 +1,11 @@
-import { COORDINATOR, N_REPLICAS, CL_NAMES } from '../cluster'
+import { N_REPLICAS, CL_NAMES } from '../cluster'
 import { flightMs, FLIGHT_PAD_MS, RING_WALK_STEP_MS } from '../timing'
 
 // The `get` op: coordinator → hash + ring walk → query R replicas → resolve by
 // newest timestamp (last-write-wins) → (read repair if they disagree) → return.
 // Payload, built by App at start() time from the folded cluster so derive
 // stays pure:
-//   { key, r, id, color, token, replicas, walk,
+//   { key, r, id, color, coord, token, replicas, walk,
 //     contacted: [nodeId],              // the first R live replicas
 //     responses: [{ node, entry }],     // entry = {value,ts,tombstone} | null
 //     winner,                           // newest entry among responses | null
@@ -26,7 +26,7 @@ function makeSteps(p) {
       key: 'coord',
       ms: 1600,
       title: '1 · Coordinator receives the query',
-      blurb: `The client sends get(${p.key}) to the coordinator (Node 1) with read consistency ${r}: the coordinator must hear from ${p.r} replica${p.r === 1 ? '' : 's'} before answering. Reads are coordinated by a peer too — still no leader.`,
+      blurb: `The client sends get(${p.key}) to ${p.coord} — the node its driver is connected to, which makes ${p.coord} the coordinator — with read consistency ${r}: it must hear from ${p.r} replica${p.r === 1 ? '' : 's'} before answering. Reads are coordinated by a peer too — still no leader.`,
     },
     {
       key: 'hash',
@@ -111,13 +111,13 @@ export default {
     let focus = []
     let flights = []
     if (s === idx.coord) {
-      focus = [COORDINATOR]
+      focus = [p.coord]
       flights = [
         {
           key: `get:${p.id}:coord`,
           tokens: [chip],
           fromSel: '[data-fly="client"]',
-          toSel: `[data-fly="${COORDINATOR}"]`,
+          toSel: `[data-fly="${p.coord}"]`,
         },
       ]
     } else if (s === idx.walk) {
@@ -127,11 +127,11 @@ export default {
       flights = p.contacted.map((nid, i) => ({
         key: `get:${p.id}:q:${i}`,
         tokens: [{ ...chip, id: chip.id + ':q' + i }],
-        fromSel: `[data-fly="${COORDINATOR}"]`,
+        fromSel: `[data-fly="${p.coord}"]`,
         toSel: `[data-fly="${nid}"]`,
       }))
     } else if (s === idx.resolve && p.ok) {
-      focus = [COORDINATOR]
+      focus = [p.coord]
       flights = p.responses.map((resp, i) => ({
         key: `get:${p.id}:r:${i}`,
         tokens: [
@@ -142,7 +142,7 @@ export default {
           },
         ],
         fromSel: `[data-fly="${resp.node}"]`,
-        toSel: `[data-fly="${COORDINATOR}"]`,
+        toSel: `[data-fly="${p.coord}"]`,
       }))
     } else if (s === idx.repair && idx.repair >= 0) {
       focus = p.repairs
@@ -155,11 +155,11 @@ export default {
             color: p.color,
           },
         ],
-        fromSel: `[data-fly="${COORDINATOR}"]`,
+        fromSel: `[data-fly="${p.coord}"]`,
         toSel: `[data-fly="${nid}"]`,
       }))
     } else if (s === idx.ret) {
-      focus = [COORDINATOR]
+      focus = [p.coord]
       flights = [
         {
           key: `get:${p.id}:ret`,
@@ -170,7 +170,7 @@ export default {
               color: p.ok && p.winner && !p.winner.tombstone ? p.color : p.ok ? '#667' : '#b0413e',
             },
           ],
-          fromSel: `[data-fly="${COORDINATOR}"]`,
+          fromSel: `[data-fly="${p.coord}"]`,
           toSel: '[data-fly="client"]',
         },
       ]

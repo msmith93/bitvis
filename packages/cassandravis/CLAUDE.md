@@ -40,9 +40,12 @@ Same core pattern as the sibling `opensearchvis`/`kubevis` packages: a **pure
 derivation of visible state from `(cluster, op)`**, which lets the stepper
 scrub any operation forwards and backwards.
 
-- **`cluster`** (`src/cluster.js`) is the committed state: `{ nodes, keys }`.
-  Ring tokens live IN cluster state (`nodes[id].tokens`) so a joining node can
-  re-slice the ring, and node liveness is dynamic (`nodes[id].up`). Each node
+- **`cluster`** (`src/cluster.js`) is the committed state:
+  `{ nodes, keys, coordinator }`. Ring tokens live IN cluster state
+  (`nodes[id].tokens`) so a joining node can re-slice the ring, node liveness
+  is dynamic (`nodes[id].up`), and the coordinator is dynamic too (starts at
+  node-1; the `coordCrash` scenario moves it — ops read it from their payload
+  as `p.coord`, captured at start()). Each node
   carries its own LSM storage: `memtable` (`key → {value, ts, tombstone}`),
   immutable `sstables` (`[{ id, entries }]`), a `commitLog` count, and a
   `hints` tray. `hashKey` is the deterministic partitioner stand-in;

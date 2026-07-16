@@ -1,10 +1,11 @@
-import { COORDINATOR, N_REPLICAS, CL_NAMES } from '../cluster'
+import { N_REPLICAS, CL_NAMES } from '../cluster'
 import { flightMs, FLIGHT_PAD_MS, RING_WALK_STEP_MS } from '../timing'
 
 // The shared write path: `put` and `del` are the same op with different
 // mutation contents (a delete IS a write — of a tombstone). Payload, built by
 // App at start() time so derive stays pure:
 //   { key, value, ts, tombstone, color, w,        // the mutation + write CL
+//     coord,                                       // cluster.coordinator at start
 //     token, replicas, walk,                       // replicaWalk() result
 //     down: [nodeId],                              // replicas down at start
 //     acks,                                        // live replica count
@@ -25,7 +26,7 @@ export function makeWriteSteps(verb) {
         key: 'coord',
         ms: 1600,
         title: '1 · Coordinator receives the request',
-        blurb: `The client sends ${verb === 'delete' ? `delete(${p.key})` : `put(${p.key}, ${p.value})`} to a coordinator node (here, Node 1) with write consistency ${w}. Any node can coordinate — there is NO leader or primary in this cluster. The coordinator stamps the mutation with a timestamp (t${p.ts}); timestamps decide conflicts later (last-write-wins).${verb === 'delete' ? ' A delete is just a write whose payload is a TOMBSTONE marker.' : ''}`,
+        blurb: `The client sends ${verb === 'delete' ? `delete(${p.key})` : `put(${p.key}, ${p.value})`} to ${p.coord} — the node its driver is connected to — with write consistency ${w}. That connection is ALL that makes ${p.coord} the coordinator: any node can coordinate; there is NO leader or primary in this cluster. The coordinator stamps the mutation with a timestamp (t${p.ts}); timestamps decide conflicts later (last-write-wins).${verb === 'delete' ? ' A delete is just a write whose payload is a TOMBSTONE marker.' : ''}`,
       },
       {
         key: 'hash',
@@ -79,7 +80,7 @@ export function deriveWrite(c, op) {
     }
   }
   if (idx.hint >= 0 && s >= idx.hint) {
-    const coord = c.nodes[COORDINATOR]
+    const coord = c.nodes[p.coord]
     for (const nid of p.down)
       coord.hints.push({
         forNode: nid,
@@ -105,13 +106,13 @@ export function writeExtra(cluster, op) {
   let focus = []
   let flights = []
   if (s === idx.coord) {
-    focus = [COORDINATOR]
+    focus = [p.coord]
     flights = [
       {
         key: `${op.type}:${p.ts}:coord`,
         tokens: [chip],
         fromSel: '[data-fly="client"]',
-        toSel: `[data-fly="${COORDINATOR}"]`,
+        toSel: `[data-fly="${p.coord}"]`,
       },
     ]
   } else if (s === idx.walk) {
@@ -121,13 +122,13 @@ export function writeExtra(cluster, op) {
     flights = p.replicas.map((nid, i) => ({
       key: `${op.type}:${p.ts}:w:${i}`,
       tokens: [{ ...chip, id: chip.id + ':' + i }],
-      fromSel: `[data-fly="${COORDINATOR}"]`,
+      fromSel: `[data-fly="${p.coord}"]`,
       toSel: `[data-fly="${nid}"]`,
     }))
   } else if (s === idx.hint && idx.hint >= 0) {
-    focus = [COORDINATOR]
+    focus = [p.coord]
   } else if (s === idx.ack) {
-    focus = [COORDINATOR]
+    focus = [p.coord]
     flights = [
       {
         key: `${op.type}:${p.ts}:ack`,
@@ -138,7 +139,7 @@ export function writeExtra(cluster, op) {
             color: p.ok ? '#2e7d4f' : '#b0413e',
           },
         ],
-        fromSel: `[data-fly="${COORDINATOR}"]`,
+        fromSel: `[data-fly="${p.coord}"]`,
         toSel: '[data-fly="client"]',
       },
     ]
