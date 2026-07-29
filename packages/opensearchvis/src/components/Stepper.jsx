@@ -52,7 +52,11 @@ export default function Stepper({
             }
           >
             <div className="bar" />
-            <span>{s.title.replace(/^\d+ · /, '')}</span>
+            {/* The label is clamped to two lines so the footer keeps a fixed
+                height; the title attribute keeps the full text reachable. */}
+            <span title={s.title.replace(/^\d+ · /, '')}>
+              {s.title.replace(/^\d+ · /, '')}
+            </span>
           </div>
         ))}
       </div>

@@ -145,6 +145,16 @@ export default function IndexOverlay({
     }
   }, [phase, op, playing, setPhase])
 
+  // Escape closes the form, matching DeleteDocOverlay. Only while EDITING —
+  // once the document is flying there is a live op behind the overlay and the
+  // footer stepper owns it.
+  useEffect(() => {
+    if (phase !== 'editing') return
+    const onKey = (e) => e.key === 'Escape' && setPhase('closed')
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [phase, setPhase])
+
   // Reset transient bits whenever we return to the editing form.
   useEffect(() => {
     if (phase === 'editing') {
@@ -172,6 +182,7 @@ export default function IndexOverlay({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.4 }}
+            onClick={() => setPhase('closed')}
           />
         )}
       </AnimatePresence>
@@ -189,7 +200,16 @@ export default function IndexOverlay({
               exit={{ opacity: 0, scale: 0.9 }}
               transition={{ type: 'spring', stiffness: 240, damping: 26 }}
             >
-              <p className="section-title">Index a document</p>
+              <div className="docs-head">
+                <p className="section-title">Index a document</p>
+                <button
+                  className="si-close"
+                  onClick={() => setPhase('closed')}
+                  title="Close"
+                >
+                  ✕
+                </button>
+              </div>
               <div className="presets">
                 {presets.map((p) => (
                   <button
@@ -219,7 +239,7 @@ export default function IndexOverlay({
               {/* Optional _routing. Leave it empty and the shard comes from the
                   _id; fill it in and the target below changes as you type. */}
               <label className="field">
-                <span>routing</span>
+                <span>routing key</span>
                 <input
                   type="text"
                   value={routing}

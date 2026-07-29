@@ -17,7 +17,7 @@ const STEPS = [
     ms: 1200,
     title: '2 · Route to the primary shard',
     blurb:
-      'The coordinator computes the target shard from the document id: shard = hash(_id) % number_of_shards. It forwards the document to that shard’s PRIMARY copy, which lives on one specific node.',
+      'The coordinator hashes the document’s routing value to pick a shard: shard = hash(_routing) % number_of_shards, and _routing defaults to the _id. It forwards the document to that shard’s PRIMARY copy, which lives on one specific node.',
   },
   {
     key: 'analysis',
@@ -46,6 +46,18 @@ export default {
   type: 'index',
   label: 'Indexing',
   steps: STEPS,
+
+  // One line about THIS document's routing, shown under the step blurb. Step 2
+  // can only state the rule ("_routing defaults to the _id"); this says which
+  // value was actually hashed, so a doc indexed with a key is never narrated as
+  // if its _id had chosen the shard.
+  note(op) {
+    const { doc } = op.payload
+    const key = doc.routing
+    return key
+      ? `routing “${key}” → hash % 3 = shard ${doc.shard}. The _id (${doc.id}) was not used — every document sharing this key lands on the same shard.`
+      : `no routing key → hash(${doc.id}) % 3 = shard ${doc.shard}.`
+  },
 
   derive(c, op) {
     const s = op.step
