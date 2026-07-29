@@ -40,8 +40,15 @@ export default function ClusterStage({ cluster, extra, op, onCloseUp }) {
             silent={silentNode === node.id}
             isCoordinator={node.id === cluster.coordinator}
             // The tour spotlights ONE magnifier (querySelector takes the first
-            // match) — tag only the first contacted replica's.
-            tourMagnify={op?.type === 'get' && op.payload.contacted[0] === node.id}
+            // match) — tag only the first contacted/live replica's.
+            tourMagnify={
+              op?.type === 'get'
+                ? op.payload.contacted[0] === node.id
+                : op?.type === 'put'
+                  ? op.payload.replicas.find((nid) => !op.payload.down.includes(nid)) ===
+                    node.id
+                  : false
+            }
             closeUpKind={closeUpForNode(op, node.id, cluster)}
             compactSelecting={extra.compact?.selecting && extra.compact.targets.includes(node.id)}
             onCloseUp={onCloseUp}
@@ -53,7 +60,6 @@ export default function ClusterStage({ cluster, extra, op, onCloseUp }) {
 }
 
 const CU_TITLES = {
-  coordinator: 'Zoom: why no election just happened (leader vs coordinator)',
   quorum: "Zoom into the coordinator's quorum math",
   writepath: "Zoom into this replica's local write path",
   readpath: "Zoom into this replica's local read path (memtable → SSTables → bloom)",
@@ -100,7 +106,11 @@ function NodeCard({
         {closeUpKind && (
           <button
             className="magnify-btn cu-btn"
-            data-tour={closeUpKind === 'readpath' && tourMagnify ? 'magnify' : undefined}
+            data-tour={
+              (closeUpKind === 'readpath' || closeUpKind === 'writepath') && tourMagnify
+                ? 'magnify'
+                : undefined
+            }
             title={CU_TITLES[closeUpKind]}
             onClick={() => onCloseUp?.({ kind: closeUpKind, node: node.id })}
           >

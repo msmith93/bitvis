@@ -33,12 +33,11 @@ hints vs sloppy quorum).
 - **Replication factor N = 3** (SimpleStrategy: walk clockwise from the key's
   token, take the first N *distinct physical* nodes — a vnode belonging to an
   already-chosen node is skipped).
-- **Coordinator:** the node the client's driver is connected to (starts as
-  node-1). Any node can coordinate; the coordinator is a peer — it is NOT a
-  leader/primary. It lives in cluster state: the "crash the coordinator"
-  scenario kills it and the driver reroutes to the next live peer, which
-  coordinates from then on (the role does NOT move back on recovery — there is
-  no role to win back).
+- **Coordinator:** the node the client's driver is connected to (node-1 in
+  this sim). Any node can coordinate; the coordinator is a peer — it is NOT a
+  leader/primary. If it died, nothing would be elected: the client's driver
+  would simply open a connection to another live peer, which would be "the
+  coordinator" purely by being talked to.
 - **Consistency levels** (for N=3): ONE = 1, QUORUM = 2, ALL = 3, chosen
   independently for writes (W) and reads (R).
 - Ring tokens live in cluster state (not constants) so a joining node can
@@ -108,20 +107,6 @@ reclaimed at compaction.
    failure detector (phi-accrual, simplified) loses confidence.
 3. **Marked DOWN cluster-wide** — the sim converges in one step (flagged);
    the node's data is NOT re-replicated; it is just unavailable.
-
-### Crash the coordinator (scenario)
-The leaderless showcase — same crash mechanics, aimed at the one node that
-LOOKS special:
-1. **The coordinator goes silent** — heartbeats stop, like any node.
-2. **Gossip converges on DOWN — and nothing gets elected** — this is the
-   moment a leader-based store would detect the loss, run a failover election,
-   promote a follower, and stall writes until done. Here nothing starts,
-   because the coordinator owned nothing exclusive.
-3. **The driver picks the next live peer** — the client's driver already knows
-   every node; it opens a connection to another peer, which is now "the
-   coordinator" purely by being talked to. Subsequent requests genuinely flow
-   through it. The crashed node's replica data heals via hints/repair like any
-   crash; on recovery the client keeps its new connection.
 
 ### Recover node (scenario)
 1. **The node comes back** — gossip marks it UP.
@@ -216,9 +201,9 @@ Documented so reviewers can verify the teaching stays honest:
 - Merkle trees are 2 levels over a handful of key buckets.
 - Gossip/failure detection converges in a single step; phi-accrual reduced to
   "heartbeats stopped".
-- Coordinator starts at node-1 and moves only via the "crash the coordinator"
-  scenario (real drivers spread requests across MANY coordinators, often
-  per-request round-robin/token-aware); no partitioner/snitch/rack/DC config.
+- The coordinator is fixed at node-1 — the sim's client never reconnects
+  (real drivers spread requests across MANY coordinators, often per-request
+  round-robin/token-aware); no partitioner/snitch/rack/DC config.
 - Commit-log replay on restart is modeled as the memtable simply surviving
   the crash (the net effect is identical); a recovered node relies on
   hints/repair only for the writes it missed while down.
