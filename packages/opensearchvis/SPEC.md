@@ -86,13 +86,29 @@ distinctions are the whole pedagogical point.
 1. **Coordinator receives the query** — query string analyzed into terms.
 2. **Scatter (query phase)** — coordinator fans the query out to ONE copy of
    every shard (primary or replica), spread across nodes. This is why search runs
-   on all nodes.
+   on all nodes. **With a routing key this is the exception**: `hash(_routing)`
+   names the single shard that can hold the data, so only that shard is asked and
+   the others stay idle. Routing must be supplied at index time AND query time.
 3. **Local search** — each contacted shard searches its own segments' inverted
    indexes, scores matches, returns its local top hits (doc ids + scores only).
 4. **Gather + merge + sort** — coordinator merges all shards' hits and ranks.
 5. **Fetch phase** — coordinator fetches full `_source` for the winning ids.
 6. **Return to client** — merged, ranked results returned. Buffered and
    tombstoned docs never appear.
+
+### Wildcard queries (term-dictionary cost)
+A segment's term dictionary is SORTED, which is the whole reason wildcards differ
+so much in price. Model both paths and keep the distinction visible:
+1. **A pattern with a literal prefix** (`sc*` — what OpenSearch calls a *prefix
+   query*) is resolved by SEEKING to where that prefix belongs and then reading
+   forward only while the prefix still holds, stopping at the first term that
+   doesn't. The rest of the dictionary is never touched.
+2. **A leading wildcard** (`*search`) has no prefix to seek to — a match can sit
+   anywhere — so EVERY term in the dictionary is read and tested. Per segment,
+   per shard.
+3. **Expansion** — the matched terms are collected and the query becomes a
+   boolean OR over them. The expensive part was the dictionary work, not the
+   matching, and the cost multiplies by segments × shards.
 
 ## Inverted index view
 Each shard has its OWN inverted index (term → posting list of doc ids) built from
@@ -114,8 +130,11 @@ shards in the gathered results. This cross-shard union is the key "aha."
 
 ## UI layout
 - Left: document input + presets + Index; lifecycle buttons (Refresh / Flush /
-  Merge / Reset); search box + example queries; document list (with each doc's
-  routed shard and a delete/tombstone toggle).
+  Merge / Reset); the sample-data loaders; search box + example queries + the
+  optional routing key; and a "Delete a document" button that opens the document
+  list (each doc's routed shard and a delete/tombstone toggle) as a scrollable
+  overlay — it lives behind a button so a dozen sample docs can't crowd out the
+  controls above it.
 - Center: the cluster — a coordinator/request bar on top, then 3 node columns,
   each showing its shard copies (primary/replica badges) with buffer, translog,
   and a stack of immutable segments. Highlights + animation follow the active op.
@@ -136,6 +155,14 @@ shards in the gathered results. This cross-shard union is the key "aha."
 ## Flagged simplifications of the OpenSearch model
 Documented so reviewers can verify the teaching stays honest:
 - Routing is a deterministic string hash standing in for murmur3 `_routing`.
+- The term-dictionary seek is modeled as a binary search over a flat sorted
+  array. Real Lucene stores the dictionary as an FST + block-tree and seeks by
+  prefix (binary-searching only WITHIN a term block). The cost story being taught
+  — O(log n) seek + scan of the matching range, versus a full enumeration for a
+  leading wildcard — is the same.
+- Wildcard matching is a regex over the segment's terms rather than Lucene's
+  compiled DFA intersected with the term index. A leading wildcard genuinely
+  enumerates the whole dictionary in both models.
 - Primary + replica are modeled as one logical shard rendered on two nodes (no
   replica lag; replica merges shown in lockstep with the primary).
 - Relevance score is term-frequency, a stand-in for BM25.

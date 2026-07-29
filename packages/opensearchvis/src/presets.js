@@ -26,6 +26,15 @@ export const PRESETS = [
 
 export const EXAMPLE_QUERIES = ['search', 'data', 'opensearch lucene']
 
+// Wildcard patterns for the "why are leading wildcards expensive?" scenario.
+// `sc*` has a literal prefix, so a segment can seek to it; `*search` has none,
+// and it deliberately matches two terms that sit far apart in the sorted
+// dictionary ("opensearch" and "search") — visible proof that no seek exists.
+export const WILDCARD_QUERIES = ['sc*', 'search*', '*search']
+
+// Routing keys used by the routed sample set below (and its scenario).
+export const ROUTING_KEYS = ['tenant-a', 'tenant-b', 'tenant-c']
+
 // A larger curated set for the "Load sample docs" button. Routing (by doc id) puts
 // 4 of these on shard 0, with deliberately different counts of the word "search"
 // (4 / 3 / 2 / 1) so the close-up's scoring and top-k eviction are visible for the
@@ -53,4 +62,33 @@ export const SAMPLE_DOCS = [
   { title: 'Scaling out', body: 'add nodes to scale search and data across the cluster.' },
   // doc-11 → shard 0  ("search" ×3)
   { title: 'Search docs', body: 'search the data and search the logs.' },
+  // The last three exist for the wildcard scenario: they seed "sc…" terms on
+  // every shard (so a prefix seek has a range to walk) and put "opensearch"
+  // alongside "search" on shards 0 and 1 (so `*search` matches two terms that
+  // sit far apart in the sorted dictionary). None of them contains the bare term
+  // "search", so the shard-0 top-k eviction demo above is unaffected.
+  // doc-12 → shard 1
+  { title: 'Scaling OpenSearch', body: 'opensearch scales out: add nodes and searches stay fast.' },
+  // doc-13 → shard 2
+  { title: 'Score and schema', body: 'a schema maps the fields; the score ranks what you searched for.' },
+  // doc-14 → shard 0
+  { title: 'Searchable data in OpenSearch', body: 'opensearch makes data searchable: scan the schema, score the results, keep searching.' },
+]
+
+// A second sample set for the routing scenario: every document carries an
+// explicit routing key, so the shard comes from hash(routing) instead of
+// hash(_id) — which is why all of a tenant's data ends up co-located on one
+// shard. With the app's hash: tenant-a → shard 1, tenant-b → shard 2,
+// tenant-c → shard 0. They all share the term "order" so an unrouted search
+// genuinely has to visit every shard.
+export const ROUTED_DOCS = [
+  { routing: 'tenant-a', title: 'Order 1001 shipped', body: 'order 1001 shipped from the west warehouse.' },
+  { routing: 'tenant-b', title: 'Order 2001 packed', body: 'order 2001 packed and awaiting pickup.' },
+  { routing: 'tenant-c', title: 'Order 3001 refunded', body: 'order 3001 refunded after a damaged delivery.' },
+  { routing: 'tenant-a', title: 'Order 1002 delayed', body: 'order 1002 delayed by a warehouse backlog.' },
+  { routing: 'tenant-b', title: 'Order 2002 delivered', body: 'order 2002 delivered on time to the customer.' },
+  { routing: 'tenant-c', title: 'Order 3002 returned', body: 'order 3002 returned by the customer for a refund.' },
+  { routing: 'tenant-a', title: 'Order 1003 cancelled', body: 'order 1003 cancelled before the warehouse picked it.' },
+  { routing: 'tenant-b', title: 'Order 2003 shipped', body: 'order 2003 shipped to the customer overnight.' },
+  { routing: 'tenant-c', title: 'Order 3003 pending', body: 'order 3003 pending payment from the customer.' },
 ]

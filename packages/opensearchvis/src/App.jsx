@@ -1,13 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { analyzeDoc } from './analyzer'
-import { PRESETS, EXAMPLE_QUERIES, SAMPLE_DOCS } from './presets'
 import {
+  PRESETS,
+  EXAMPLE_QUERIES,
+  WILDCARD_QUERIES,
+  ROUTING_KEYS,
+  SAMPLE_DOCS,
+  ROUTED_DOCS,
+} from './presets'
+import {
+  docRoute,
   initialCluster,
   routeShard,
   SHARD_PLACEMENT,
 } from './cluster'
-import { OP_LABELS, stepsFor } from './ops'
+import { OP_LABELS, opNote, stepsFor } from './ops'
 import { useOpLifecycle } from './useOpLifecycle'
 import ClusterStage from './components/ClusterStage'
 import IndexOverlay from './components/IndexOverlay'
@@ -16,9 +24,11 @@ import SearchFlight from './components/SearchFlight'
 import SearchResultsPanel from './components/SearchResultsPanel'
 import ShardInspector from './components/ShardInspector'
 import CoordinatorInspector from './components/CoordinatorInspector'
+import DeleteDocOverlay from './components/DeleteDocOverlay'
 import Stepper from './components/Stepper'
 import CookieBanner from './components/CookieBanner'
 import Walkthrough from './components/Walkthrough'
+import ScenarioPicker from './components/ScenarioPicker'
 import { useWalkthrough } from './useWalkthrough'
 import { selectorRect } from './components/tokenFlight'
 import {
@@ -54,18 +64,20 @@ export default function App() {
   } = useOpLifecycle(initialCluster)
 
   const [indexPhase, setIndexPhase] = useState('closed') // overlay choreography phase
+  const [docsOpen, setDocsOpen] = useState(false) // document list / delete overlay
   const [zoomShard, setZoomShard] = useState(null) // shard id being inspected, or null
   const [coordZoom, setCoordZoom] = useState(false) // coordinator inspector open?
   const [zoomOrigin, setZoomOrigin] = useState('50% 50%') // transform-origin of the dive
 
   const [title, setTitle] = useState(PRESETS[0].title)
   const [body, setBody] = useState(PRESETS[0].body)
+  const [indexRouting, setIndexRouting] = useState('') // optional _routing at index time
   const [query, setQuery] = useState(EXAMPLE_QUERIES[0])
+  const [routing, setRouting] = useState('') // optional _routing on the search
 
-  // Flips true when the sample dataset is seeded, so the guided tour can detect
-  // the "Load sample docs" click and advance rather than treating it as an
-  // off-script action. Cleared on Reset.
-  const [sampleLoaded, setSampleLoaded] = useState(false)
+  // Which seeded dataset is seeded, if any. Scenarios read this to detect the
+  // load click they scripted and advance rather than stalling. Cleared on Reset.
+  const [sampleSet, setSampleSet] = useState(null) // 'sample' | 'routed' | null
 
   // Analytics (GA4) — banner is only shown to users in GDPR regions
   const [showCookieBanner, setShowCookieBanner] = useState(false)
@@ -73,22 +85,24 @@ export default function App() {
   const docNum = useRef(1)
   const segNum = useRef(1)
 
-  // First-run guided tour. It only observes this snapshot to decide which step
-  // to show and when the user's real action advanced it; `pause` is the one
-  // control it drives (freezing the search at the local phase so the transient
-  // 🔍 button stays mounted).
+  // Guided scenarios (the intro tour runs on load; the rest are picked from the
+  // topbar menu). A scenario only observes this snapshot to decide which step to
+  // show and when the user's real action advanced it, and drives the app through
+  // the small set of actions below — never doing the thing it is asking for.
   const tour = useWalkthrough(
     {
       indexPhase,
       opType: op?.type ?? null,
       opStep: op ? op.step : -1,
-      playing,
       opDone,
+      opQuery: op?.type === 'search' ? op.payload.query : '',
+      opRouting: op?.type === 'search' ? op.payload.routing || null : null,
+      playing,
       zoomShard,
       coordZoom,
-      sampleLoaded,
+      sampleSet,
     },
-    { pause },
+    { pause, reset: resetCluster, setQuery, setRouting },
   )
 
   // The magnifying glass only lives on the local-search phase. Close any open
@@ -200,7 +214,8 @@ export default function App() {
 
   // Predicted routing + colour for the NEXT document, so the overlay can fly
   // tokens to the correct shard and tint them before the op actually starts.
-  const nextShard = routeShard(`doc-${docNum.current}`)
+  // Typing a routing key changes the prediction live — that IS the mechanism.
+  const nextShard = routeShard(indexRouting.trim() || `doc-${docNum.current}`)
   const nextColor = DOC_COLORS[(docNum.current - 1) % DOC_COLORS.length]
   const canRefresh = (hasBuffered || hasPendingDelete) && !playing
   const canFlush = hasUncommitted && !playing
@@ -219,7 +234,9 @@ export default function App() {
       tokens: analyzeDoc({ title: title.trim(), body: body.trim() }),
       deleted: false,
       color,
-      shard: routeShard(id),
+      routing: indexRouting.trim() || undefined,
+      // hash(_routing) when a key was supplied, hash(_id) otherwise.
+      shard: docRoute({ id, routing: indexRouting.trim() }),
     }
     start('index', { doc })
   }
@@ -250,24 +267,25 @@ export default function App() {
 
   function startSearch() {
     if (!canSearch) return
-    start('search', { query: query.trim() })
+    start('search', { query: query.trim(), routing: routing.trim() || null })
   }
 
-  // Seed a ready-to-search cluster directly: build the sample docs, route each by
-  // id, and place them into searchable+committed segments (≤2 docs each) grouped by
+  // Seed a ready-to-search cluster directly from a list of docs: route each one,
+  // then place them into searchable+committed segments (≤2 docs each) grouped by
   // shard. This gives a zoomed shard several docs across multiple segments so the
   // close-up's scoring + priority-queue steps have something to show.
-  function loadSampleDocs() {
-    // When the tour is scripting this click, let it advance (via sampleLoaded)
-    // instead of aborting; only end the tour if this is an off-script action.
-    if (tour.step?.id !== 'load-sample') tour.abort()
+  //
+  // `tombstoned` keeps one doc's delete bit set so the close-up's live-docs
+  // bitset isn't trivial. It stays a tombstone (not purged), so per the SPEC
+  // guardrail it is still searchable until a refresh applies the delete.
+  //
+  // Deliberately does NOT end a running scenario: the intro scripts a load, and
+  // its later steps only need `sampleSet` plus a search, so an off-script load
+  // can't strand it either.
+  function loadDocs(source, { kind, tombstoned = null, colorBy }) {
     const c = initialCluster()
     const byShard = Object.fromEntries(SHARD_PLACEMENT.map((p) => [p.id, []]))
-    // Tombstone one doc so the close-up's deletes (live-docs) bitset isn't trivial.
-    // It stays a tombstone (not purged), so per the SPEC guardrail it is still
-    // searchable until a refresh applies the delete.
-    const tombstoned = 'doc-8'
-    SAMPLE_DOCS.forEach((d, i) => {
+    source.forEach((d, i) => {
       const id = `doc-${i + 1}`
       const doc = {
         id,
@@ -275,8 +293,9 @@ export default function App() {
         body: d.body,
         tokens: analyzeDoc({ title: d.title, body: d.body }),
         deleted: id === tombstoned,
-        color: DOC_COLORS[i % DOC_COLORS.length],
-        shard: routeShard(id),
+        color: DOC_COLORS[colorBy(d, i) % DOC_COLORS.length],
+        routing: d.routing,
+        shard: docRoute({ id, routing: d.routing }),
       }
       c.docs[id] = doc
       byShard[doc.shard].push(id)
@@ -296,21 +315,47 @@ export default function App() {
     setIndexPhase('closed')
     setZoomShard(null)
     setCoordZoom(false)
-    setSampleLoaded(true)
-    docNum.current = SAMPLE_DOCS.length + 1
+    setDocsOpen(false)
+    setSampleSet(kind)
+    docNum.current = source.length + 1
     segNum.current = seg
   }
 
-  function reset() {
-    tour.abort() // leaving the scripted path — end the tour gracefully
+  const loadSampleDocs = () =>
+    loadDocs(SAMPLE_DOCS, { kind: 'sample', tombstoned: 'doc-8', colorBy: (d, i) => i })
+
+  // The routed set is coloured by tenant instead of by doc, so "everything with
+  // this routing key lives on one shard" is visible at a glance on the stage.
+  const loadRoutedDocs = () =>
+    loadDocs(ROUTED_DOCS, {
+      kind: 'routed',
+      colorBy: (d, i) => {
+        const tenant = ROUTING_KEYS.indexOf(d.routing)
+        return tenant === -1 ? i : tenant
+      },
+    })
+
+  // Clear the cluster back to empty. This is what a scenario's setup() calls, so
+  // it must NOT end the scenario — the Reset button below does that itself.
+  function resetCluster() {
     resetTo(initialCluster())
     setIndexPhase('closed')
-    setSampleLoaded(false)
+    setZoomShard(null)
+    setCoordZoom(false)
+    setDocsOpen(false)
+    setSampleSet(null)
     docNum.current = 1
     segNum.current = 1
   }
 
+  function reset() {
+    tour.abort() // leaving the scripted path — end the scenario gracefully
+    resetCluster()
+  }
+
   const currentStep = op ? stepsFor(op.type)[op.step] : null
+  // One extra line about this op's payload (routing target, wildcard cost).
+  const note = opNote(op, extra)
   const allDocs = Object.values(derived.docs).sort(
     (a, b) => docOrder(a.id) - docOrder(b.id),
   )
@@ -323,6 +368,11 @@ export default function App() {
           Routing & replication across a 3-node cluster, the write path, and
           scatter-gather search
         </span>
+        <ScenarioPicker
+          activeId={tour.id}
+          running={tour.status === 'running'}
+          onStart={tour.start}
+        />
       </div>
 
       <motion.div
@@ -377,6 +427,14 @@ export default function App() {
           >
             Load sample docs
           </button>
+          <button
+            className="btn block"
+            data-tour="load-routed"
+            style={{ marginTop: 8 }}
+            onClick={loadRoutedDocs}
+          >
+            Load routed docs
+          </button>
 
           <p className="section-title" style={{ marginTop: 20 }}>
             Search
@@ -400,41 +458,43 @@ export default function App() {
                   {q}
                 </button>
               ))}
+              {WILDCARD_QUERIES.map((q) => (
+                <button
+                  key={q}
+                  className="preset-chip wildcard"
+                  title="wildcard pattern — resolved against each segment's term dictionary"
+                  onClick={() => setQuery(q)}
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+
+            {/* Optional _routing on the query: hash this instead of scattering. */}
+            <div className="routing-row">
+              <label className="routing-label">routing</label>
+              <input
+                type="text"
+                value={routing}
+                onChange={(e) => setRouting(e.target.value)}
+                placeholder="none — query all shards"
+              />
             </div>
           </div>
 
-          <p className="hint">
-            Index a few docs (watch each route to a shard and replicate to a
-            second node), <b>Refresh</b> to build segments, <b>Flush</b> to
-            commit, then <b>Search</b> to watch the coordinator scatter to all
-            shards and gather a ranked response.
-          </p>
-
           {allDocs.length > 0 && (
-            <div className="doc-list">
-              <p className="section-title">Documents</p>
-              {allDocs.map((d) => (
-                <div key={d.id} className={'doc-row' + (d.deleted ? ' deleted' : '')}>
-                  <span className="dot" style={{ background: d.color }} />
-                  <span className="doc-id">{d.id}</span>
-                  <span className="doc-shard">
-                    {d.deleted
-                      ? d.purged
-                        ? 'deleted'
-                        : 'tombstoned · refresh to apply'
-                      : `→ shard ${d.shard}`}
-                  </span>
-                  <button className="mini" onClick={() => toggleDelete(d.id)}>
-                    {d.deleted ? 'undo' : 'delete'}
-                  </button>
-                </div>
-              ))}
-            </div>
+            <button
+              className="btn block"
+              style={{ marginTop: 18 }}
+              onClick={() => setDocsOpen(true)}
+            >
+              Delete a document
+            </button>
           )}
         </div>
 
         {/* ---------------- Center: cluster ---------------- */}
-        <div className="col">
+        <div className="col" data-tour="cluster">
           <p className="section-title">Cluster</p>
           <ClusterStage
             cluster={derived}
@@ -452,6 +512,7 @@ export default function App() {
             <div className="explain">
               <h3>{currentStep.title}</h3>
               <p>{currentStep.blurb}</p>
+              {note && <p className="explain-note">{note}</p>}
             </div>
           ) : (
             <div className="explain idle">
@@ -486,7 +547,7 @@ export default function App() {
         onNext={() => step(1)}
         onPlay={play}
         onPause={pause}
-        highlightPlay={tour.status === 'running' && tour.step?.id === 'stepper'}
+        highlightPlay={tour.status === 'running' && !!tour.step?.highlightPlay}
       />
 
       {/* ---------------- Overlay: indexing experience ---------------- */}
@@ -496,6 +557,8 @@ export default function App() {
         body={body}
         setTitle={setTitle}
         setBody={setBody}
+        routing={indexRouting}
+        setRouting={setIndexRouting}
         canIndex={canIndex}
         targetShard={nextShard}
         docColor={nextColor}
@@ -504,6 +567,14 @@ export default function App() {
         playing={playing}
         phase={indexPhase}
         setPhase={setIndexPhase}
+      />
+
+      {/* ---------------- Overlay: the document list (delete / undo) ---------------- */}
+      <DeleteDocOverlay
+        open={docsOpen}
+        docs={allDocs}
+        onToggleDelete={toggleDelete}
+        onClose={() => setDocsOpen(false)}
       />
 
       {/* ---------------- Overlay: search scatter-gather flights ---------------- */}
@@ -537,7 +608,7 @@ export default function App() {
         />
       )}
 
-      {/* ---------------- Overlay: first-run guided tour ---------------- */}
+      {/* ---------------- Overlay: guided scenario ---------------- */}
       <Walkthrough tour={tour} allowEscape={zoomShard == null && !coordZoom} />
     </div>
   )

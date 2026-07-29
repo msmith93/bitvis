@@ -32,3 +32,11 @@ export const INDEX_ANALYSIS_LEAD_MS = 1800
 export const INSPECTOR_DWELL_MS = 2400 // per-step auto-play dwell (room for flights + layout moves)
 export const INSPECTOR_FLIGHT_PAD_MS = 250
 export const QUERY_SCAN_MS = 1000 // QueryBox analyze-step scan-line
+
+// ---- Term-dictionary probe replay (wildcard queries) -----------------------
+// One tick per probe on the dictionary step. A seek is a handful of probes that
+// should read as deliberate bounces; a full enumeration is dozens of rows, so it
+// ticks much faster or the step would outstay its welcome. The step's dwell is
+// computed from these (probes × ms), the same way op steps budget for flights.
+export const DICT_SEEK_MS = 420
+export const DICT_SCAN_MS = 130

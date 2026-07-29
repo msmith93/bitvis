@@ -1,11 +1,13 @@
-// Declarative script for the first-run guided tour. Each step spotlights a real
-// control and advances when the user actually uses it (`advanceOn`), not via a
-// Next button — only the centered welcome/finish cards (target: null) advance
-// manually. `waitFor` gates VISIBILITY only: while false the tour renders
-// nothing, which is how it waits out op animations and lets the app's own
-// "What's happening" panel narrate. Predicates read the snapshot App builds:
-// { indexPhase, opType, opStep, playing, opDone, zoomShard, coordZoom }.
-export const TOUR_STEPS = [
+// The first-run guided tour, and the default scenario. Each step spotlights a
+// real control and advances when the user actually uses it (`advanceOn`), not
+// via a Next button — only the centered welcome/finish cards (target: null)
+// advance manually. `waitFor` gates VISIBILITY only: while false the scenario
+// renders nothing, which is how it waits out op animations and lets the app's
+// own "What's happening" panel narrate.
+//
+// Predicates read the snapshot App builds — see src/scenarios/index.js for the
+// full shape.
+const STEPS = [
   {
     id: 'welcome',
     target: null,
@@ -51,7 +53,8 @@ export const TOUR_STEPS = [
     title: 'Load a richer dataset',
     body: 'A single document makes for a lonely search. Click “Load sample docs” to seed a realistic cluster — about a dozen documents routed and replicated across all three shards — so the search you run next has something interesting to rank.',
     waitFor: (s) => s.opType === 'refresh' && s.opDone && !s.playing,
-    advanceOn: (s) => s.sampleLoaded,
+    // Either dataset satisfies "now there is something to search".
+    advanceOn: (s) => s.sampleSet != null,
   },
   {
     id: 'search',
@@ -59,7 +62,7 @@ export const TOUR_STEPS = [
     placement: 'right',
     title: 'Now search across them',
     body: 'Keep the suggested query, pick a chip, or type your own words — then hit “Search” to watch the coordinator scatter the query to every shard and gather a ranked response.',
-    waitFor: (s) => s.sampleLoaded && !s.playing,
+    waitFor: (s) => s.sampleSet != null && !s.playing,
     advanceOn: (s) => s.opType === 'search',
   },
   {
@@ -86,6 +89,7 @@ export const TOUR_STEPS = [
     // close-up. The opStep escape hatch covers a user who scrubs forward with
     // Next instead of pressing Play.
     waitFor: (s) => s.zoomShard == null,
+    highlightPlay: true,
     advanceOn: (s) => s.playing || (s.opType === 'search' && s.opStep >= 3),
   },
   {
@@ -109,7 +113,7 @@ export const TOUR_STEPS = [
     body: 'Press ▶ Play once more to let the search run to the end — watch the coordinator fetch the winning documents from their shards and return the ranked results.',
     // Hidden while either inspector is open. Advances only once the search
     // animation reaches its final step, so the tour can't end with the
-    // scatter-gather still frozen. "Skip tour" in the tooltip is the escape
+    // scatter-gather still frozen. "Skip" in the tooltip is the escape
     // hatch for anyone who wants out early.
     waitFor: (s) => s.zoomShard == null && !s.coordZoom,
     advanceOn: (s) => s.opType === 'search' && s.opDone && !s.playing,
@@ -121,6 +125,7 @@ export const TOUR_STEPS = [
     body: [
       'You indexed a document, made it searchable with a refresh, loaded a fuller sample dataset, and ran a scatter-gather search to completion — and you can replay any operation from the footer.',
       'Remember the two 🔍 magnifiers: one on each serving shard during the local search, and one on the coordinator while it gathers and fetches — click either any time for the granular view. Try Flush, Merge, and deleting documents next.',
+      'There is more in the Scenarios menu, top right: why leading wildcard queries are expensive, and what a routing key actually does.',
     ],
     // Belt-and-suspenders: never surface the end card until the search animation
     // has fully completed (and both inspectors are closed).
@@ -129,3 +134,11 @@ export const TOUR_STEPS = [
     cta: 'Done',
   },
 ]
+
+export default {
+  id: 'intro',
+  label: 'Guided intro tour',
+  blurb: 'Index a document, refresh it, and run your first scatter-gather search.',
+  steps: STEPS,
+  setup: (actions) => actions.reset(),
+}

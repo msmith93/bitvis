@@ -59,6 +59,35 @@ which lets the stepper scrub any operation forwards and backwards.
     `applyOp`) before beginning a new one. This "fold before next" is why
     completed ops can stay rendered without double-applying — note the same
     care in `toggleDelete` for completed merges.
+  - `opNote(op, extra)` returns one optional line about the op's PAYLOAD rather
+    than its current step (the routing target, the wildcard's dictionary cost),
+    rendered under the step blurb. Steps stay static per type; this is the hook
+    for anything query-specific.
+
+- **Scenarios** (`src/scenarios/`) are guided lessons, one module each plus a
+  registry — the same shape as `src/ops/`. A scenario is
+  `{ id, label, blurb, steps, setup? }`; a step spotlights a REAL control and
+  advances when the user actually uses it (`advanceOn`), with `waitFor` gating
+  visibility only and `onShow` allowed to drive the app (prefill an input,
+  pause) but never to do the thing it is asking for. `src/useWalkthrough.js`
+  owns which scenario is running and `start(id)` restarts one from step 1;
+  `Walkthrough.jsx` renders the spotlight and `ScenarioPicker` is the topbar
+  menu. The snapshot both predicates read is documented in
+  `src/scenarios/index.js`. Steps that ask the user to press ▶ Play set
+  `highlightPlay: true` and target `[data-tour="stepper-play"]`.
+
+- **Wildcards + routing** are first-class query features, not scenario-only
+  props. `src/wildcard.js` is the pure model: `parseQuery` keeps `*`/`?` tokens
+  whole (the analyzer would eat them), and `dictionaryTrace` produces the
+  replayable probe list — a binary-search seek when the pattern has a literal
+  prefix, a full enumeration when it doesn't. `ShardInspector` replays that
+  trace per segment on the dictionary step (and `localSearchSteps` gives a
+  wildcard query its own step list, which is why the inspector addresses steps
+  by `key` rather than index). Routing is
+  `docRoute(doc) = routeShard(doc.routing || doc.id)`; a search payload's
+  `routing` restricts `computeSearch` to one shard, and every downstream visual
+  (stage highlights, scatter flights, both inspectors) follows from the shorter
+  `serving` map.
 
 - **`src/useOpLifecycle.js`** owns the op state machine: `cluster`/`op`/
   `opDone`/`playing`, the auto-play clock, memoized `derived`/`extra`,
@@ -71,7 +100,9 @@ which lets the stepper scrub any operation forwards and backwards.
   flight pads, scan/lead times, inspector dwell) so JS timeouts, framer
   transitions, and step budgets that must stay in sync share one named value.
   `src/constants.js` holds the demo-size caps (gather/fetch/top-k) shared by
-  the search model and the flight components.
+  the search model and the flight components. `DICT_SEEK_MS` / `DICT_SCAN_MS`
+  pace the dictionary probe replay, and the inspector's dwell for that step is
+  computed from them the same way op steps budget for flights.
 
 - **Components** (`src/components/`) are presentational, driven by the derived
   cluster + `opExtra`: `ClusterStage` (nodes/shards/segments),

@@ -21,6 +21,8 @@ export default function IndexOverlay({
   body,
   setTitle,
   setBody,
+  routing = '',
+  setRouting,
   canIndex,
   targetShard,
   docColor,
@@ -214,6 +216,17 @@ export default function IndexOverlay({
                 <span>body</span>
                 <textarea value={body} onChange={(e) => setBody(e.target.value)} />
               </label>
+              {/* Optional _routing. Leave it empty and the shard comes from the
+                  _id; fill it in and the target below changes as you type. */}
+              <label className="field">
+                <span>routing</span>
+                <input
+                  type="text"
+                  value={routing}
+                  onChange={(e) => setRouting(e.target.value)}
+                  placeholder="optional — hashed instead of the _id"
+                />
+              </label>
               <button
                 className="btn primary block"
                 onClick={handleIndex}
@@ -224,6 +237,9 @@ export default function IndexOverlay({
               <p className="overlay-hint">
                 The document routes to a coordinator, then to shard {targetShard}'s
                 primary, where it's analyzed into terms and buffered.
+                {routing.trim()
+                  ? ` That shard comes from hash("${routing.trim()}") — the routing key, not the _id.`
+                  : ''}
               </p>
             </motion.div>
           </div>

@@ -2,10 +2,13 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion'
 import FlyingTokens, { rectCenter, selectorRect } from './tokenFlight'
-import { LOCAL_SEARCH_STEPS, computeShardSearch } from '../ops/search'
+import { localSearchSteps, computeShardSearch } from '../ops/search'
 import { segmentAnatomy } from '../invertedIndex'
+import { matchesAny } from '../wildcard'
 import {
   flightMs,
+  DICT_SCAN_MS,
+  DICT_SEEK_MS,
   INSPECTOR_DWELL_MS,
   INSPECTOR_FLIGHT_PAD_MS,
   QUERY_SCAN_MS,
@@ -13,16 +16,26 @@ import {
 import { LOCAL_TOPK } from '../constants'
 import Stepper from './Stepper'
 
-// Step indices into LOCAL_SEARCH_STEPS: analyze(0) lookup(1) postings(2)
-// score(3) topk(4) return(5).
-
 // A zoom-in overlay for a single serving shard during the local-search phase.
 // A persistent "segment anatomy" diagram (inverted index = term dictionary +
 // postings, stored _source, deletes bitset) stays visible while a mini-stepper
-// walks the six query-phase steps. Transitions are animated end-to-end: query
+// walks the query-phase steps. Transitions are animated end-to-end: query
 // tokens fly to the segments, matched doc-ids fly up into the candidate lane, and
 // the candidate chips glide into their scored / ranked positions (framer layout).
-export default function ShardInspector({ shard, search, docs, query, onClose, highlightClose }) {
+//
+// A WILDCARD query takes a different route through the same diagram: the
+// dictionary step replays, probe by probe, how the pattern is actually resolved
+// against each segment's sorted terms (a seek, or a full enumeration), and an
+// extra step collects the terms it expanded to. Steps are addressed by `key`
+// rather than index because of that extra step.
+export default function ShardInspector({
+  shard,
+  search,
+  docs,
+  query,
+  onClose,
+  highlightClose,
+}) {
   const open = !!shard && !!search
 
   let initial = { opacity: 0, scale: 0.25 }
@@ -80,23 +93,47 @@ export default function ShardInspector({ shard, search, docs, query, onClose, hi
 
 function InspectorBody({ shard, search, docs, query, onClose, highlightClose }) {
   const sv = search.serving[shard.id]
-  const terms = search.terms
+  const patterns = search.patterns
+  const wildcard = search.wildcard
   const local = useMemo(
-    () => computeShardSearch(shard, terms, docs, LOCAL_TOPK),
-    [shard, terms, docs],
+    () => computeShardSearch(shard, patterns, docs, LOCAL_TOPK),
+    [shard, patterns, docs],
   )
   const anatomy = useMemo(
     () =>
       shard.segments.filter((s) => s.searchable).map((s) => segmentAnatomy(s, docs)),
     [shard, docs],
   )
+  const steps = useMemo(() => localSearchSteps(patterns), [patterns])
+  const at = useMemo(
+    () => Object.fromEntries(steps.map((s, i) => [s.key, i])),
+    [steps],
+  )
+  // Each segment's dictionary resolution, keyed for the anatomy cards.
+  const scans = useMemo(
+    () => Object.fromEntries(local.segments.map((s) => [s.id, s.scan])),
+    [local],
+  )
 
-  const last = LOCAL_SEARCH_STEPS.length - 1
+  const last = steps.length - 1
   const [step, setStep] = useState(0)
   const [playing, setPlaying] = useState(true)
   const [arrived, setArrived] = useState(true) // has the current step's flight landed?
   const [flights, setFlights] = useState([])
+  const [probeIdx, setProbeIdx] = useState(0) // probes replayed on the dictionary step
   const prevStepRef = useRef(0)
+
+  // Probe budget: the longest segment trace paces the step, and a full
+  // enumeration ticks faster than a seek's deliberate bounces.
+  const maxProbes = Math.max(0, ...local.segments.map((s) => s.scan.probes.length))
+  const probeMs = local.segments[0]?.scan.mode === 'scan' ? DICT_SCAN_MS : DICT_SEEK_MS
+  const dwell = (i) =>
+    wildcard && i === at.lookup
+      ? flightMs(patterns.length) +
+        INSPECTOR_FLIGHT_PAD_MS +
+        maxProbes * probeMs +
+        INSPECTOR_FLIGHT_PAD_MS
+      : INSPECTOR_DWELL_MS
 
   // Auto-play clock.
   useEffect(() => {
@@ -105,8 +142,9 @@ function InspectorBody({ shard, search, docs, query, onClose, highlightClose }) 
       setPlaying(false)
       return
     }
-    const id = setTimeout(() => setStep((s) => Math.min(last, s + 1)), INSPECTOR_DWELL_MS)
+    const id = setTimeout(() => setStep((s) => Math.min(last, s + 1)), dwell(step))
     return () => clearTimeout(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing, step, last])
 
   // Choreography: on FORWARD entry to a flight step, launch the flight(s) and hold
@@ -118,9 +156,9 @@ function InspectorBody({ shard, search, docs, query, onClose, highlightClose }) 
     prevStepRef.current = step
     const forward = step > prev
 
-    if (forward && (step === 1 || step === 2)) {
+    if (forward && (step === at.lookup || step === at.postings)) {
       setArrived(false)
-      const built = step === 1 ? buildLookupFlights() : buildCandidateFlights()
+      const built = step === at.lookup ? buildLookupFlights() : buildCandidateFlights()
       setFlights(built)
       const n = Math.max(1, ...built.map((f) => f.tokens.length))
       const t = setTimeout(() => {
@@ -134,13 +172,41 @@ function InspectorBody({ shard, search, docs, query, onClose, highlightClose }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step])
 
-  // query term chips fly from the query bar down to each segment's inverted index;
-  // a segment scrolled below the fold gets a token that exits the bottom edge.
+  // Replay the dictionary probes once the query chips have landed. Leaving the
+  // step forwards parks the replay at "finished" (so later steps show every
+  // matched term); leaving it backwards rewinds it to nothing.
+  useEffect(() => {
+    if (!wildcard) return
+    if (step !== at.lookup) {
+      setProbeIdx(step > at.lookup ? maxProbes : 0)
+      return
+    }
+    if (!arrived) {
+      setProbeIdx(0)
+      return
+    }
+    let i = 0
+    setProbeIdx(0)
+    const id = setInterval(() => {
+      i += 1
+      setProbeIdx(i)
+      if (i >= maxProbes) clearInterval(id)
+    }, probeMs)
+    return () => clearInterval(id)
+  }, [wildcard, step, arrived, at.lookup, maxProbes, probeMs])
+
+  // query term / pattern chips fly from the query bar down to each segment's
+  // inverted index; a segment scrolled below the fold gets a token that exits the
+  // bottom edge.
   function buildLookupFlights() {
     const from = selectorRect('.si-query-box')
     if (!from) return []
     const scRect = selectorRect('.si-scroll')
-    const tokens = terms.map((t, i) => ({ id: `q-${i}-${t}`, term: t, color: 'var(--accent)' }))
+    const tokens = search.terms.map((t, i) => ({
+      id: `q-${i}-${t}`,
+      term: t,
+      color: 'var(--accent)',
+    }))
     if (!tokens.length) return []
     return anatomy
       .map((seg) => {
@@ -189,16 +255,19 @@ function InspectorBody({ shard, search, docs, query, onClose, highlightClose }) 
     setStep((s) => Math.max(0, Math.min(last, s + delta)))
   }
 
-  const current = LOCAL_SEARCH_STEPS[step]
+  const current = steps[step]
+  // The probe replay owns the dictionary highlighting while it is running: terms
+  // light up as the scan reaches them, not all at once.
+  const scanning = wildcard && step === at.lookup && arrived
   const focus = {
-    queryTerms: new Set(terms),
+    matches: (term) => matchesAny(term, patterns),
     candidateSet: new Set(local.candidates),
-    dictHL: step >= 2 || (step === 1 && arrived), // term dictionary lookup
-    postingsHL: step >= 2, // postings walked (source of the candidate flight)
-    sourceHL: step >= 5, // _source read on return/fetch
+    dictHL: step > at.lookup || (step === at.lookup && arrived), // term dictionary lookup
+    postingsHL: step >= at.postings, // postings walked (source of the candidate flight)
+    sourceHL: step >= at.return, // _source read on return/fetch
   }
-  // candidate lane items appear once the step-2 flight has landed.
-  const laneRevealed = step >= 3 || (step === 2 && arrived)
+  // candidate lane items appear once the postings-step flight has landed.
+  const laneRevealed = step >= at.score || (step === at.postings && arrived)
 
   const removeFlight = (key) => setFlights((f) => f.filter((x) => x.key !== key))
 
@@ -230,17 +299,13 @@ function InspectorBody({ shard, search, docs, query, onClose, highlightClose }) 
       </div>
 
       {/* Persistent query box — stays visible across every phase. */}
-      <QueryBox query={query} terms={terms} step={step} />
+      <QueryBox query={query} terms={search.terms} step={step} />
 
       <div className="si-scroll">
-        {step >= 2 && (
-          <ResultsLane
-            step={step}
-            local={local}
-            terms={terms}
-            docs={docs}
-            revealed={laneRevealed}
-          />
+        {step === at.expand && <ExpansionBlock local={local} />}
+
+        {step >= at.postings && (
+          <ResultsLane step={step} at={at} local={local} docs={docs} revealed={laneRevealed} />
         )}
 
         <p className="section-title">Segment anatomy — what this shard stores</p>
@@ -249,7 +314,15 @@ function InspectorBody({ shard, search, docs, query, onClose, highlightClose }) 
             <div className="empty-note small">nothing searchable on this shard</div>
           ) : (
             anatomy.map((seg) => (
-              <AnatomyCard key={seg.id} seg={seg} focus={focus} docs={docs} />
+              <AnatomyCard
+                key={seg.id}
+                seg={seg}
+                focus={focus}
+                docs={docs}
+                scan={scans[seg.id]}
+                probeIdx={scanning ? probeIdx : null}
+                showCost={wildcard && step >= at.lookup}
+              />
             ))
           )}
         </div>
@@ -257,7 +330,7 @@ function InspectorBody({ shard, search, docs, query, onClose, highlightClose }) 
 
       <div className="si-stepper">
         <Stepper
-          steps={LOCAL_SEARCH_STEPS}
+          steps={steps}
           step={step}
           opLabel={`shard ${shard.id} · local search`}
           playing={playing}
@@ -286,12 +359,53 @@ function InspectorBody({ shard, search, docs, query, onClose, highlightClose }) 
   )
 }
 
-// The persistent results lane (steps 2–5). One chip per docId, carried across
-// phases via layoutId so framer animates every reposition: candidates → scored
-// order → ranked slots (evicted peel off) → returned list.
-function ResultsLane({ step, local, terms, docs, revealed }) {
+// What a wildcard actually expanded to, plus what reading the dictionaries cost.
+// From here on the query is an ordinary boolean OR over these terms.
+function ExpansionBlock({ local }) {
+  const pct = local.dictTotal
+    ? Math.round((local.examined / local.dictTotal) * 100)
+    : 0
+  return (
+    <div className="si-block">
+      <p className="section-title">Pattern expanded to</p>
+      <div className="si-expansion">
+        {local.matchedTerms.length === 0 ? (
+          <div className="ss-none">no terms matched</div>
+        ) : (
+          local.matchedTerms.map((t) => (
+            <motion.span
+              key={t}
+              className="term-chip"
+              initial={{ opacity: 0, scale: 0.6 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ type: 'spring', stiffness: 320, damping: 22 }}
+            >
+              {t}
+            </motion.span>
+          ))
+        )}
+      </div>
+      <div className="dict-cost total">
+        {local.examined} of {local.dictTotal} dictionary terms read ({pct}%) across{' '}
+        {local.segments.length} segment{local.segments.length === 1 ? '' : 's'} on this
+        shard alone
+      </div>
+    </div>
+  )
+}
+
+// The persistent results lane. One chip per docId, carried across phases via
+// layoutId so framer animates every reposition: candidates → scored order →
+// ranked slots (evicted peel off) → returned list.
+function ResultsLane({ step, at, local, docs, revealed }) {
   const mode =
-    step === 2 ? 'candidates' : step === 3 ? 'score' : step === 4 ? 'topk' : 'return'
+    step === at.postings
+      ? 'candidates'
+      : step === at.score
+      ? 'score'
+      : step === at.topk
+      ? 'topk'
+      : 'return'
   const titles = {
     candidates: 'Candidate docs (union of posting lists)',
     score: 'Score each candidate (term-frequency stand-in)',
@@ -335,13 +449,11 @@ function ResultsLane({ step, local, terms, docs, revealed }) {
                       <DocChip id={it.docId} docs={docs} hit />
                       {mode === 'score' && sc && (
                         <span className="si-lane-terms">
-                          {terms
-                            .filter((t) => sc.perTerm[t])
-                            .map((t) => (
-                              <span key={t} className="si-tf">
-                                {t} ×{sc.perTerm[t]}
-                              </span>
-                            ))}
+                          {Object.entries(sc.perTerm).map(([t, n]) => (
+                            <span key={t} className="si-tf">
+                              {t} ×{n}
+                            </span>
+                          ))}
                         </span>
                       )}
                       {mode === 'score' && sc && <span className="score">= {sc.score}</span>}
@@ -385,24 +497,68 @@ function ResultsLane({ step, local, terms, docs, revealed }) {
   )
 }
 
+// Which dictionary rows the replay has touched so far, for one segment. Returns
+// null unless a probe replay is running, in which case the term dictionary is
+// rendered from THIS rather than from "every matching term".
+function probeView(scan, probeIdx) {
+  if (!scan || probeIdx == null) return null
+  const played = Math.min(probeIdx, scan.probes.length)
+  const examined = new Set()
+  const matched = new Set()
+  for (let i = 0; i < played; i++) {
+    const p = scan.probes[i]
+    examined.add(p.i)
+    if (p.match) matched.add(p.i)
+  }
+  const cur = played > 0 && probeIdx <= scan.probes.length ? scan.probes[played - 1] : null
+  return {
+    examined,
+    matched,
+    cursor: cur ? cur.i : null,
+    phase: cur ? cur.phase : null,
+    lo: cur && cur.phase === 'seek' ? cur.lo : null,
+    hi: cur && cur.phase === 'seek' ? cur.hi : null,
+    count: examined.size,
+    done: played >= scan.probes.length,
+  }
+}
+
 // One segment's stored structures: inverted index (term dictionary | postings),
 // stored _source, and the deletes (live-docs) bitset. The same card lights up
-// differently depending on `focus` (which query step we're on).
-function AnatomyCard({ seg, focus, docs }) {
-  const { queryTerms, dictHL, postingsHL, sourceHL, candidateSet } = focus
+// differently depending on `focus` (which query step we're on) and, for a
+// wildcard, on how far the dictionary probe replay has got.
+function AnatomyCard({ seg, focus, docs, scan, probeIdx, showCost }) {
+  const { matches, dictHL, postingsHL, sourceHL, candidateSet } = focus
   const rowsRef = useRef(null)
   const matchRef = useRef(null)
+  const cursorRef = useRef(null)
+  const view = probeView(scan, probeIdx)
+  const cursor = view?.cursor ?? null
 
   // When the lookup highlight activates, scroll this segment's term dictionary so
   // its first matching term is in view. Contained to the .anat-ii-rows scroller.
+  // Skipped while a probe replay is running — the cursor effect below owns
+  // scrolling then.
   useEffect(() => {
-    if (!dictHL || !rowsRef.current || !matchRef.current) return
+    if (view || !dictHL || !rowsRef.current || !matchRef.current) return
     const rows = rowsRef.current
     const top =
       rows.scrollTop +
       (matchRef.current.getBoundingClientRect().top - rows.getBoundingClientRect().top)
     rows.scrollTo({ top, behavior: 'smooth' })
-  }, [dictHL])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dictHL, !!view])
+
+  // Follow the probe. Instant, and only when the cursor has left the visible
+  // box — a smooth scroll per tick would never settle at scan speed.
+  useEffect(() => {
+    if (cursor == null || !rowsRef.current || !cursorRef.current) return
+    const rows = rowsRef.current
+    const box = rows.getBoundingClientRect()
+    const row = cursorRef.current.getBoundingClientRect()
+    if (row.top < box.top || row.bottom > box.bottom)
+      rows.scrollTop += row.top - box.top - box.height / 2 + row.height / 2
+  }, [cursor])
 
   let firstMatchSeen = false
   return (
@@ -427,24 +583,41 @@ function AnatomyCard({ seg, focus, docs }) {
       <div className="anat-body">
         {/* inverted index: term dictionary | postings */}
         <div className="anat-ii" data-anat-ii={seg.id}>
-          <div className="anat-ii-label">inverted index</div>
+          <div className="anat-ii-label">
+            inverted index
+            {showCost && scan && (
+              <span className={'dict-cost' + (view?.done === false ? ' live' : '')}>
+                {scan.mode === 'seek' ? 'seek · ' : 'full scan · '}
+                examined {view ? view.count : scan.examined} / {scan.total}
+              </span>
+            )}
+          </div>
           <div className="anat-ii-cols">
             <div className="anat-col-head">term dictionary</div>
             <div className="anat-col-head">postings</div>
           </div>
           <div className="anat-ii-rows" ref={rowsRef}>
-            {seg.terms.map(({ term, docIds }) => {
-              const isQ = queryTerms.has(term)
-              const isFirstMatch = isQ && !firstMatchSeen
+            {seg.terms.map(({ term, docIds }, i) => {
+              const isQ = matches(term)
+              // While the replay runs, a term only lights up once the scan has
+              // actually reached it — that IS the lesson.
+              const hit = view ? view.matched.has(i) : isQ && dictHL
+              const dim = view ? !view.matched.has(i) : dictHL && !isQ
+              const isFirstMatch = !view && isQ && !firstMatchSeen
               if (isFirstMatch) firstMatchSeen = true
+              const isCursor = view && view.cursor === i
               return (
                 <div
                   key={term}
-                  ref={isFirstMatch ? matchRef : null}
+                  ref={isCursor ? cursorRef : isFirstMatch ? matchRef : null}
                   className={
                     'anat-row' +
-                    (isQ && dictHL ? ' term-active' : '') +
-                    (dictHL && !isQ ? ' dim' : '')
+                    (hit ? ' term-active' : '') +
+                    (dim ? ' dim' : '') +
+                    (view?.examined.has(i) ? ' examined' : '') +
+                    (isCursor ? ` probe-${view.phase}` : '') +
+                    (view && view.lo === i ? ' probe-lo' : '') +
+                    (view && view.hi === i ? ' probe-hi' : '')
                   }
                 >
                   <span className="anat-term">{term}</span>
@@ -483,7 +656,7 @@ function AnatomyCard({ seg, focus, docs }) {
 // Persistent query box — stays visible across ALL phases (the most meaningful
 // part of the flow). On the analyze step a scan-line sweeps the box and the
 // extracted term chips appear (tokenize + normalize); on later steps the terms are
-// shown immediately. Also the source anchor for the step-2 query→segment flights.
+// shown immediately. Also the source anchor for the lookup-step flights.
 function QueryBox({ query, terms, step }) {
   const [scanning, setScanning] = useState(step === 0)
   const [showTokens, setShowTokens] = useState(step !== 0)

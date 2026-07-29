@@ -203,7 +203,7 @@ export default function Walkthrough({ tour, allowEscape = true }) {
               </button>
             )}
             <button className="tour-skip" onClick={skip}>
-              Skip tour
+              Skip
             </button>
           </span>
         </div>

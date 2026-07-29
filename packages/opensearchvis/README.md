@@ -34,6 +34,27 @@ The whole point is to make the distinctions that usually get glossed over
   coordinator merges, ranks, and fetches (query-then-fetch).
 - **Per-shard inverted indexes** — each shard indexes only its own docs; a search
   unions posting lists across shards. That cross-shard union is the key "aha."
+- **Why leading wildcards are expensive** — the term dictionary is sorted, so
+  `sc*` seeks straight to its range while `*search` has nothing to seek to and
+  must read every term, in every segment, on every shard. You watch the probes.
+- **What a routing key does** — `hash(_routing)` instead of `hash(_id)`
+  co-locates a tenant on one shard, so a query carrying the same key skips the
+  others entirely.
+
+## Guided scenarios
+
+The **Scenarios** menu (top right) runs three lessons. Each one spotlights the
+real controls and waits for you to click them:
+
+| Scenario | What you'll see |
+|---|---|
+| Guided intro tour | Index your first document, refresh it, load a fuller dataset, and run a scatter-gather search to completion — including both 🔍 close-ups. Runs automatically on first load, and is replayable from the menu. |
+| Why leading wildcards are expensive | `sc*` seeks the term dictionary in a handful of probes; `*search` reads 100% of it. The shard close-up replays both, per segment, with a live "examined" counter. |
+| How a routing key works | The same query with and without `routing`: one shard serving versus all three. |
+
+Wildcards and routing aren't scenario-only — a `*` in the search box runs a
+wildcard query, the routing field next to it works on any dataset, and the index
+form takes a routing key (watch the predicted target shard change as you type).
 
 ## Cluster topology
 

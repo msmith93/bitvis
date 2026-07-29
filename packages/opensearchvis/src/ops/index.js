@@ -60,3 +60,11 @@ export function opExtra(cluster, op) {
   if (!op) return {}
   return OPS[op.type]?.extra?.(cluster, op) ?? {}
 }
+
+// One optional line about THIS op's payload rather than its current step —
+// e.g. what a routing key or a wildcard pattern cost. Rendered under the step
+// blurb, which stays static per step.
+export function opNote(op, extra = {}) {
+  if (!op) return null
+  return OPS[op.type]?.note?.(op, extra) ?? null
+}

@@ -3,15 +3,19 @@ import { SHARD_PLACEMENT } from '../cluster'
 // Right-panel view during a search. Reveals the two-phase query-then-fetch flow
 // step by step: per-shard local hits, then the coordinator's merged ranking,
 // then fetched bodies, then "returned to client".
+//
+// A shard with no entry in `serving` was never asked — that only happens when
+// the query carried a routing key, and showing those shards sitting idle is the
+// whole point of the routing lesson.
 export default function SearchResultsPanel({ search, step, docs }) {
   if (!search) return null
-  const { terms, serving, perShard, merged } = search
+  const { terms, serving, perShard, merged, routing, wildcard } = search
 
   return (
     <div>
       <p className="section-title">Search · scatter / gather</p>
       <div className="ii-meta">
-        query terms:{' '}
+        {wildcard ? 'pattern: ' : 'query terms: '}
         {terms.length ? (
           terms.map((t) => (
             <span key={t} className="term-chip">
@@ -21,12 +25,26 @@ export default function SearchResultsPanel({ search, step, docs }) {
         ) : (
           <em>none</em>
         )}
+        {routing && (
+          <span className="routing-tag">
+            routing <b>{routing}</b> → shard {search.routedShard}
+          </span>
+        )}
       </div>
 
       <div className="search-shards">
         {SHARD_PLACEMENT.map(({ id: sid }) => {
           const sv = serving[sid]
           const hits = perShard[sid] || []
+          if (!sv)
+            return (
+              <div className="search-shard skipped" key={sid}>
+                <div className="ss-head">shard {sid}</div>
+                <div className="ss-skipped">
+                  not queried — routing “{routing}” can’t be on this shard
+                </div>
+              </div>
+            )
           return (
             <div className="search-shard" key={sid}>
               <div className="ss-head">

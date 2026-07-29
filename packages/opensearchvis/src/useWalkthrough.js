@@ -1,22 +1,26 @@
 import { useEffect, useRef, useState } from 'react'
-import { TOUR_STEPS } from './walkthroughSteps'
+import { DEFAULT_SCENARIO, scenarioById } from './scenarios'
 
-// The guided-tour state machine: which step is current, whether it should be
-// rendered right now, and how it moves forward. The tour starts running on
-// every page load — deliberately no persistence, matching the app's
-// everything-in-React rule — and 'done' is terminal for the session.
+// The guided-tour state machine: which scenario is running, which step is
+// current, whether it should be rendered right now, and how it moves forward.
+// The intro scenario starts on every page load — deliberately no persistence,
+// matching the app's everything-in-React rule — and 'done' is terminal until
+// the user picks another scenario from the topbar menu.
 //
 // `snapshot` is a plain object App rebuilds each render from state it already
-// owns; `actions` are the few app controls a step may invoke on entry
-// (currently just `pause`). Steps advance when their `advanceOn` predicate
-// observes the user's real action, so the effects below intentionally run on
-// every render rather than diffing the snapshot's fields.
+// owns; `actions` are the few app controls a step may invoke on entry. Steps
+// advance when their `advanceOn` predicate observes the user's real action, so
+// the effects below intentionally run on every render rather than diffing the
+// snapshot's fields.
 export function useWalkthrough(snapshot, actions) {
+  const [id, setId] = useState(DEFAULT_SCENARIO)
   const [status, setStatus] = useState('running') // 'running' | 'done'
   const [stepIndex, setStepIndex] = useState(0)
   const shownRef = useRef(-1) // last step whose onShow fired
 
-  const step = status === 'running' ? TOUR_STEPS[stepIndex] : null
+  const scenario = scenarioById(id)
+  const steps = scenario.steps
+  const step = status === 'running' ? steps[stepIndex] : null
   const visible = !!step && (!step.waitFor || step.waitFor(snapshot))
 
   // Fire onShow once per step, at the moment the step first becomes visible. A
@@ -34,20 +38,33 @@ export function useWalkthrough(snapshot, actions) {
   // script (e.g. presses ▶ Play instead of clicking 🔍) still moves the tour.
   useEffect(() => {
     if (!step || !step.advanceOn || !step.advanceOn(snapshot)) return
-    if (stepIndex >= TOUR_STEPS.length - 1) setStatus('done')
+    if (stepIndex >= steps.length - 1) setStatus('done')
     else setStepIndex(stepIndex + 1)
   })
 
   const end = () => setStatus('done')
-  const next = () =>
-    stepIndex >= TOUR_STEPS.length - 1 ? end() : setStepIndex(stepIndex + 1)
+  const next = () => (stepIndex >= steps.length - 1 ? end() : setStepIndex(stepIndex + 1))
+
+  // Start (or restart) a scenario from its first step. shownRef has to be reset
+  // too, or re-running the scenario you just finished would skip every onShow.
+  function start(nextId) {
+    const target = scenarioById(nextId)
+    shownRef.current = -1
+    setId(target.id)
+    setStepIndex(0)
+    setStatus('running')
+    target.setup?.(actions)
+  }
 
   return {
+    id: scenario.id,
+    scenario,
     status,
     stepIndex,
-    stepCount: TOUR_STEPS.length,
+    stepCount: steps.length,
     step,
     visible,
+    start,
     next,
     skip: end,
     finish: end,

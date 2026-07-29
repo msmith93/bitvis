@@ -35,11 +35,18 @@ export function shardsOnNode(nodeId) {
 // Deterministic stand-in for OpenSearch's murmur3(_routing) % num_shards.
 // A simple string hash; for ids like doc-1, doc-2, doc-3 it spreads evenly
 // across all shards so every node participates in the search demo.
-export function routeShard(docId) {
+export function routeShard(routingValue) {
   let h = 0
-  for (let i = 0; i < docId.length; i++) h = (h * 31 + docId.charCodeAt(i)) >>> 0
+  for (let i = 0; i < routingValue.length; i++)
+    h = (h * 31 + routingValue.charCodeAt(i)) >>> 0
   return h % NUM_SHARDS
 }
+
+// The value actually hashed for a document: its custom routing key if one was
+// supplied at index time, else its _id. This is the whole mechanism — every doc
+// sharing a routing key lands on the same shard, which is what lets a search
+// with the same key skip the other shards entirely.
+export const docRoute = (doc) => routeShard(doc?.routing || doc?.id || '')
 
 // Which copy of a shard serves the query phase. Deterministic stand-in for
 // OpenSearch's adaptive replica selection (see SPEC "Flagged simplifications"):

@@ -1,11 +1,23 @@
-import { analyze } from '../analyzer'
-import { selectServingCopy } from '../cluster'
+import { routeShard, selectServingCopy } from '../cluster'
 import { MAX_GATHER_IDS, MAX_FETCH_WINNERS, LOCAL_TOPK } from '../constants'
 import { segmentInvertedIndex } from '../invertedIndex'
 import { flightMs, FLIGHT_PAD_MS } from '../timing'
+import {
+  PATTERN_LABEL,
+  dictionaryScan,
+  isWildcardQuery,
+  matchesAny,
+  parseQuery,
+} from '../wildcard'
 
 // The `search` op: two-phase query-then-fetch scatter-gather. Read-only — it
 // has no derive(), so applyOp leaves the committed cluster untouched.
+//
+// Two payload options change WHERE and HOW MUCH work happens:
+//   payload.routing — hash the routing key instead of scattering: exactly one
+//                     shard is queried, the other two do nothing.
+//   a `*` in the query — the term is a wildcard pattern that must first be
+//                     expanded against each segment's term dictionary.
 
 const STEPS = [
   {
@@ -20,7 +32,7 @@ const STEPS = [
     ms: 1400, // overridden by duration() (fan-out flights)
     title: '2 · Scatter (query phase)',
     blurb:
-      'The coordinator fans the query out to ONE copy of every shard — primary or replica — spread across the nodes. This is why a search runs on all nodes.',
+      'The coordinator fans the query out to ONE copy of every shard — primary or replica — spread across the nodes. This is why a search runs on all nodes. A routing key is the exception: it names the one shard that can hold the data.',
   },
   {
     key: 'local',
@@ -52,13 +64,59 @@ const STEPS = [
   },
 ]
 
+// Score one doc against the query patterns: how often each MATCHING term occurs
+// in it. `perTerm` is keyed by the real term, not the pattern, so a wildcard
+// shows which terms it actually hit. For a plain term query this is identical to
+// the term-frequency count the app has always used (a stand-in for BM25).
+export function scoreDoc(doc, patterns) {
+  const perTerm = {}
+  let score = 0
+  for (const field of ['title', 'body'])
+    for (const term of doc.tokens[field])
+      if (matchesAny(term, patterns)) {
+        perTerm[term] = (perTerm[term] || 0) + 1
+        score += 1
+      }
+  return { score, perTerm }
+}
+
+// What resolving this query costs in the term dictionaries it has to touch:
+// every searched shard × every searchable segment. The multiplication is the
+// point — a leading wildcard pays the full dictionary price once per segment.
+function dictionaryCost(shards, docs, patterns) {
+  let examined = 0
+  let total = 0
+  let segments = 0
+  for (const shard of shards)
+    for (const seg of shard.segments) {
+      if (!seg.searchable) continue
+      const scan = dictionaryScan(
+        segmentInvertedIndex(seg, docs).map((r) => r.term),
+        patterns,
+      )
+      examined += scan.examined
+      total += scan.total
+      segments += 1
+    }
+  return { examined, total, segments, shards: shards.length }
+}
+
 // Run the (read-only) search against the committed cluster.
 function computeSearch(cluster, op) {
-  const terms = analyze(op.payload.query)
-  const serving = {} // shardId -> { node, role }
+  const patterns = parseQuery(op.payload.query)
+  const routing = op.payload.routing || null
+  // A routing key hashes to exactly one shard — the only shard that can hold a
+  // doc indexed with that key, so it is the only shard worth asking.
+  const routedShard = routing ? routeShard(routing) : null
+  const queried =
+    routedShard == null
+      ? cluster.shards
+      : cluster.shards.filter((s) => s.id === routedShard)
+
+  const serving = {} // shardId -> { node, role }   (queried shards only)
   const perShard = {} // shardId -> [{ docId, score }]
 
-  for (const shard of cluster.shards) {
+  for (const shard of queried) {
     serving[shard.id] = selectServingCopy(shard)
 
     const docIds = new Set()
@@ -71,11 +129,7 @@ function computeSearch(cluster, op) {
       // Tombstoned-but-not-yet-refreshed docs are still searchable (purged is
       // set by a refresh); only purged docs drop out of results.
       if (!doc || doc.purged) continue
-      let score = 0
-      for (const t of terms) {
-        score += doc.tokens.title.filter((x) => x === t).length
-        score += doc.tokens.body.filter((x) => x === t).length
-      }
+      const { score } = scoreDoc(doc, patterns)
       if (score > 0) hits.push({ docId: id, score })
     }
     hits.sort((a, b) => b.score - a.score || a.docId.localeCompare(b.docId))
@@ -86,7 +140,18 @@ function computeSearch(cluster, op) {
     .flatMap(([sid, hits]) => hits.map((h) => ({ ...h, shard: Number(sid) })))
     .sort((a, b) => b.score - a.score || a.docId.localeCompare(b.docId))
 
-  return { terms, serving, perShard, merged }
+  return {
+    terms: patterns.map((p) => p.raw), // display strings (patterns kept verbatim)
+    patterns,
+    wildcard: isWildcardQuery(patterns),
+    routing,
+    routedShard,
+    skipped: cluster.shards.filter((s) => !(s.id in serving)).map((s) => s.id),
+    cost: dictionaryCost(queried, cluster.docs, patterns),
+    serving,
+    perShard,
+    merged,
+  }
 }
 
 // The largest single flight (in tokens) SearchFlight will launch for a step, so
@@ -121,6 +186,25 @@ export default {
     return { search: computeSearch(cluster, op) }
   },
 
+  // The one line of copy that depends on THIS query rather than the step — the
+  // routing/wildcard cost, shown under the step blurb.
+  note(op, extra) {
+    const s = extra.search
+    if (!s) return null
+    const parts = []
+    if (s.routing)
+      parts.push(
+        `routing “${s.routing}” → hash % 3 = shard ${s.routedShard}: 1 of 3 shards queried, ${s.skipped.length} idle.`,
+      )
+    if (s.wildcard && s.cost.total)
+      parts.push(
+        `${s.cost.examined} of ${s.cost.total} dictionary terms examined across ${s.cost.segments} segment${
+          s.cost.segments === 1 ? '' : 's'
+        } on ${s.cost.shards} shard${s.cost.shards === 1 ? '' : 's'}.`,
+      )
+    return parts.length ? parts.join(' ') : null
+  },
+
   // Content-driven steps only; undefined falls back to the step's static `ms`.
   duration(op, extra) {
     if (!extra.search) return undefined
@@ -133,7 +217,11 @@ export default {
 // during the query phase. They are independent of the global op (which stays
 // frozen on the search `local` step while the inspector is open) and are driven
 // by a mini-stepper inside the inspector. Shaped like the op steps above.
-export const LOCAL_SEARCH_STEPS = [
+//
+// A wildcard query gets a different dictionary step (the pattern has to be
+// RESOLVED, not just looked up) plus an extra expansion step, so the inspector
+// addresses steps by `key` rather than by index.
+const PLAIN_LOCAL_STEPS = [
   {
     key: 'analyze',
     title: '1 · Analyze the query',
@@ -172,10 +260,50 @@ export const LOCAL_SEARCH_STEPS = [
   },
 ]
 
+const seekBlurb = (patterns) => {
+  const prefixes = patterns.map((p) => `“${p.seekPrefix}”`).join(', ')
+  return `The term dictionary is SORTED, and this pattern has a literal prefix — so the segment jumps straight to where ${prefixes} would sit (a binary search here; real Lucene seeks through an FST + block-tree) and then reads forward only while the prefix still matches. It stops at the first term that doesn’t. Everything outside that range is never touched.`
+}
+
+const ENUMERATE_BLURB =
+  'A leading wildcard has NO literal prefix, so there is nothing to jump to — a match could sit anywhere in the sorted dictionary. The only option is to read every single term and test it: in this segment, in every other segment, on every shard. That is what makes “*term” expensive.'
+
+function wildcardLocalSteps(patterns) {
+  const seekable = patterns.every((p) => p.seekPrefix)
+  return [
+    {
+      key: 'analyze',
+      title: '1 · Parse the pattern',
+      blurb: `This is a wildcard pattern, not a plain term: it gets matched against the dictionary rather than looked up in it. ${patterns
+        .map((p) => `“${p.raw}” — ${PATTERN_LABEL[p.kind]}`)
+        .join(' · ')}.`,
+    },
+    {
+      key: 'lookup',
+      title: seekable ? '2 · Seek the term dictionary' : '2 · Enumerate the term dictionary',
+      blurb: seekable ? seekBlurb(patterns) : ENUMERATE_BLURB,
+    },
+    {
+      key: 'expand',
+      title: '3 · Expand to matching terms',
+      blurb:
+        'Every term the pattern matched is collected. From here on the wildcard is just a boolean OR over those terms — the expensive part is already done, and it was the dictionary work, not the matching.',
+    },
+    ...PLAIN_LOCAL_STEPS.slice(2).map((s, i) => ({
+      ...s,
+      title: s.title.replace(/^\d+ · /, `${i + 4} · `),
+    })),
+  ]
+}
+
+export function localSearchSteps(patterns) {
+  return isWildcardQuery(patterns) ? wildcardLocalSteps(patterns) : PLAIN_LOCAL_STEPS
+}
+
 // The coordinator close-up walks these steps to show how the coordinator turns
 // the shards' local hits into the fetch decision and the final response. Like
-// LOCAL_SEARCH_STEPS they are independent of the global op (which stays frozen
-// on the search `gather` or `fetch` step while the inspector is open).
+// the local-search steps they are independent of the global op (which stays
+// frozen on the search `gather` or `fetch` step while the inspector is open).
 export const COORD_MERGE_STEPS = [
   {
     key: 'arrive',
@@ -218,7 +346,8 @@ export const COORD_MERGE_STEPS = [
 // The coordinator's gather→fetch decision, as data for the coordinator
 // inspector. A thin pure projection of computeSearch's output; winners/byShard
 // use the same slice + grouping as SearchFlight's fetch step so the close-up
-// always agrees with the main stage.
+// always agrees with the main stage. A routed query simply arrives with one
+// shard's list instead of three.
 export function computeCoordinatorMerge(search, n = MAX_FETCH_WINNERS) {
   const arrivals = Object.entries(search.perShard).map(([sid, hits]) => ({
     shard: Number(sid),
@@ -233,39 +362,39 @@ export function computeCoordinatorMerge(search, n = MAX_FETCH_WINNERS) {
 }
 
 // The shard-local query phase, as data for the inspector's stepped close-up. Pure
-// like computeSearch, and uses the SAME term-frequency scoring so the numbers here
-// match the cluster-level results panel.
-export function computeShardSearch(shard, terms, docs, k = LOCAL_TOPK) {
-  const termSet = new Set(terms)
+// like computeSearch, and uses the SAME scoring as computeSearch so the numbers
+// here match the cluster-level results panel.
+export function computeShardSearch(shard, patterns, docs, k = LOCAL_TOPK) {
   const segments = shard.segments
     .filter((seg) => seg.searchable)
-    .map((seg) => ({ id: seg.id, rows: segmentInvertedIndex(seg, docs) }))
+    .map((seg) => {
+      const rows = segmentInvertedIndex(seg, docs)
+      return {
+        id: seg.id,
+        rows,
+        // How this segment's dictionary is actually resolved — the trace the
+        // close-up replays probe by probe.
+        scan: dictionaryScan(rows.map((r) => r.term), patterns),
+      }
+    })
 
   // Candidate docs = those appearing in a matched (query-term) posting list.
   const candidateSet = new Set()
   for (const seg of segments)
     for (const row of seg.rows)
-      if (termSet.has(row.term)) for (const id of row.docIds) candidateSet.add(id)
+      if (matchesAny(row.term, patterns)) for (const id of row.docIds) candidateSet.add(id)
   const candidates = [...candidateSet].sort((a, b) => a.localeCompare(b))
 
   const scored = candidates
-    .map((docId) => {
-      const doc = docs[docId]
-      const perTerm = {}
-      let score = 0
-      for (const t of terms) {
-        const tf =
-          doc.tokens.title.filter((x) => x === t).length +
-          doc.tokens.body.filter((x) => x === t).length
-        if (tf > 0) {
-          perTerm[t] = tf
-          score += tf
-        }
-      }
-      return { docId, perTerm, score }
-    })
+    .map((docId) => ({ docId, ...scoreDoc(docs[docId], patterns) }))
     .sort((a, b) => b.score - a.score || a.docId.localeCompare(b.docId))
 
   const topk = scored.slice(0, k).map(({ docId, score }) => ({ docId, score }))
-  return { segments, candidates, scored, topk, k }
+  const matchedTerms = [...new Set(segments.flatMap((s) => s.scan.matched))].sort((a, b) =>
+    a.localeCompare(b),
+  )
+  const examined = segments.reduce((n, s) => n + s.scan.examined, 0)
+  const dictTotal = segments.reduce((n, s) => n + s.scan.total, 0)
+
+  return { segments, candidates, scored, topk, k, matchedTerms, examined, dictTotal }
 }
