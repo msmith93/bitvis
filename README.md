@@ -47,13 +47,34 @@ one `StaticSiteStack` per site, all defined in [`infra/bin/app.ts`](infra/bin/ap
 `KubevisStack` keeps the same stack id it had before the monorepo, so deploys
 update it in place. `ElasticsearchvisStack` is the opensearchvis rebrand — new
 stack id *and* new subdomain — so its first deploy provisions fresh
-infrastructure and the retired `OpensearchvisStack` has to be destroyed
-separately.
+infrastructure rather than updating the old stack.
 
 ```bash
 ./scripts/deploy.sh                # build all + deploy every site
 ./scripts/deploy.sh KubevisStack   # build all + deploy one stack
 ```
+
+### Retiring a hostname
+
+`StaticSiteStack` takes an optional `redirectFrom` list of retired FQDNs, which
+is how `opensearchvis.bitsculpt.top` still resolves after the rebrand. Each name
+is added as an alternate domain name on the site's own distribution and as a SAN
+on its cert — CloudFront matches the `Host` header against that list, so a
+Route 53 record by itself would only earn a cert mismatch and a 403 — and a
+viewer-request function 301s it to the canonical name, path and query string
+intact.
+
+CloudFront requires alternate domain names to be globally unique, so the old
+distribution must release the name **before** the new stack claims it:
+
+```bash
+AWS_PROFILE=bitsculpt npx cdk destroy OpensearchvisStack   # first
+./scripts/deploy.sh ElasticsearchvisStack                  # then
+```
+
+Run in the other order and the deploy fails with `CNAMEAlreadyExists`. Adding a
+`redirectFrom` entry also replaces the ACM cert (certs are immutable), so expect
+that deploy to spend a few extra minutes on DNS revalidation.
 
 Deploy requires the `bitsculpt` AWS profile, so it only runs on the owner's
 machine. The `bitsculpt.top` Route 53 hosted zone is imported (never created or
