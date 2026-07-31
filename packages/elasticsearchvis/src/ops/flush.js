@@ -5,7 +5,7 @@ const STEPS = [
   {
     key: 'commit',
     ms: 1200,
-    title: '1 · Flush: commit segments to disk',
+    title: '1 · Commit segments to disk',
     blurb:
       'A flush fsyncs the segments to disk so they are durable. Refresh ≠ flush: refresh made docs searchable; flush makes them durable.',
   },

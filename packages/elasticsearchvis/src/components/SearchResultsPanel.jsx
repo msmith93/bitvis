@@ -41,7 +41,7 @@ export default function SearchResultsPanel({ search, step, docs }) {
               <div className="search-shard skipped" key={sid}>
                 <div className="ss-head">shard {sid}</div>
                 <div className="ss-skipped">
-                  not queried — routing “{routing}” can’t be on this shard
+                  not queried — no document routed with “{routing}” can be here
                 </div>
               </div>
             )

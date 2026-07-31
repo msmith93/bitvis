@@ -416,17 +416,22 @@ export default function App() {
             </button>
           </div>
 
-          {(indexPhase === 'closed' || indexPhase === 'done') && (
-            <button
-              className="btn primary block"
-              data-tour="index-doc"
-              style={{ marginTop: 14 }}
-              onClick={() => setIndexPhase('editing')}
-            >
-              ＋ Index a document
-            </button>
-          )}
-
+          <p className="section-title" style={{ marginTop: 20 }}>
+            Documents
+          </p>
+          {/* Every control in this column stays mounted whatever the app is
+              doing — disabled, never removed. Unmounting one (the index button
+              while its overlay is open, the delete button before anything is
+              indexed) shifted everything below it by a button's height, and the
+              overlay is see-through enough that you watch the column jump. */}
+          <button
+            className="btn primary block"
+            data-tour="index-doc"
+            onClick={() => setIndexPhase('editing')}
+            disabled={indexPhase !== 'closed' && indexPhase !== 'done'}
+          >
+            ＋ Index a document
+          </button>
           <button
             className="btn block"
             data-tour="load-sample"
@@ -442,6 +447,14 @@ export default function App() {
             onClick={loadRoutedDocs}
           >
             Load routed docs
+          </button>
+          <button
+            className="btn block"
+            style={{ marginTop: 8 }}
+            onClick={() => setDocsOpen(true)}
+            disabled={allDocs.length === 0}
+          >
+            Delete a document
           </button>
 
           <p className="section-title" style={{ marginTop: 20 }}>
@@ -480,25 +493,15 @@ export default function App() {
 
             {/* Optional _routing on the query: hash this instead of scattering. */}
             <div className="routing-row">
-              <label className="routing-label">routing</label>
+              <label className="routing-label">routing key</label>
               <input
                 type="text"
                 value={routing}
                 onChange={(e) => setRouting(e.target.value)}
-                placeholder="none — query all shards"
+                placeholder="none — ask every shard"
               />
             </div>
           </div>
-
-          {allDocs.length > 0 && (
-            <button
-              className="btn block"
-              style={{ marginTop: 18 }}
-              onClick={() => setDocsOpen(true)}
-            >
-              Delete a document
-            </button>
-          )}
         </div>
 
         {/* ---------------- Center: cluster ---------------- */}
@@ -523,11 +526,15 @@ export default function App() {
               {note && <p className="explain-note">{note}</p>}
             </div>
           ) : (
+            // The idle panel is also what you land on after a Reset or a dataset
+            // load, so it says what to do NEXT from where you actually are
+            // rather than always describing an empty cluster.
             <div className="explain idle">
               <h3>Ready</h3>
               <p>
-                Index a document to begin, or run a search once some documents
-                are searchable.
+                {allDocs.length === 0
+                  ? 'Nothing indexed yet. Use ＋ Index a document to walk one document through the write path, or Load sample docs to fill the cluster and go straight to a search.'
+                  : 'Run a Search, or use Refresh / Flush / Merge to move these documents through the rest of the lifecycle. Every operation replays step by step in the footer.'}
               </p>
             </div>
           )}

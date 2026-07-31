@@ -5,7 +5,8 @@ const STEPS = [
   {
     key: 'write',
     ms: 1300,
-    title: '1 · Refresh: buffers → new segments',
+    // The stepper already labels the op REFRESH, so the title doesn't repeat it.
+    title: '1 · Buffers → new segments',
     blurb:
       'A refresh writes each shard’s buffered documents into ONE new, immutable segment. If a buffer holds several docs, they all land in the same segment. Existing segments are never modified.',
   },
