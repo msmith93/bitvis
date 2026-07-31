@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { analyzeDoc } from './analyzer'
 import {
@@ -22,8 +22,7 @@ import IndexOverlay from './components/IndexOverlay'
 import InvertedIndexTable from './components/InvertedIndexTable'
 import SearchFlight from './components/SearchFlight'
 import SearchResultsPanel from './components/SearchResultsPanel'
-import ShardInspector from './components/ShardInspector'
-import CoordinatorInspector from './components/CoordinatorInspector'
+import { CloseUp, buildCloseUp, closeUpAnchor, closeUpStillValid } from './closeups'
 import DeleteDocOverlay from './components/DeleteDocOverlay'
 import Stepper from './components/Stepper'
 import CookieBanner from './components/CookieBanner'
@@ -65,9 +64,16 @@ export default function App() {
 
   const [indexPhase, setIndexPhase] = useState('closed') // overlay choreography phase
   const [docsOpen, setDocsOpen] = useState(false) // document list / delete overlay
-  const [zoomShard, setZoomShard] = useState(null) // shard id being inspected, or null
-  const [coordZoom, setCoordZoom] = useState(false) // coordinator inspector open?
+  // Open close-ups, innermost last. Nesting is what lets a zoom open a zoom (a
+  // shard's local search → one segment's on-disk term dictionary); the shell in
+  // src/closeups renders the whole stack and only the top one is interactive.
+  const [closeUps, setCloseUps] = useState([]) // [{ kind, ... }] — see closeups/index.js
   const [zoomOrigin, setZoomOrigin] = useState('50% 50%') // transform-origin of the dive
+
+  // Back-compat projections of the stack root, for the scenario snapshot below.
+  const rootCloseUp = closeUps[0] ?? null
+  const zoomShard = rootCloseUp?.kind === 'shard' ? rootCloseUp.shard : null
+  const coordZoom = rootCloseUp?.kind === 'coordinator'
 
   const [title, setTitle] = useState(PRESETS[0].title)
   const [body, setBody] = useState(PRESETS[0].body)
@@ -100,25 +106,21 @@ export default function App() {
       playing,
       zoomShard,
       coordZoom,
+      closeUpKind: closeUps.at(-1)?.kind ?? null,
+      closeUpDepth: closeUps.length,
       sampleSet,
     },
     { pause, reset: resetCluster, setQuery, setRouting },
   )
 
-  // The magnifying glass only lives on the local-search phase. Close any open
-  // inspector when the op/step leaves that phase so it can't linger as a stale
-  // overlay (e.g. after Prev/Next, Play advancing, or starting a new op).
-  const inLocalPhase = op?.type === 'search' && op.step === 2
+  // Each magnifying glass only lives on the op/step its close-up explains. When
+  // the op leaves that phase the whole stack goes, so nothing can linger as a
+  // stale overlay (e.g. after Prev/Next, Play advancing, or starting a new op).
+  // Only the ROOT is checked — a nested zoom lives and dies with its parent.
+  const rootValid = closeUps.length === 0 || closeUpStillValid(op, closeUps[0], extra.search)
   useEffect(() => {
-    if (!inLocalPhase) setZoomShard(null)
-  }, [inLocalPhase])
-
-  // Same guard for the coordinator's glass, which lives on the gather + fetch
-  // phases only.
-  const inGatherPhase = op?.type === 'search' && (op.step === 3 || op.step === 4)
-  useEffect(() => {
-    if (!inGatherPhase) setCoordZoom(false)
-  }, [inGatherPhase])
+    if (!rootValid) setCloseUps([])
+  }, [rootValid])
 
   // Initialize analytics with GDPR compliance. In GDPR regions we wait for
   // consent (cookie banner); elsewhere we load GA4 immediately. Analytics is
@@ -173,41 +175,44 @@ export default function App() {
     setShowCookieBanner(false)
   }
 
-  // Opening the inspector freezes the timeline so auto-play can't advance off the
-  // local phase while the user is inspecting a shard. We also compute the dive's
-  // transform-origin — the clicked shard's center expressed in % of the .layout
-  // box — so the whole view appears to rush toward that shard (see the .layout
-  // motion.div below). DOM is at rest at click time, so the rects are accurate.
-  function openZoom(id) {
+  // Opening a close-up freezes the timeline so auto-play can't advance off the
+  // phase the close-up explains while the user is reading it.
+  //
+  // At depth 0 we also compute the dive's transform-origin — the clicked
+  // element's center expressed in % of the .layout box — so the whole view
+  // appears to rush toward it (see the .layout motion.div below). The DOM is at
+  // rest at click time, so the rects are accurate. Nested opens skip the dive:
+  // the page is already scaled out and hidden behind the parent panel, and the
+  // child springs out of its anchor inside that panel instead.
+  function openCloseUp(cu) {
+    if (closeUps.length > 0) {
+      setCloseUps((s) => [...s, cu])
+      return
+    }
     pause()
-    const role = extra.search?.serving?.[id]?.role
-    const card = selectorRect(
-      role === 'replica' ? `[data-replica-target="${id}"]` : `[data-shard-target="${id}"]`,
-    )
+    const card = selectorRect(closeUpAnchor(cu, extra.search))
     const layout = selectorRect('.layout')
     if (card && layout && layout.width && layout.height) {
       const ox = ((card.left + card.width / 2 - layout.left) / layout.width) * 100
       const oy = ((card.top + card.height / 2 - layout.top) / layout.height) * 100
       setZoomOrigin(`${ox.toFixed(1)}% ${oy.toFixed(1)}%`)
     }
-    setZoomShard(id)
+    setCloseUps([cu])
   }
-  const closeZoom = () => setZoomShard(null)
 
-  // Coordinator variant of openZoom: same pause + dive, aimed at the
-  // coordinator's node column instead of a shard card.
-  function openCoordZoom() {
-    pause()
-    const card = selectorRect('[data-coordinator]')
-    const layout = selectorRect('.layout')
-    if (card && layout && layout.width && layout.height) {
-      const ox = ((card.left + card.width / 2 - layout.left) / layout.width) * 100
-      const oy = ((card.top + card.height / 2 - layout.top) / layout.height) * 100
-      setZoomOrigin(`${ox.toFixed(1)}% ${oy.toFixed(1)}%`)
-    }
-    setCoordZoom(true)
-  }
-  const closeCoordZoom = () => setCoordZoom(false)
+  // Close everything from `depth` up, so a panel's ✕ / backdrop drops back to
+  // its parent (and the root's drops back to the cluster).
+  const popCloseUp = (depth) => setCloseUps((s) => s.slice(0, depth))
+
+  // The built shell contexts for the open stack. Rebuilt whenever the derived
+  // cluster moves so a panel always renders current state.
+  const closeUpStack = useMemo(
+    () =>
+      closeUps
+        .map((cu) => buildCloseUp(cu, { op, derived, search: extra.search }))
+        .filter(Boolean),
+    [closeUps, op, derived, extra.search],
+  )
 
   const hasText = title.trim() || body.trim()
   const canIndex = hasText && canStartNew && !playing
@@ -313,8 +318,7 @@ export default function App() {
     }
     resetTo(c)
     setIndexPhase('closed')
-    setZoomShard(null)
-    setCoordZoom(false)
+    setCloseUps([])
     setDocsOpen(false)
     setSampleSet(kind)
     docNum.current = source.length + 1
@@ -340,8 +344,7 @@ export default function App() {
   function resetCluster() {
     resetTo(initialCluster())
     setIndexPhase('closed')
-    setZoomShard(null)
-    setCoordZoom(false)
+    setCloseUps([])
     setDocsOpen(false)
     setSampleSet(null)
     docNum.current = 1
@@ -379,9 +382,7 @@ export default function App() {
         className="layout"
         style={{ transformOrigin: zoomOrigin }}
         animate={
-          zoomShard != null || coordZoom
-            ? { scale: 1.7, opacity: 0 }
-            : { scale: 1, opacity: 1 }
+          closeUps.length > 0 ? { scale: 1.7, opacity: 0 } : { scale: 1, opacity: 1 }
         }
         transition={{ type: 'tween', ease: 'easeInOut', duration: 0.5 }}
       >
@@ -400,7 +401,12 @@ export default function App() {
             <button className="btn" onClick={startFlush} disabled={!canFlush}>
               Flush
             </button>
-            <button className="btn" onClick={startMerge} disabled={!canMerge}>
+            <button
+              className="btn"
+              data-tour="merge"
+              onClick={startMerge}
+              disabled={!canMerge}
+            >
               Merge
             </button>
             <button className="btn" onClick={reset}>
@@ -500,8 +506,8 @@ export default function App() {
             cluster={derived}
             extra={extra}
             op={op}
-            onZoom={openZoom}
-            onCoordZoom={openCoordZoom}
+            onZoom={(id) => openCloseUp({ kind: 'shard', shard: id })}
+            onCoordZoom={() => openCloseUp({ kind: 'coordinator' })}
           />
         </div>
 
@@ -580,23 +586,11 @@ export default function App() {
       {/* ---------------- Overlay: search scatter-gather flights ---------------- */}
       <SearchFlight op={op} search={extra.search} docs={derived.docs} />
 
-      {/* ---------------- Overlay: zoom into a serving shard's local search ---------------- */}
-      <ShardInspector
-        shard={zoomShard != null ? derived.shards.find((s) => s.id === zoomShard) : null}
-        search={extra.search}
-        docs={derived.docs}
-        query={op?.type === 'search' ? op.payload.query : ''}
-        onClose={closeZoom}
-        highlightClose={tour.status === 'running'}
-      />
-
-      {/* ---------------- Overlay: zoom into the coordinator's merge & fetch ---------------- */}
-      <CoordinatorInspector
-        open={coordZoom}
-        search={extra.search}
-        docs={derived.docs}
-        query={op?.type === 'search' ? op.payload.query : ''}
-        onClose={closeCoordZoom}
+      {/* ---------------- Overlay: the close-up stack (shard, coordinator, on-disk) ---------------- */}
+      <CloseUp
+        stack={closeUpStack}
+        onPop={popCloseUp}
+        openCloseUp={openCloseUp}
         highlightClose={tour.status === 'running'}
       />
 
@@ -609,7 +603,7 @@ export default function App() {
       )}
 
       {/* ---------------- Overlay: guided scenario ---------------- */}
-      <Walkthrough tour={tour} allowEscape={zoomShard == null && !coordZoom} />
+      <Walkthrough tour={tour} allowEscape={closeUps.length === 0} />
     </div>
   )
 }

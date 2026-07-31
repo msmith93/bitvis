@@ -116,6 +116,123 @@ its searchable segments. Show these per shard. A search unions posting lists
 across shards — a term shared by docs on different shards shows up from multiple
 shards in the gathered results. This cross-shard union is the key "aha."
 
+## On-disk anatomy (the deepest zoom — KEEP THESE ACCURATE)
+The flat two-column table above is a drawing, not a layout. A fourth zoom level
+(reached by the 🔍 on a segment's column heads, inside the shard close-up) shows
+what one segment's structures actually are. Three separate zooms, three models:
+
+### Term dictionary — `.tip` + `.tim` (`src/blocktree.js`)
+1. **`.tip` is an FST**: a minimized automaton, held in MEMORY, whose arcs are
+   single characters and whose states can carry a `.tim` file pointer. It maps a
+   term PREFIX to the one block that could hold it.
+2. **`.tim` is blocks** of 25–48 entries; an entry is either a term or a pointer
+   to a SUB-BLOCK, so the dictionary is a tree. A prefix that outgrows one block
+   is split into FLOOR BLOCKS, and the FST output for that prefix then has to name
+   the leading byte + pointer of each floor block so the seek can choose.
+3. **Prefix compression**: a block stores its shared prefix ONCE and only the
+   suffix each term adds ("search"/"searchable"/"searching" → "arch"/"archable"/
+   "arching" under "se").
+4. **A seek costs one in-RAM FST walk plus exactly ONE disk read**, regardless of
+   dictionary size. That is the number to teach, against the ~log₂(n) scattered
+   probes the flat binary search one level up needs.
+5. A term outside the field's min/max term is rejected with **zero** disk reads.
+6. Per-term metadata is `docFreq` plus pointers into `.doc`/`.pos`/`.pay`.
+
+### Postings — `.doc` — deliberately NOT modelled
+A zoom existed for this (segment-local ordinals, delta encoding, bit-packed
+blocks, VInt tail, skip lists, `nextDoc`/`advance`/leapfrog) and was **removed**.
+Don't rebuild it. The reasons, so the decision isn't re-litigated:
+
+- **The concept is already taught one level up.** The shard inspector's "Walk the
+  posting lists" step says what a posting list is — which documents contain a
+  term. The zoom only added on-disk *encoding*, which is not what a reader needs
+  to understand search.
+- **This dataset cannot demonstrate it.** On the merged shard-0 segment (24
+  terms): **22 of 24 terms have no skip data at all**, **22 of 24 have ≤1 packed
+  block**, and the best case (`search`) is 4 postings in 2 blocks with no VInt
+  tail — 2 bytes against 16. More than half the zoom rendered "there isn't one
+  here". Fixing that means enlarging the sample set, which would perturb the
+  tuned `search` ×4/×3/×2/×1 counts the top-k eviction demo depends on.
+- **It read as mechanism without purpose** — every step titled after a technique
+  rather than a reason, and reached with no narrative bridge.
+
+What survives: the `.tip → .tim → .doc → .fdt` chain (so `.doc` is still visibly
+"which documents", distinct from `.fdt`, "the text"), the dictionary zoom's
+closing line naming the `.doc` pointer, and one clause in the shard inspector
+noting Lucene writes no skip data below 128 documents.
+
+### Wildcards — the same picture, driven by a pattern (`src/automaton.js`)
+A wildcard is **not a separate zoom**. A plain term is the degenerate case of a
+pattern — one path through the FST, one block read — so the dictionary zoom
+serves both and the query decides how the walk behaves. They were two close-ups
+drawing the same two structures; that duplication is why they were merged.
+
+1. The pattern compiles to an NFA, then is **determinized** (Lucene caps this at
+   `maxDeterminizedStates` = 10000).
+2. The automaton is run against the `.tip` arcs in lockstep. An arc it has no live
+   transition for is **pruned** — every term behind it is skipped unread.
+3. A **leading wildcard's start state accepts any character**, so no arc can ever
+   be pruned and every block loads. The cost difference is therefore STRUCTURAL,
+   not a heuristic. Both numbers must be derived by running the two automata,
+   never written into the copy.
+4. **Do not rebuild the DFA transition table.** It was rendered and removed: for
+   `sc*` it was 3 rows × 16 columns of mostly em-dashes, and because `maxCols`
+   truncated at 14 while the segment had 19 distinct characters, `s` — the one
+   transition that explains the pattern — fell off the end, leaving the start row
+   entirely blank. The FST already shows the consequence directly and in colour.
+   One line stating what the pattern accepts (from `startAcceptsAnything`) carries
+   everything the table did.
+
+### How this level must be PRESENTED
+The structures above are only half the job. Two earlier builds modelled them
+correctly and still failed: the first was illegible, the second was legible but
+read as a slide deck about an inverted index rather than a picture of one
+working. These are requirements, not polish:
+
+- **The dictionary zoom is about the FST, and it is ONE PICTURE.** The term index
+  on the left under "in memory", the blocks it indexes on the right under "on
+  disk", both on screen for **every** step. A step may only change what is lit up
+  — the walk, then the single block that gets read. Never swap the content area
+  per step; that is what made it a slideshow. `stages/coordMerge.jsx` is the
+  in-repo precedent for a persistent stage.
+- **The lesson is the memory footprint**, and the layout carries it: a small graph
+  that stays resident, a dictionary that does not, and exactly one block crossing
+  between them. Blocks not read must be visibly dimmed rather than absent.
+- **State the memory claim with its caveat.** The FST indexes BLOCKS, not terms —
+  that is what holds at any scale. But our toy blocks hold 4 entries, so the
+  on-screen ratio (~2×) badly understates Lucene's ~30× at 25–48 terms per block.
+  Show the derived counts, name the real block size, and say the demo understates
+  it. Never quote the toy ratio as the saving.
+- **Label FST states with the prefix that reaches them**, not their id.
+  Minimization renumbers by post-order DFS, so the start state gets the HIGHEST
+  id and a raw-id walk appears to run 9 → 7 → 6. Use `statePrefixes()`, which
+  returns null for any state several prefixes reach so the label can fall back
+  honestly.
+- **Keep the four-hop chain on screen.** `.tip` (which block) → `.tim` (which
+  term) → `.doc` (which documents) → `.fdt` (the text). Collapsing the first and
+  last hop — reading `.tip` as "points at the document" — is the natural mistake
+  when the chain isn't drawn, and it was the first thing a reader got wrong.
+- **Depth that isn't the lesson belongs elsewhere.** The block tree, prefix
+  compression and the terms→blocks mapping are all true and all modelled, but as
+  steps they buried the FST. The tree survives only in the automaton zoom
+  (`BlockTree`, for its "never read" step); blocks appear in the dictionary zoom
+  only as the compact column being pointed at.
+
+Still true of the model even though the dictionary zoom no longer draws it:
+**blocks are NOT contiguous slices of the sorted term list.** An inner block holds
+a mix of terms and sub-block pointers, so a byte-group too small to earn its own
+block stays inlined in the parent and interleaves with the blocks around it. Any
+future view that draws the term list must not imply otherwise.
+
+### Accuracy guardrails for this level
+- This app models **text** fields only. Numeric and geo fields are indexed by a
+  different structure entirely and are out of scope — don't teach them here, and
+  don't contrast against them either.
+- Every number rendered must come from the model, not from prose. If a step
+  asserts a count, a reader must be able to find it in the trace.
+- When the data can't demonstrate something (no VInt tail, no second skip level),
+  say so and explain the threshold. Never imply a structure that isn't there.
+
 ## Accuracy guardrails (don't get these wrong)
 - Segments are IMMUTABLE. Writes create new segments; never edit existing ones.
 - A document is NOT searchable until refresh creates its segment.
@@ -155,14 +272,25 @@ shards in the gathered results. This cross-shard union is the key "aha."
 ## Flagged simplifications of the OpenSearch model
 Documented so reviewers can verify the teaching stays honest:
 - Routing is a deterministic string hash standing in for murmur3 `_routing`.
-- The term-dictionary seek is modeled as a binary search over a flat sorted
-  array. Real Lucene stores the dictionary as an FST + block-tree and seeks by
-  prefix (binary-searching only WITHIN a term block). The cost story being taught
-  — O(log n) seek + scan of the matching range, versus a full enumeration for a
-  leading wildcard — is the same.
-- Wildcard matching is a regex over the segment's terms rather than Lucene's
-  compiled DFA intersected with the term index. A leading wildcard genuinely
-  enumerates the whole dictionary in both models.
+- **Toy constants in the on-disk zooms.** The real algorithms run, but scaled so
+  the structure fits on one screen: `.tim` blocks hold 2–4 entries instead of
+  Lucene's 25–48. Every panel that shrinks a constant renders a badge naming both
+  values, and the memory claim must say the toy ratio understates the real one.
+  This is the ONLY simplification at that level — the FST, the block tree, floor
+  blocks, prefix compression and the DFA intersection are all modeled for real.
+- The SHARD-level view (one zoom up) still models a term lookup as a binary
+  search over a flat sorted array, and wildcard matching as a regex over the
+  segment's terms. That is deliberate: it teaches the cost story in one picture,
+  and the on-disk zoom beneath it shows what really happens. The two agree on
+  which terms match — `src/automaton.js`'s intersection is checked against
+  `expandTerms` — so the levels can't drift apart.
+- A segment this small can't demonstrate a second skip level (that needs 4096
+  docs in Lucene), and a term whose docFreq is an exact multiple of the block size
+  has no VInt tail. Those steps say so and give the threshold rather than faking
+  a structure.
+- FST minimization is implemented and correct but rarely merges anything at this
+  scale, because each block has a distinct file pointer. The panel reports what it
+  actually saved rather than claiming a payoff it didn't get.
 - Primary + replica are modeled as one logical shard rendered on two nodes (no
   replica lag; replica merges shown in lockstep with the primary).
 - Relevance score is term-frequency, a stand-in for BM25.

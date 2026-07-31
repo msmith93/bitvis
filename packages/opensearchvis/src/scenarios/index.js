@@ -1,6 +1,7 @@
 import intro from './intro'
 import wildcard from './wildcard'
 import routing from './routing'
+import ondisk from './ondisk'
 
 // Guided scenarios. Each one is a self-contained module — like an op module in
 // src/ops/ — declaring `{ id, label, blurb, steps, setup? }`. Adding a scenario
@@ -33,12 +34,16 @@ import routing from './routing'
 //   opQuery     active search's query string ('' when not a search)
 //   opRouting   active search's routing key (null when unrouted)
 //   playing     auto-play clock is running
-//   zoomShard   id of the shard being inspected, or null
-//   coordZoom   coordinator close-up is open
+//   zoomShard   id of the shard being inspected, or null (the close-up stack's
+//               ROOT — unchanged by anything opened on top of it)
+//   coordZoom   coordinator close-up is the stack root
+//   closeUpKind kind of the INNERMOST open close-up, or null when none:
+//               'shard' | 'coordinator' | 'dictionary'
+//   closeUpDepth how many close-ups are stacked (0 = looking at the cluster)
 //   sampleSet   which dataset is loaded: 'sample' | 'routed' | null
 //
 // The actions a step may drive: pause, reset, setQuery, setRouting.
-export const SCENARIOS = [intro, wildcard, routing]
+export const SCENARIOS = [intro, wildcard, routing, ondisk]
 
 export const DEFAULT_SCENARIO = intro.id
 

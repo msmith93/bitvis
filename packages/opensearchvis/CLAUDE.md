@@ -104,6 +104,49 @@ which lets the stepper scrub any operation forwards and backwards.
   pace the dictionary probe replay, and the inspector's dwell for that step is
   computed from them the same way op steps budget for flights.
 
+- **Close-ups** (`src/closeups/`) are the zoom levels, and they NEST. `CloseUp.jsx`
+  is a generic shell (backdrop, head, explain box, mini-stepper + its auto-play
+  clock, and the entrance spring out of the clicked element); each zoom is one
+  module in `src/closeups/stages/` exporting
+  `build(...) → { key, title, sub, steps, dwell?, Stage, stageProps, source,
+  className? }`, and `src/closeups/index.js` is the registry
+  (`shardCloseUp` / `coordCloseUp` / `closeUpStillValid` / `closeUpAnchor` /
+  `buildCloseUp`). **Adding a zoom = one module plus one case in the registry.**
+  Three things to respect:
+  - App holds ONE `closeUps` array (the stack, innermost last), not a flag per
+    zoom. Only the top is `active`: the shell runs a clock only for it, and stages
+    read `active` to park their own timers (that is how the shard stage's probe
+    replay freezes behind a child). `closeUpStillValid` is checked against the
+    stack ROOT only — a nested zoom lives and dies with its parent. `zoomShard`
+    and `coordZoom` survive in the walkthrough snapshot as projections of the
+    root, alongside `closeUpKind` / `closeUpDepth`.
+  - A `Stage` must be a **module-scope** component and receive its data through
+    `stageProps`. Defining it inside `build()` gives it a new identity on every
+    re-derive, which remounts it and destroys flight/probe state mid-animation.
+  - A `Stage` returns a **fragment**, so its pinned strips (`.si-querybox`) and
+    its scroller (`.si-scroll`) are direct flex children of `.shard-inspector` —
+    the stylesheet's `> .si-*` rules depend on it. Don't wrap it in a div. Also
+    note the shell deliberately has no `AnimatePresence` exit: `layout` chips
+    being relayouted can deadlock an exit animation and leave an invisible
+    click-swallowing backdrop.
+
+- **The on-disk models** (`src/blocktree.js`, `src/automaton.js`) are the deepest
+  teaching layer: what a segment's term dictionary really is (an FST in `.tip`
+  over prefix-compressed blocks in `.tim`) and how a wildcard resolves against it
+  (a DFA intersected with the FST). `automaton.js` has **no stage of its own** —
+  it feeds the `dictionary` stage, which serves a plain term and a wildcard with
+  one picture. Posting-list encoding had a model and a zoom; both were removed and
+  `SPEC.md` records why — don't rebuild them. They are
+  pure and produce **replayable traces**, exactly like `dictionaryTrace` in
+  `src/wildcard.js` — the stage folds a trace into a view rather than animating
+  imperatively. The `dictionary` stage is a **persistent stage** in the
+  `coordMerge` style: the FST (in memory) and the blocks it indexes (on disk) are
+  rendered on every step and the step only changes what is highlighted. Do not
+  reintroduce per-step content swapping there — `SPEC.md` explains why. `SPEC.md` has the accuracy guardrails; the short version is that
+  block sizes are toy-scaled (2–4 vs 25–48, 2 vs 128) with a visible badge saying
+  so, every rendered number must come from a trace, and `automaton.js`'s matched
+  set is kept in agreement with `expandTerms` so the zoom levels can't drift.
+
 - **Components** (`src/components/`) are presentational, driven by the derived
   cluster + `opExtra`: `ClusterStage` (nodes/shards/segments),
   `IndexOverlay` (the index-a-document choreography), `SearchFlight` /

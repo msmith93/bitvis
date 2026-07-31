@@ -1,6 +1,6 @@
 // Demo-sized caps shared between the search model and the flight choreography.
 // stepDuration reserves time for the largest flight a step will launch, so the
-// model (ops) and the overlay (SearchFlight / ShardInspector) must slice by the
+// model (ops) and the overlay (SearchFlight / the close-ups) must slice by the
 // SAME numbers — that shared identity is why these live in one place.
 
 // Gather phase: at most this many doc-id chips fly per shard.

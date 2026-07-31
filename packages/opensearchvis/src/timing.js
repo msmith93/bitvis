@@ -28,7 +28,7 @@ export const FLIGHT_PAD_MS = 400
 export const INDEX_SCAN_MS = 800
 export const INDEX_ANALYSIS_LEAD_MS = 1800
 
-// ---- Shard inspector (components/ShardInspector.jsx) -----------------------
+// ---- Close-ups (src/closeups/) ---------------------------------------------
 export const INSPECTOR_DWELL_MS = 2400 // per-step auto-play dwell (room for flights + layout moves)
 export const INSPECTOR_FLIGHT_PAD_MS = 250
 export const QUERY_SCAN_MS = 1000 // QueryBox analyze-step scan-line
@@ -40,3 +40,12 @@ export const QUERY_SCAN_MS = 1000 // QueryBox analyze-step scan-line
 // computed from these (probes × ms), the same way op steps budget for flights.
 export const DICT_SEEK_MS = 420
 export const DICT_SCAN_MS = 130
+
+// ---- On-disk close-ups (src/closeups/stages/{dictionary,automaton}) --------
+// One tick per unit of work being replayed, so each stepped reveal is paced by
+// how much work it actually represents, and the step's dwell is computed from
+// (units × ms) the same way the probe replay above budgets for its probes.
+export const CU_DWELL_MS = 3000 // a step with nothing to replay
+export const FST_ARC_MS = 520 // one arc of the .tip walk (deliberately slow)
+export const BLOCK_READ_MS = 300 // one entry of an in-block suffix scan
+export const AUTOMATON_STEP_MS = 260 // one follow / prune / term test

@@ -27,11 +27,25 @@ const STEPS = [
     advanceOn: (s) => s.sampleSet === 'sample',
   },
   {
+    id: 'merge',
+    target: '[data-tour="merge"]',
+    placement: 'right',
+    title: 'Merge first, so the dictionaries are worth reading',
+    body: 'Click Merge. Each shard’s small segments become one bigger segment — 24 to 43 terms each instead of a dozen. The cost difference you are about to see is only interesting against a dictionary with something in it.',
+    // Merge is disabled while another op's clock runs, and the sample set
+    // tombstones a doc so Refresh is live too — an off-script click lands here.
+    // Wait for an idle timeline so the ring only lands on a pressable button.
+    waitFor: (s) => !s.playing,
+    advanceOn: (s) => s.opType === 'merge',
+  },
+  {
     id: 'run-prefix',
     target: '[data-tour="search-area"]',
     placement: 'right',
     title: 'First, the cheap one: sc*',
     body: 'We have put “sc*” in the search box — every term starting with “sc”. Hit Search.',
+    // Search is disabled until the merge has both finished and stopped playing.
+    waitFor: (s) => (s.opType !== 'merge' || s.opDone) && !s.playing,
     onShow: (s, actions) => {
       actions.setRouting('')
       actions.setQuery('sc*')
@@ -96,7 +110,7 @@ const STEPS = [
     body: [
       'A prefix like “sc*” costs a seek plus the matching range. A leading wildcard costs the ENTIRE term dictionary — and that price is paid per segment, per shard, on every node the query touches. The line under “What’s happening” totals it up for the query you just ran.',
       'It is also why the usual fix is to index the data differently rather than query harder: a reverse field, an ngram/wildcard field, or a prefix you can actually seek to.',
-      'One honest simplification: we model the seek as a binary search over a flat sorted array. Real Lucene walks an FST + block-tree — same cost story, fancier data structure.',
+      'This view models the seek as a binary search over a flat sorted array. Real Lucene walks an FST + block-tree, and it compiles the pattern into an automaton rather than testing a regex — both of which you can watch one zoom deeper, via the 🔍 on the “term dictionary” column head (or the “What an inverted index really looks like” scenario).',
     ],
     waitFor: (s) => s.zoomShard == null && !s.coordZoom,
     cta: 'Done',
