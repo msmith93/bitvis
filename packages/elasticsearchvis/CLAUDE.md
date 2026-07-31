@@ -2,9 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this package.
 
-> This app is `packages/opensearchvis` in the **bitvis** monorepo (npm workspaces).
+> This app is `packages/elasticsearchvis` in the **bitvis** monorepo (npm workspaces).
 > Run `npm install` once at the repo root. Deploy infra lives at the repo root
-> (`infra/`, `scripts/`); deploy this site with `../../scripts/deploy.sh OpensearchvisStack`.
+> (`infra/`, `scripts/`); deploy this site with `../../scripts/deploy.sh ElasticsearchvisStack`.
 
 ## Commands
 
@@ -18,10 +18,10 @@ screen-recordable proof-of-concept (see `SPEC.md`), so "verify" means running
 
 ## What this app is
 
-A single-page React (Vite) app that teaches how OpenSearch/Lucene indexes and
+A single-page React (Vite) app that teaches how Elasticsearch/Lucene indexes and
 searches documents across a distributed cluster. Everything is simulated
 client-side — no backend, no localStorage, all state in React. `SPEC.md` is the
-authoritative description of the intended behavior AND the OpenSearch-accuracy
+authoritative description of the intended behavior AND the Elasticsearch-accuracy
 guardrails (segments are immutable; a doc isn't searchable until refresh;
 refresh ≠ flush; replicas live on a different node than their primary;
 scatter-then-gather two-phase search). Treat those guardrails as correctness

@@ -1,6 +1,6 @@
-# OpenSearch Cluster Visualizer
+# Elasticsearch Cluster Visualizer
 
-An interactive, single-page teaching tool that shows how **OpenSearch / Lucene**
+An interactive, single-page teaching tool that shows how **Elasticsearch / Lucene**
 indexes and searches documents across a distributed cluster. Type a document,
 click *Index*, and scrub step-by-step through the write path — watch it route to
 a shard, replicate to a second node, land in an in-memory buffer, and (on
@@ -11,9 +11,9 @@ response.
 Everything is **simulated client-side** — no backend, no storage. It's built to
 be screen-recorded and stepped through, not to be a configurable cluster.
 
-**Live demo:** [opensearchvis.bitsculpt.top](https://opensearchvis.bitsculpt.top/)
+**Live demo:** [elasticsearchvis.bitsculpt.top](https://elasticsearchvis.bitsculpt.top/)
 
-![OpenSearch Cluster Visualizer](docs/screenshot.png)
+![Elasticsearch Cluster Visualizer](docs/screenshot.png)
 
 ## What it teaches
 
@@ -93,7 +93,7 @@ React + Vite, with [Framer Motion](https://www.framer.com/motion/) driving the
 stage animations. The core pattern is a **pure derivation of visible state from
 `(cluster, op)`**, which is what lets the stepper scrub each operation in both
 directions. See [`SPEC.md`](SPEC.md) for the authoritative behavior spec and the
-OpenSearch-accuracy guardrails, and [`CLAUDE.md`](CLAUDE.md) for an architecture
+Elasticsearch-accuracy guardrails, and [`CLAUDE.md`](CLAUDE.md) for an architecture
 overview.
 
 ## Honest simplifications

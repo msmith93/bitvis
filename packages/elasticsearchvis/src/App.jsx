@@ -38,7 +38,9 @@ import {
   initializeGA4,
 } from './analytics'
 
-const DOC_COLORS = ['#00a3e0', '#3d7fd0', '#e0a04a', '#4ec97a', '#e0574a', '#9b7fe0']
+// EUI's colorblind-safe visualization palette — categorical, and deliberately
+// none of them is the teal accent, so a doc chip never reads as UI chrome.
+const DOC_COLORS = ['#54b399', '#6092c0', '#d36086', '#9170b8', '#d6bf57', '#e7664c']
 
 export default function App() {
   const {
@@ -366,7 +368,7 @@ export default function App() {
   return (
     <div className="app">
       <div className="topbar">
-        <h1>OpenSearch Cluster Visualizer</h1>
+        <h1>Elasticsearch Cluster Visualizer</h1>
         <span className="sub">
           Routing & replication across a 3-node cluster, the write path, and
           scatter-gather search

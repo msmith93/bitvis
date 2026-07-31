@@ -11,9 +11,9 @@ const STEPS = [
   {
     id: 'welcome',
     target: null,
-    title: 'Welcome to the OpenSearch Cluster Visualizer',
+    title: 'Welcome to the Elasticsearch Cluster Visualizer',
     body: [
-      'This app shows how OpenSearch (and Lucene under the hood) indexes documents and searches them across a distributed cluster — all simulated right here in your browser.',
+      'This app shows how Elasticsearch (and Lucene under the hood) indexes documents and searches them across a distributed cluster — all simulated right here in your browser.',
       'One tip before you start: wherever you see the 🔍 magnifying glass, you can click it to zoom into a much more granular view of what a shard — or the coordinator — is doing.',
       'Take the one-minute tour? You will index your first document and run your first search.',
     ],
@@ -42,7 +42,7 @@ const STEPS = [
     target: '[data-tour="refresh"]',
     placement: 'right',
     title: 'Not searchable… yet',
-    body: 'Your document landed in the shard’s in-memory buffer, which searches never see. OpenSearch is near-real-time: click “Refresh” to build an immutable segment and make the doc searchable.',
+    body: 'Your document landed in the shard’s in-memory buffer, which searches never see. Elasticsearch is near-real-time: click “Refresh” to build an immutable segment and make the doc searchable.',
     waitFor: (s) => s.indexPhase === 'done' && !s.playing,
     advanceOn: (s) => s.opType === 'refresh',
   },

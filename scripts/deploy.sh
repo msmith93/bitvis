@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Build every package and deploy all sites (or a single stack).
 #
-#   ./scripts/deploy.sh              # deploy all: kubevis, opensearchvis, landing
+#   ./scripts/deploy.sh              # deploy all: kubevis, elasticsearchvis, landing
 #   ./scripts/deploy.sh KubevisStack # deploy just one stack
 #
 # Requires the `bitsculpt` AWS profile, so it only runs on the owner's machine.
@@ -26,4 +26,4 @@ echo ""
 echo "==> Done!"
 echo "    Landing:       https://bitvis.bitsculpt.top"
 echo "    kubevis:       https://kubevis.bitsculpt.top"
-echo "    opensearchvis: https://opensearchvis.bitsculpt.top"
+echo "    elasticsearchvis: https://elasticsearchvis.bitsculpt.top"

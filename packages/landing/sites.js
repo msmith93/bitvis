@@ -14,15 +14,15 @@ window.SITES = [
     accent: '#326ce5',
   },
   {
-    id: 'opensearchvis',
-    title: 'opensearchvis',
-    tag: 'OpenSearch',
-    tagline: 'How OpenSearch indexes and searches a distributed cluster.',
+    id: 'elasticsearchvis',
+    title: 'elasticsearchvis',
+    tag: 'Elasticsearch',
+    tagline: 'How Elasticsearch indexes and searches a distributed cluster.',
     blurb:
       'Step through index → refresh → flush → merge → search and see the buffer, translog, immutable segments, replicas, and two-phase scatter-gather search come to life.',
-    url: 'https://opensearchvis.bitsculpt.top',
+    url: 'https://elasticsearchvis.bitsculpt.top',
     icon: '⌕', // ⌕ search
-    accent: '#00a3e0',
+    accent: '#00bfb3', // Elastic teal
   },
   {
     id: 'cassandravis',

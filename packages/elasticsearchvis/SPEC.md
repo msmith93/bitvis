@@ -1,7 +1,7 @@
-# Build: Interactive OpenSearch Cluster Visualizer (Proof of Concept)
+# Build: Interactive Elasticsearch Cluster Visualizer (Proof of Concept)
 
 ## Goal
-A single-page React app that teaches how OpenSearch (Lucene) indexes and searches
+A single-page React app that teaches how Elasticsearch (Lucene) indexes and searches
 documents **across a distributed cluster**. The user types a document, clicks
 "Index," and scrubs step-by-step through the write path — watching the document
 route to a shard, replicate to a second node, land in an in-memory buffer, and
@@ -99,7 +99,7 @@ distinctions are the whole pedagogical point.
 ### Wildcard queries (term-dictionary cost)
 A segment's term dictionary is SORTED, which is the whole reason wildcards differ
 so much in price. Model both paths and keep the distinction visible:
-1. **A pattern with a literal prefix** (`sc*` — what OpenSearch calls a *prefix
+1. **A pattern with a literal prefix** (`sc*` — what Elasticsearch calls a *prefix
    query*) is resolved by SEEKING to where that prefix belongs and then reading
    forward only while the prefix still holds, stopping at the first term that
    doesn't. The rest of the dictionary is never touched.
@@ -269,7 +269,7 @@ future view that draws the term list must not imply otherwise.
 - Search → scatters to all shards, gathers a ranked response.
 - Clean enough to screen-record. Don't over-engineer; it's a proof of concept.
 
-## Flagged simplifications of the OpenSearch model
+## Flagged simplifications of the Elasticsearch model
 Documented so reviewers can verify the teaching stays honest:
 - Routing is a deterministic string hash standing in for murmur3 `_routing`.
 - **Toy constants in the on-disk zooms.** The real algorithms run, but scaled so

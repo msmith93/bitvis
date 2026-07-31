@@ -27,7 +27,7 @@ npm run dev
 ## Deploy
 
 Hosted at [kubevis.bitsculpt.top](https://kubevis.bitsculpt.top) via the same
-S3 + CloudFront + Route 53 CDK stack as opensearchvis:
+S3 + CloudFront + Route 53 CDK stack as elasticsearchvis:
 
 ```bash
 ./scripts/deploy.sh   # needs the `bitsculpt` AWS profile
@@ -100,6 +100,6 @@ probes & CrashLoopBackOff, HPA.
 
 ---
 
-Built in the style of [opensearchvis](https://github.com/msmith93/opensearchvis):
+Built in the style of [elasticsearchvis](../elasticsearchvis):
 React + Vite + Framer Motion, with all visible state derived purely from
 `(cluster, op)` so every animation can be scrubbed.

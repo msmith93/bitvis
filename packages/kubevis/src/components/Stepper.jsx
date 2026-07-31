@@ -1,5 +1,5 @@
 // Generic stepper, driven by whatever operation is active. `steps` is the
-// current op's step list. Ported from opensearchvis.
+// current op's step list. Ported from elasticsearchvis.
 export default function Stepper({
   steps,
   step,

@@ -13,7 +13,7 @@ const STEPS = [
     body: [
       'A shard’s inverted index keeps its terms in sorted order. That one detail decides whether a wildcard query is cheap or ruinous.',
       '“sc*” has a literal prefix to jump to. “*search” does not — and you will watch the difference, term by term, inside a real segment.',
-      'A naming note, because both conventions are common: OpenSearch calls “search*” a PREFIX QUERY (the wildcard is at the end). “*search” is the LEADING WILDCARD. It is the leading one that hurts.',
+      'A naming note, because both conventions are common: Elasticsearch calls “search*” a PREFIX QUERY (the wildcard is at the end). “*search” is the LEADING WILDCARD. It is the leading one that hurts.',
     ],
     cta: 'Show me',
     secondary: 'Skip for now',
@@ -78,7 +78,7 @@ const STEPS = [
     target: '[data-tour="search-area"]',
     placement: 'right',
     title: 'Now the expensive one: *search',
-    body: 'Same shape, wildcard on the other end. “*search” matches “search” AND “opensearch” — two terms sitting in completely different parts of the sorted dictionary. Hit Search.',
+    body: 'Same shape, wildcard on the other end. “*search” matches “search” AND “elasticsearch” — two terms sitting in completely different parts of the sorted dictionary. Hit Search.',
     waitFor: (s) => s.zoomShard == null && !s.coordZoom,
     onShow: (s, actions) => actions.setQuery('*search'),
     advanceOn: (s) => s.opQuery === '*search',

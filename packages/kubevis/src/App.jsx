@@ -42,7 +42,7 @@ const withNode = (c, nodeId, patch) => ({
 })
 
 // One color per deployment; its ReplicaSet's pods inherit it so you can track
-// ownership on the stage at a glance (opensearchvis's doc colors).
+// ownership on the stage at a glance (elasticsearchvis's doc colors).
 const DEPLOYMENT_COLORS = [
   '#7aa2ff',
   '#59c2a5',

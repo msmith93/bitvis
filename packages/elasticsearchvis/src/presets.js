@@ -1,11 +1,11 @@
-// Example documents that deliberately share terms (search, opensearch, data,
+// Example documents that deliberately share terms (search, elasticsearch, data,
 // lucene…) so the same term turns up across multiple shards at search time.
 // Four docs ensure all three shards get populated.
 export const PRESETS = [
   {
-    name: 'OpenSearch intro',
-    title: 'What is OpenSearch',
-    body: 'OpenSearch is a distributed search and analytics engine for your data.',
+    name: 'Elasticsearch intro',
+    title: 'What is Elasticsearch',
+    body: 'Elasticsearch is a distributed search and analytics engine for your data.',
   },
   {
     name: 'Lucene segments',
@@ -15,21 +15,21 @@ export const PRESETS = [
   {
     name: 'Logs use case',
     title: 'Analytics on logs',
-    body: 'Teams search and analyze log data in OpenSearch to find errors fast.',
+    body: 'Teams search and analyze log data in Elasticsearch to find errors fast.',
   },
   {
     name: 'Cluster basics',
-    title: 'OpenSearch cluster',
+    title: 'Elasticsearch cluster',
     body: 'A cluster of nodes holds shards and replicas to scale search and store data.',
   },
 ]
 
-export const EXAMPLE_QUERIES = ['search', 'data', 'opensearch lucene']
+export const EXAMPLE_QUERIES = ['search', 'data', 'elasticsearch lucene']
 
 // Wildcard patterns for the "why are leading wildcards expensive?" scenario.
 // `sc*` has a literal prefix, so a segment can seek to it; `*search` has none,
 // and it deliberately matches two terms that sit far apart in the sorted
-// dictionary ("opensearch" and "search") — visible proof that no seek exists.
+// dictionary ("elasticsearch" and "search") — visible proof that no seek exists.
 export const WILDCARD_QUERIES = ['sc*', 'search*', '*search']
 
 // Routing keys used by the routed sample set below (and its scenario).
@@ -41,7 +41,7 @@ export const ROUTING_KEYS = ['tenant-a', 'tenant-b', 'tenant-c']
 // default `search` query. Ids are assigned doc-1..doc-N in array order.
 export const SAMPLE_DOCS = [
   // doc-1 → shard 2
-  { title: 'What is OpenSearch', body: 'OpenSearch is a distributed search and analytics engine for your data.' },
+  { title: 'What is Elasticsearch', body: 'Elasticsearch is a distributed search and analytics engine for your data.' },
   // doc-2 → shard 0  ("search" ×4)
   { title: 'Search engine', body: 'search makes search fast: search across the cluster.' },
   // doc-3 → shard 1
@@ -63,16 +63,16 @@ export const SAMPLE_DOCS = [
   // doc-11 → shard 0  ("search" ×3)
   { title: 'Search docs', body: 'search the data and search the logs.' },
   // The last three exist for the wildcard scenario: they seed "sc…" terms on
-  // every shard (so a prefix seek has a range to walk) and put "opensearch"
+  // every shard (so a prefix seek has a range to walk) and put "elasticsearch"
   // alongside "search" on shards 0 and 1 (so `*search` matches two terms that
   // sit far apart in the sorted dictionary). None of them contains the bare term
   // "search", so the shard-0 top-k eviction demo above is unaffected.
   // doc-12 → shard 1
-  { title: 'Scaling OpenSearch', body: 'opensearch scales out: add nodes and searches stay fast.' },
+  { title: 'Scaling Elasticsearch', body: 'elasticsearch scales out: add nodes and searches stay fast.' },
   // doc-13 → shard 2
   { title: 'Score and schema', body: 'a schema maps the fields; the score ranks what you searched for.' },
   // doc-14 → shard 0
-  { title: 'Searchable data in OpenSearch', body: 'opensearch makes data searchable: scan the schema, score the results, keep searching.' },
+  { title: 'Searchable data in Elasticsearch', body: 'elasticsearch makes data searchable: scan the schema, score the results, keep searching.' },
 ]
 
 // A second sample set for the routing scenario: every document carries an

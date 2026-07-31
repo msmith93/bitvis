@@ -18,19 +18,22 @@ const common = {
 };
 
 // One stack per site. Each is fully independent (own bucket/distribution/cert/
-// alias) — the monorepo shares the construct, not the infrastructure. Stack ids
-// KubevisStack/OpensearchvisStack match the pre-existing deployed stacks so
-// `cdk deploy` updates them in place rather than re-provisioning.
+// alias) — the monorepo shares the construct, not the infrastructure. KubevisStack
+// matches its pre-existing deployed stack so `cdk deploy` updates it in place.
+// ElasticsearchvisStack is the opensearchvis rebrand: both the stack id and the
+// subdomain changed, so the first deploy provisions a NEW stack (bucket,
+// distribution, cert, alias) and the old OpensearchvisStack must be destroyed
+// separately once opensearchvis.bitsculpt.top is no longer needed.
 new StaticSiteStack(app, 'KubevisStack', {
   ...common,
   subDomain: 'kubevis',
   sourceDir: '../packages/kubevis/dist',
 });
 
-new StaticSiteStack(app, 'OpensearchvisStack', {
+new StaticSiteStack(app, 'ElasticsearchvisStack', {
   ...common,
-  subDomain: 'opensearchvis',
-  sourceDir: '../packages/opensearchvis/dist',
+  subDomain: 'elasticsearchvis',
+  sourceDir: '../packages/elasticsearchvis/dist',
 });
 
 new StaticSiteStack(app, 'CassandravisStack', {

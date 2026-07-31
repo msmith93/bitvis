@@ -1,4 +1,4 @@
-// A deliberately small stand-in for the OpenSearch "standard" analyzer.
+// A deliberately small stand-in for the Elasticsearch "standard" analyzer.
 //
 // The real standard analyzer uses a Unicode text segmentation tokenizer and a
 // lowercase token filter (and NO stopword removal by default). We approximate

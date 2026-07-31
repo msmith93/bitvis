@@ -9,7 +9,7 @@ import { analyze } from './analyzer'
 //              dictionary must be examined. That is why leading wildcards are
 //              expensive, and it gets multiplied by segments and by shards.
 //
-// Naming, because both conventions are in the wild: OpenSearch calls `search*` a
+// Naming, because both conventions are in the wild: Elasticsearch calls `search*` a
 // PREFIX QUERY (the wildcard sits at the end); `*search` is the LEADING WILDCARD.
 // PATTERN_LABEL below spells both out so the UI can't teach the wrong word.
 //
