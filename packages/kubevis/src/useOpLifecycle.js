@@ -5,7 +5,7 @@ import { applyOp, deriveCluster, lastStep, opExtra, stepDuration } from './ops'
 // The op lifecycle state machine: the committed cluster, the active op, the
 // auto-play clock, and every transition between them. UI concerns (terminal
 // scrollback, form inputs, naming counters) stay in App; this hook owns only
-// what (cluster, op) needs to stay consistent. Ported from opensearchvis.
+// what (cluster, op) needs to stay consistent. Ported from elasticsearchvis.
 export function useOpLifecycle(makeInitialCluster) {
   const [cluster, setCluster] = useState(makeInitialCluster)
   const [op, setOp] = useState(null) // { type, step, payload }

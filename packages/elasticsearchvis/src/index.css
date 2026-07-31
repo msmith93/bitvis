@@ -1,16 +1,20 @@
+/* Elastic's palette: EUI dark-theme shades for the surfaces, Elastic brand
+   colors for the accents (teal #00bfb3 is the signature one, blue #36a2ef the
+   secondary, yellow #fec514 the warning). Every rgba() in this file is one of
+   these same colors — keep them in sync if you change one here. */
 :root {
-  --bg: #00131c;
-  --panel: #00263a;
-  --panel-2: #003b5c;
-  --border: #0d4b6e;
-  --text: #e6f1f7;
-  --muted: #8fb4c9;
-  --accent: #00a3e0;
-  --accent-2: #005eb8;
-  --accent-soft: #b9d9eb;
-  --warn: #e0a04a;
-  --danger: #e0574a;
-  --good: #4ec97a;
+  --bg: #16171c;
+  --panel: #1d1e24;
+  --panel-2: #25262e;
+  --border: #343741;
+  --text: #dfe5ef;
+  --muted: #98a2b3;
+  --accent: #00bfb3;
+  --accent-2: #36a2ef;
+  --accent-soft: #9be7e2;
+  --warn: #fec514;
+  --danger: #f86b63;
+  --good: #54b399;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica,
     Arial, sans-serif;
   color-scheme: dark;
@@ -144,7 +148,7 @@ textarea:focus {
 .btn.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #06222a;
+  color: #0b0c10;
 }
 .btn.block {
   width: 100%;
@@ -153,19 +157,19 @@ textarea:focus {
    (footer Play, inspector Close) without disabling its neighbours. */
 @keyframes tour-pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(0, 163, 224, 0.55);
+    box-shadow: 0 0 0 0 rgba(0, 191, 179, 0.55);
   }
   70% {
-    box-shadow: 0 0 0 8px rgba(0, 163, 224, 0);
+    box-shadow: 0 0 0 8px rgba(0, 191, 179, 0);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(0, 163, 224, 0);
+    box-shadow: 0 0 0 0 rgba(0, 191, 179, 0);
   }
 }
 .btn.tour-pulse {
   background: var(--accent);
   border-color: var(--accent);
-  color: #06222a;
+  color: #0b0c10;
   animation: tour-pulse 1.4s ease-out infinite;
 }
 .btn-grid {
@@ -256,7 +260,7 @@ textarea:focus {
 }
 .node-col.active {
   border-color: var(--accent-2);
-  box-shadow: 0 0 0 3px rgba(0, 94, 184, 0.22);
+  box-shadow: 0 0 0 3px rgba(54, 162, 239, 0.22);
 }
 .node-head {
   display: flex;
@@ -296,7 +300,7 @@ textarea:focus {
 }
 .shard-card.active {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(0, 163, 224, 0.22);
+  box-shadow: 0 0 0 2px rgba(0, 191, 179, 0.22);
 }
 .shard-card.serving {
   border-color: var(--good);
@@ -321,7 +325,7 @@ textarea:focus {
   padding: 1px 6px;
 }
 .role-badge.primary {
-  color: #06222a;
+  color: #0b0c10;
   background: var(--accent);
 }
 .role-badge.replica {
@@ -341,7 +345,7 @@ textarea:focus {
   border-radius: 7px;
   padding: 6px;
   margin-bottom: 7px;
-  background: rgba(224, 87, 74, 0.06);
+  background: rgba(248, 107, 99, 0.06);
 }
 .buffer-label {
   font-size: 10px;
@@ -359,7 +363,7 @@ textarea:focus {
   font-family: ui-monospace, Menlo, monospace;
   font-size: 10px;
   font-weight: 700;
-  color: #07151a;
+  color: #0b0c10;
   padding: 2px 6px;
   border-radius: 5px;
 }
@@ -397,7 +401,7 @@ textarea:focus {
 }
 .mini-seg.merging {
   border-color: var(--warn);
-  box-shadow: 0 0 0 2px rgba(224, 160, 74, 0.2);
+  box-shadow: 0 0 0 2px rgba(254, 197, 20, 0.2);
 }
 .mini-seg-head {
   display: flex;
@@ -460,7 +464,7 @@ textarea:focus {
   display: inline-block;
   font-family: ui-monospace, Menlo, monospace;
   font-size: 11px;
-  background: rgba(0, 163, 224, 0.16);
+  background: rgba(0, 191, 179, 0.16);
   color: var(--accent-soft);
   border-radius: 5px;
   padding: 1px 6px;
@@ -487,7 +491,7 @@ table.ii td.term {
   font-family: ui-monospace, Menlo, monospace;
   font-size: 10px;
   font-weight: 700;
-  color: #07151a;
+  color: #0b0c10;
   padding: 1px 6px;
   border-radius: 5px;
   margin: 1px 3px 1px 0;
@@ -647,7 +651,7 @@ table.ii td.term {
   position: fixed;
   inset: 0;
   z-index: 50;
-  background: rgba(0, 11, 18, 0.72);
+  background: rgba(16, 17, 22, 0.72);
   backdrop-filter: blur(3px);
 }
 .index-overlay-root {
@@ -694,11 +698,11 @@ table.ii td.term {
   pointer-events: none;
   background: linear-gradient(
     180deg,
-    rgba(0, 163, 224, 0) 0%,
-    rgba(0, 163, 224, 0.35) 50%,
-    rgba(0, 163, 224, 0) 100%
+    rgba(0, 191, 179, 0) 0%,
+    rgba(0, 191, 179, 0.35) 50%,
+    rgba(0, 191, 179, 0) 100%
   );
-  box-shadow: 0 0 18px 4px rgba(0, 163, 224, 0.35);
+  box-shadow: 0 0 18px 4px rgba(0, 191, 179, 0.35);
   /* JS unmounts the scan-line before this sweep finishes — at INDEX_SCAN_MS /
      QUERY_SCAN_MS (src/timing.js); change these together. */
   animation: scan-sweep 1.3s ease-in-out 1;
@@ -754,7 +758,7 @@ table.ii td.term {
   font-family: ui-monospace, Menlo, monospace;
   font-size: 11px;
   font-weight: 700;
-  color: #07151a;
+  color: #0b0c10;
   padding: 3px 7px;
   border-radius: 5px;
 }
@@ -821,10 +825,10 @@ table.ii td.term {
   font-family: ui-monospace, Menlo, monospace;
   font-size: 11px;
   font-weight: 700;
-  color: #07151a;
+  color: #0b0c10;
   padding: 3px 7px;
   border-radius: 5px;
-  box-shadow: 0 2px 10px rgba(0, 163, 224, 0.4);
+  box-shadow: 0 2px 10px rgba(0, 191, 179, 0.4);
   white-space: nowrap;
 }
 /* full-document cards fetched back to the coordinator (query-then-fetch) */
@@ -852,14 +856,14 @@ table.ii td.term {
   font-size: 11px;
   border: 1px solid var(--good);
   border-radius: 50%;
-  background: rgba(78, 201, 122, 0.12);
+  background: rgba(84, 179, 153, 0.12);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 .magnify-btn:hover {
-  background: rgba(78, 201, 122, 0.28);
+  background: rgba(84, 179, 153, 0.28);
 }
 /* coordinator variant: sits inline in the node head (the base class is
    absolutely positioned for shard cards) and takes the coordinator blue */
@@ -867,10 +871,10 @@ table.ii td.term {
   position: static;
   margin-left: auto;
   border-color: var(--accent-2);
-  background: rgba(0, 94, 184, 0.14);
+  background: rgba(54, 162, 239, 0.14);
 }
 .node-head .magnify-btn.coord:hover {
-  background: rgba(0, 94, 184, 0.3);
+  background: rgba(54, 162, 239, 0.3);
 }
 /* keep the serving badge from sliding under the absolutely-positioned glass */
 .shard-card.scanning .shard-head {
@@ -881,7 +885,7 @@ table.ii td.term {
   position: fixed;
   inset: 0;
   z-index: 60;
-  background: rgba(0, 8, 14, 0.66);
+  background: rgba(11, 12, 16, 0.66);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1056,8 +1060,8 @@ table.ii td.term {
   border-radius: 5px;
 }
 .si-dict-row.matched {
-  background: rgba(78, 201, 122, 0.1);
-  outline: 1px solid rgba(78, 201, 122, 0.4);
+  background: rgba(84, 179, 153, 0.1);
+  outline: 1px solid rgba(84, 179, 153, 0.4);
 }
 .si-dict-row.missing {
   opacity: 0.45;
@@ -1132,7 +1136,7 @@ table.ii td.term {
 .si-pq-slot.filled {
   border-style: solid;
   border-color: var(--good);
-  background: rgba(78, 201, 122, 0.07);
+  background: rgba(84, 179, 153, 0.07);
 }
 .si-pq-rank {
   font-family: ui-monospace, Menlo, monospace;
@@ -1337,11 +1341,11 @@ table.ii td.term {
 }
 .anat-bit.live {
   color: var(--good);
-  border-color: rgba(78, 201, 122, 0.4);
+  border-color: rgba(84, 179, 153, 0.4);
 }
 .anat-bit.dead {
   color: var(--danger);
-  border-color: rgba(224, 87, 74, 0.5);
+  border-color: rgba(248, 107, 99, 0.5);
   text-decoration: line-through;
 }
 
@@ -1398,8 +1402,8 @@ table.ii td.term {
   transition: background 0.2s, opacity 0.2s;
 }
 .anat-row.term-active {
-  background: rgba(78, 201, 122, 0.14);
-  outline: 1px solid rgba(78, 201, 122, 0.45);
+  background: rgba(84, 179, 153, 0.14);
+  outline: 1px solid rgba(84, 179, 153, 0.45);
 }
 .anat-row.dim {
   opacity: 0.4;
@@ -1419,7 +1423,7 @@ table.ii td.term {
 
 .anat-source.active {
   border-color: var(--good);
-  box-shadow: 0 0 0 2px rgba(78, 201, 122, 0.18);
+  box-shadow: 0 0 0 2px rgba(84, 179, 153, 0.18);
 }
 .anat-doc {
   display: flex;
@@ -1491,7 +1495,7 @@ table.ii td.term {
    the hole between them lets the real control receive its click. */
 .tour-dim {
   position: fixed;
-  background: rgba(0, 11, 18, 0.6);
+  background: rgba(16, 17, 22, 0.6);
   pointer-events: auto;
 }
 .tour-ring {
@@ -1500,7 +1504,7 @@ table.ii td.term {
   top: 0;
   border: 2px solid var(--accent);
   border-radius: 10px;
-  box-shadow: 0 0 18px rgba(0, 163, 224, 0.45);
+  box-shadow: 0 0 18px rgba(0, 191, 179, 0.45);
   pointer-events: none;
 }
 .tour-tip {
@@ -1549,7 +1553,7 @@ table.ii td.term {
   position: fixed;
   inset: 0;
   z-index: 70;
-  background: rgba(0, 11, 18, 0.72);
+  background: rgba(16, 17, 22, 0.72);
   backdrop-filter: blur(3px);
 }
 .tour-card-root {
@@ -1658,7 +1662,7 @@ table.ii td.term {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--good);
-  border: 1px solid rgba(78, 201, 122, 0.4);
+  border: 1px solid rgba(84, 179, 153, 0.4);
   border-radius: 999px;
   padding: 1px 6px;
 }
@@ -1723,19 +1727,19 @@ table.ii td.term {
 /* The row the probe is reading right now: a seek bounces between brackets,
    a full scan walks straight down. */
 .anat-row.examined {
-  background: rgba(143, 180, 201, 0.08);
+  background: rgba(152, 162, 179, 0.08);
 }
 .anat-row.probe-seek,
 .anat-row.probe-scan {
   outline: 2px solid var(--accent);
-  background: rgba(0, 163, 224, 0.32);
-  box-shadow: 0 0 12px rgba(0, 163, 224, 0.35);
+  background: rgba(0, 191, 179, 0.32);
+  box-shadow: 0 0 12px rgba(0, 191, 179, 0.35);
   opacity: 1;
 }
 .anat-row.probe-scan {
   outline-color: var(--warn);
-  background: rgba(224, 160, 74, 0.3);
-  box-shadow: 0 0 12px rgba(224, 160, 74, 0.3);
+  background: rgba(254, 197, 20, 0.3);
+  box-shadow: 0 0 12px rgba(254, 197, 20, 0.3);
 }
 /* Binary-search bounds: the window still being narrowed down. */
 .anat-row.probe-lo,
@@ -1857,7 +1861,7 @@ table.ii td.term {
   text-transform: none;
   letter-spacing: 0;
   color: var(--warn);
-  border: 1px dashed rgba(224, 160, 74, 0.5);
+  border: 1px dashed rgba(254, 197, 20, 0.5);
   border-radius: 5px;
   padding: 2px 6px;
   white-space: nowrap;
@@ -1872,7 +1876,7 @@ table.ii td.term {
   font-size: 12px;
   line-height: 1.5;
   color: var(--accent-soft);
-  background: rgba(0, 59, 92, 0.4);
+  background: rgba(37, 38, 46, 0.4);
   border-left: 3px solid var(--border);
   border-radius: 0 6px 6px 0;
 }
@@ -1926,11 +1930,11 @@ table.ii td.term {
 }
 .cu-file-where.ram {
   color: var(--good);
-  background: rgba(78, 201, 122, 0.16);
+  background: rgba(84, 179, 153, 0.16);
 }
 .cu-file-where.disk {
   color: var(--muted);
-  background: rgba(13, 75, 110, 0.5);
+  background: rgba(52, 55, 65, 0.5);
 }
 
 /* the file offset + entry count, reused by the opened-block header below */
@@ -1979,20 +1983,20 @@ table.ii td.term {
   gap: 0;
   padding: 4px 10px;
   font-size: 12px;
-  border-top: 1px solid rgba(13, 75, 110, 0.4);
+  border-top: 1px solid rgba(52, 55, 65, 0.4);
   transition: background 0.18s ease, opacity 0.18s ease;
 }
 .cu-suffix-row.untouched {
   opacity: 0.3;
 }
 .cu-suffix-row.read {
-  background: rgba(0, 94, 184, 0.16);
+  background: rgba(54, 162, 239, 0.16);
 }
 .cu-suffix-row.hit {
-  background: rgba(78, 201, 122, 0.2);
+  background: rgba(84, 179, 153, 0.2);
 }
 .cu-suffix-row.stop {
-  background: rgba(224, 160, 74, 0.15);
+  background: rgba(254, 197, 20, 0.15);
 }
 .cu-suffix-cell.prefix {
   color: var(--muted);
@@ -2028,7 +2032,7 @@ table.ii td.term {
 .cu-fst {
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: rgba(0, 19, 28, 0.4);
+  background: rgba(22, 23, 28, 0.4);
   padding: 4px;
   overflow-x: auto;
 }
@@ -2087,7 +2091,7 @@ table.ii td.term {
   stroke: var(--accent);
 }
 .cu-state.walked circle {
-  fill: rgba(78, 201, 122, 0.22);
+  fill: rgba(84, 179, 153, 0.22);
   stroke: var(--good);
 }
 .cu-state.cursor circle {
@@ -2128,7 +2132,7 @@ table.ii td.term {
 }
 .cu-fst-legend .dot.walked {
   border-color: var(--good);
-  background: rgba(78, 201, 122, 0.3);
+  background: rgba(84, 179, 153, 0.3);
 }
 .cu-fst-size {
   margin-left: auto;
@@ -2146,11 +2150,11 @@ table.ii td.term {
   border-radius: 4px;
   padding: 2px 7px;
   font-size: 12px;
-  background: rgba(78, 201, 122, 0.14);
+  background: rgba(84, 179, 153, 0.14);
 }
 .cu-trail-arc.dead {
   border-color: var(--danger);
-  background: rgba(224, 87, 74, 0.14);
+  background: rgba(248, 107, 99, 0.14);
   text-decoration: line-through;
 }
 .cu-trail-arc em {
@@ -2199,13 +2203,13 @@ table.ii td.term {
 }
 .cu-verdict.follow {
   color: var(--good);
-  border-color: rgba(78, 201, 122, 0.45);
-  background: rgba(78, 201, 122, 0.12);
+  border-color: rgba(84, 179, 153, 0.45);
+  background: rgba(84, 179, 153, 0.12);
 }
 .cu-verdict.prune {
   color: var(--danger);
-  border-color: rgba(224, 87, 74, 0.45);
-  background: rgba(224, 87, 74, 0.1);
+  border-color: rgba(248, 107, 99, 0.45);
+  background: rgba(248, 107, 99, 0.1);
 }
 .cu-verdict em {
   font-style: normal;
@@ -2223,7 +2227,7 @@ table.ii td.term {
 .cu-term-test.accept {
   color: var(--good);
   border-color: var(--good);
-  background: rgba(78, 201, 122, 0.14);
+  background: rgba(84, 179, 153, 0.14);
 }
 .cu-term-test.reject {
   text-decoration: line-through;
@@ -2269,7 +2273,7 @@ table.ii td.term {
   padding: 7px 11px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: rgba(0, 19, 28, 0.5);
+  background: rgba(22, 23, 28, 0.5);
 }
 .cu-chain-lead {
   font-size: 9px;
@@ -2316,7 +2320,7 @@ table.ii td.term {
 }
 .cu-chain-hop.active {
   border-color: var(--accent);
-  background: rgba(0, 163, 224, 0.14);
+  background: rgba(0, 191, 179, 0.14);
 }
 .cu-chain-hop.active b,
 .cu-chain-hop.active i {
@@ -2363,12 +2367,12 @@ table.ii td.term {
   padding: 5px 10px;
   border-radius: 6px;
   border-left: 3px solid var(--good);
-  background: rgba(78, 201, 122, 0.1);
+  background: rgba(84, 179, 153, 0.1);
   font-size: 12px;
 }
 .cu-spell-row.dead {
   border-left-color: var(--danger);
-  background: rgba(224, 87, 74, 0.12);
+  background: rgba(248, 107, 99, 0.12);
 }
 .cu-spell-letter {
   flex: none;
@@ -2428,11 +2432,11 @@ table.ii td.term {
   min-width: 0;
   border: 1px solid var(--border);
   border-radius: 9px;
-  background: rgba(0, 19, 28, 0.35);
+  background: rgba(22, 23, 28, 0.35);
   overflow: hidden;
 }
 .cu-side.ram {
-  border-color: rgba(78, 201, 122, 0.45);
+  border-color: rgba(84, 179, 153, 0.45);
 }
 .cu-side-head {
   display: flex;
@@ -2526,7 +2530,7 @@ table.ii td.term {
 /* the one block the walk landed on */
 .cu-bcol-item.focus {
   border-color: var(--accent);
-  background: rgba(0, 163, 224, 0.12);
+  background: rgba(0, 191, 179, 0.12);
 }
 .cu-bcol-item.focus .cu-bcol-fp {
   color: var(--accent);
@@ -2551,7 +2555,7 @@ table.ii td.term {
    ".fdt = the text" */
 .cu-chain-hop.downstream {
   border-style: dashed;
-  border-color: rgba(13, 75, 110, 0.7);
+  border-color: rgba(52, 55, 65, 0.7);
   opacity: 0.62;
 }
 

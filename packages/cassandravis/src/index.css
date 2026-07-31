@@ -1519,7 +1519,7 @@ table.ii td.term {
 
 /* ============================================================
    cassandravis-specific styles (the base above is shared with
-   the sibling opensearchvis package for a consistent look)
+   the sibling elasticsearchvis package for a consistent look)
    ============================================================ */
 
 /* ---------------- stage head + scenario bar (from kubevis) -------------- */

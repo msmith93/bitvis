@@ -32,7 +32,7 @@ export function shardsOnNode(nodeId) {
   return out
 }
 
-// Deterministic stand-in for OpenSearch's murmur3(_routing) % num_shards.
+// Deterministic stand-in for Elasticsearch's murmur3(_routing) % num_shards.
 // A simple string hash; for ids like doc-1, doc-2, doc-3 it spreads evenly
 // across all shards so every node participates in the search demo.
 export function routeShard(routingValue) {
@@ -49,7 +49,7 @@ export function routeShard(routingValue) {
 export const docRoute = (doc) => routeShard(doc?.routing || doc?.id || '')
 
 // Which copy of a shard serves the query phase. Deterministic stand-in for
-// OpenSearch's adaptive replica selection (see SPEC "Flagged simplifications"):
+// Elasticsearch's adaptive replica selection (see SPEC "Flagged simplifications"):
 // alternate by shard id so the demo shows both copy types serving.
 export function selectServingCopy(shard) {
   return shard.id % 2 === 1

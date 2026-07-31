@@ -5,7 +5,7 @@
 // renders nothing, which is how it waits out op animations and lets the app's
 // own "What's happening" panel narrate. `onShow` fires once when a step first
 // becomes visible (the magnify step uses it to pause mid-op, same as
-// opensearchvis). Predicates read the snapshot App builds:
+// elasticsearchvis). Predicates read the snapshot App builds:
 // { opType, opStep, playing, opDone, downCount, sampleLoaded, closeUpKind, key }.
 export const TOUR_STEPS = [
   {

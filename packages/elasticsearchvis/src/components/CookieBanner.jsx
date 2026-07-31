@@ -11,8 +11,8 @@ export default function CookieBanner({ onAccept, onDecline }) {
         bottom: 0,
         left: 0,
         right: 0,
-        backgroundColor: '#12202b',
-        color: '#cfe4f2',
+        backgroundColor: '#1d1e24',
+        color: '#dfe5ef',
         padding: '20px',
         boxShadow: '0 -2px 10px rgba(0, 0, 0, 0.5)',
         zIndex: 10000,
@@ -39,20 +39,20 @@ export default function CookieBanner({ onAccept, onDecline }) {
             padding: '10px 20px',
             fontSize: '14px',
             fontWeight: 'bold',
-            color: '#cfe4f2',
-            backgroundColor: '#1c2f3d',
-            border: '1px solid #2f4c60',
+            color: '#dfe5ef',
+            backgroundColor: '#25262e',
+            border: '1px solid #343741',
             borderRadius: '6px',
             cursor: 'pointer',
             transition: 'all 0.2s ease',
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = '#25415290'
-            e.currentTarget.style.borderColor = '#3d6280'
+            e.currentTarget.style.backgroundColor = '#34374190'
+            e.currentTarget.style.borderColor = '#535966'
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = '#1c2f3d'
-            e.currentTarget.style.borderColor = '#2f4c60'
+            e.currentTarget.style.backgroundColor = '#25262e'
+            e.currentTarget.style.borderColor = '#343741'
           }}
         >
           Decline
@@ -63,8 +63,8 @@ export default function CookieBanner({ onAccept, onDecline }) {
             padding: '10px 20px',
             fontSize: '14px',
             fontWeight: 'bold',
-            color: '#04121b',
-            backgroundColor: '#00a3e0',
+            color: '#0b0c10',
+            backgroundColor: '#00bfb3',
             border: 'none',
             borderRadius: '6px',
             cursor: 'pointer',
@@ -72,11 +72,11 @@ export default function CookieBanner({ onAccept, onDecline }) {
             boxShadow: '0 2px 4px rgba(0, 0, 0, 0.3)',
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = '#2bb8ef'
+            e.currentTarget.style.backgroundColor = '#34d8cb'
             e.currentTarget.style.transform = 'scale(1.05)'
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = '#00a3e0'
+            e.currentTarget.style.backgroundColor = '#00bfb3'
             e.currentTarget.style.transform = 'scale(1)'
           }}
         >

@@ -61,7 +61,7 @@ export function cloneCluster(c) {
 
 // ---- Naming ----------------------------------------------------------------
 // Real conventions, deterministically generated from counters the App holds
-// (like opensearchvis's doc/segment counters): a ReplicaSet gets a fake
+// (like elasticsearchvis's doc/segment counters): a ReplicaSet gets a fake
 // pod-template hash (web-66b6c48dd5) and each pod a 5-char suffix from the
 // same consonant-heavy alphabet Kubernetes uses (web-66b6c48dd5-8w5x7).
 const SAFE_ALPHABET = 'bcdfghjklmnpqrstvwxz2456789'

@@ -18,7 +18,7 @@ import { deleteService, deleteIngress } from './deleteRoute'
 // derived purely from (cluster, op) via deriveCluster + opExtra, so steps can
 // be scrubbed back and forth; reaching the last step folds the effect into the
 // committed cluster via applyOp. Adding a kubectl verb = adding one module and
-// registering it here. (Same architecture as opensearchvis.)
+// registering it here. (Same architecture as elasticsearchvis.)
 export const OPS = {
   createDeployment,
   scaleUp,

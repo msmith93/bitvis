@@ -1,5 +1,5 @@
 // Declarative script for the first-run guided tour, ported from
-// opensearchvis. Each step spotlights a real control and advances when the
+// elasticsearchvis. Each step spotlights a real control and advances when the
 // user actually uses it (`advanceOn`), not via a Next button — only the
 // centered welcome/finish cards (target: null) and the observe steps advance
 // manually. `waitFor` gates VISIBILITY only: while false the tour renders

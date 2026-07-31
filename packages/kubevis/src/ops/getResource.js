@@ -1,5 +1,5 @@
 // The `get` op: read-only (no derive, so it never folds into committed state
-// — same as opensearchvis's search). Three quick steps that make the read
+// — same as elasticsearchvis's search). Three quick steps that make the read
 // path visible: even a humble `kubectl get pods` goes through the API server
 // and etcd; kubectl never peeks at nodes directly. Payload:
 //   { id, resource, table }  — table pre-formatted by kubectl.js against base.

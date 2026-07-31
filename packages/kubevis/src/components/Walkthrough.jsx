@@ -80,7 +80,7 @@ function tipPos(rect, placement) {
 // (welcome/finish), or a spotlight for targeted steps — four dim rectangles
 // around the target swallow stray clicks while the hole between them lets the
 // real control receive its click, plus an accent ring and an instruction
-// tooltip. Ported from opensearchvis; sits at z-index 70, above the chip
+// tooltip. Ported from elasticsearchvis; sits at z-index 70, above the chip
 // flights (60).
 export default function Walkthrough({ tour, allowEscape = true }) {
   const { status, step, visible, stepIndex, stepCount, next, skip, finish } = tour

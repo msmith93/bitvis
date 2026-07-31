@@ -18,7 +18,7 @@ export function selectorRect(selector) {
 // element to a target element with a small stagger. Purely decorative: the
 // derived cluster is the source of truth, so no onComplete state — the step
 // budget (flightAwareDuration) reserves time for the flight instead.
-// Ported from opensearchvis's FlyingTokens.
+// Ported from elasticsearchvis's FlyingTokens.
 export default function ChipFlight({ tokens, fromSel, toSel, spread = 16 }) {
   const start = rectCenter(selectorRect(fromSel))
   const end = rectCenter(selectorRect(toSel))
