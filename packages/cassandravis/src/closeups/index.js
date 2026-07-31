@@ -1,7 +1,6 @@
 import { stepIdx } from '../ops/writePath'
 import { getIdx } from '../ops/get'
 import * as quorum from './quorum'
-import * as coordinator from './coordinator'
 import * as writepath from './writepath'
 import * as readpath from './readpath'
 import * as readrepair from './readrepair'
@@ -41,11 +40,8 @@ export function closeUpForNode(op, nid, cluster) {
     if (p.targets.includes(nid)) return 'flush'
   } else if (op.type === 'compact') {
     if (p.targets.includes(nid)) return 'compact'
-  } else if (op.type === 'nodeCrash' || op.type === 'coordCrash') {
+  } else if (op.type === 'nodeCrash') {
     if (op.step === 1 && nid !== p.node && cluster.nodes[nid]?.up) return 'gossip'
-    // The reroute step: zoom on the NEW coordinator for the leader-vs-
-    // leaderless contrast — why no election just happened.
-    if (op.type === 'coordCrash' && op.step === 2 && nid === p.next) return 'coordinator'
   } else if (op.type === 'recoverNode') {
     if (p.replays.length > 0 && op.step === 1 && nid === p.node) return 'hint'
   }
@@ -80,8 +76,6 @@ export function buildCloseUp(cu, { op, base, derived }) {
   switch (cu.kind) {
     case 'quorum':
       return quorum.build(p, op.type)
-    case 'coordinator':
-      return coordinator.build(p)
     case 'writepath':
       return writepath.build(p, cu.node, base.nodes[cu.node], op.type, keysMeta)
     case 'readpath':

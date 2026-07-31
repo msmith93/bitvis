@@ -82,6 +82,7 @@ export default function App() {
       downCount: downNodes.length,
       sampleLoaded,
       closeUpKind: closeUp?.kind ?? null,
+      key: key.trim(),
     },
     { pause },
   )
@@ -256,8 +257,8 @@ export default function App() {
   }
 
   // Scenario targets are picked at click time: crash prefers a replica of the
-  // current key (so the very next put shows a hint), never the current
-  // coordinator — killing THAT is its own scenario with its own story.
+  // current key (so the very next put shows a hint), never the coordinator —
+  // the sim's client stays connected to it, so it has to stay up.
   function startCrash() {
     const { replicas } = replicaWalk(base, keyTrim || PRESETS[0].key)
     const candidates = upNodes.map((n) => n.id).filter((nid) => nid !== base.coordinator)
@@ -265,16 +266,6 @@ export default function App() {
       [...replicas].reverse().find((nid) => candidates.includes(nid)) ?? candidates[0]
     if (!target) return
     start('nodeCrash', { node: target })
-  }
-
-  // Crash the coordinator itself: the leaderless showcase. The client's driver
-  // reroutes to the next live peer, which simply becomes the new coordinator —
-  // no election. The role does NOT move back when the old node recovers.
-  function startCoordCrash() {
-    const target = base.coordinator
-    const next = upNodes.map((n) => n.id).find((nid) => nid !== target)
-    if (!next || !base.nodes[target].up) return
-    start('coordCrash', { node: target, next })
   }
 
   function startRecover() {
@@ -351,17 +342,6 @@ export default function App() {
       run: startCrash,
     },
     {
-      key: 'coord-crash',
-      icon: '☠️',
-      label: 'crash the coordinator',
-      tooltip: 'The node the client talks to dies — watch what does NOT happen (an election)',
-      enabled:
-        idle &&
-        !!base?.nodes[base.coordinator]?.up &&
-        upNodes.some((n) => n.id !== base?.coordinator),
-      run: startCoordCrash,
-    },
-    {
       key: 'recover',
       icon: '🔌',
       label: 'recover node',
@@ -390,7 +370,7 @@ export default function App() {
         {/* ---------------- Left: controls ---------------- */}
         <div className="col">
           <p className="section-title">Request</p>
-          <div data-tour="put-area">
+          <div>
             <div className="kv-row">
               <input
                 type="text"
@@ -412,6 +392,7 @@ export default function App() {
                 <button
                   key={p.key}
                   className="preset-chip"
+                  data-tour={p.key === 'cart:7' ? 'preset-cart7' : undefined}
                   onClick={() => {
                     setKey(p.key)
                     setValue(p.value)
@@ -422,7 +403,12 @@ export default function App() {
               ))}
             </div>
             <div className="btn-grid" style={{ marginTop: 10 }}>
-              <button className="btn primary" onClick={startPut} disabled={!canPut}>
+              <button
+                className="btn primary"
+                data-tour="put-btn"
+                onClick={startPut}
+                disabled={!canPut}
+              >
                 Put
               </button>
               <button
@@ -536,8 +522,7 @@ export default function App() {
                 Put a key/value to begin — or load the sample data and try a
                 Get, a crash, or a Repair. There is no leader here: the
                 "coordinator" is just the node this client happens to connect
-                to. Don't believe it? ☠️ crash the coordinator and watch what
-                does NOT happen.
+                to; any node can play that role.
               </p>
             </div>
           )}

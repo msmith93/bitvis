@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 // The kubectl terminal: scrollback + prompt + clickable preset commands.
 // App owns the scrollback lines (ops append their output); this component
 // owns only input-editing state (draft text, history cursor). Input is
-// disabled while an op is mid-walk, like opensearchvis's action buttons.
+// disabled while an op is mid-walk, like elasticsearchvis's action buttons.
 export default function Terminal({ lines, onCommand, disabled, presets }) {
   const [draft, setDraft] = useState('')
   const [history, setHistory] = useState([])

@@ -5,7 +5,7 @@ import { applyOp, deriveCluster, lastStep, opExtra, stepDuration } from './ops'
 // auto-play clock, and every transition between them. UI concerns (form
 // inputs, consistency picks, naming counters) stay in App; this hook owns
 // only what (cluster, op) needs to stay consistent. Ported from the sibling
-// opensearchvis package — the one difference is that step lists are
+// elasticsearchvis package — the one difference is that step lists are
 // payload-aware, so lastStep takes the op, not the type.
 export function useOpLifecycle(makeInitialCluster) {
   const [cluster, setCluster] = useState(makeInitialCluster)

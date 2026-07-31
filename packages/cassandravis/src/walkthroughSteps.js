@@ -5,8 +5,8 @@
 // renders nothing, which is how it waits out op animations and lets the app's
 // own "What's happening" panel narrate. `onShow` fires once when a step first
 // becomes visible (the magnify step uses it to pause mid-op, same as
-// opensearchvis). Predicates read the snapshot App builds:
-// { opType, opStep, playing, opDone, downCount, sampleLoaded, closeUpKind }.
+// elasticsearchvis). Predicates read the snapshot App builds:
+// { opType, opStep, playing, opDone, downCount, sampleLoaded, closeUpKind, key }.
 export const TOUR_STEPS = [
   {
     id: 'welcome',
@@ -22,11 +22,34 @@ export const TOUR_STEPS = [
   },
   {
     id: 'put',
-    target: '[data-tour="put-area"]',
+    target: '[data-tour="put-btn"]',
     placement: 'right',
     title: 'Put your first key',
-    body: 'Keep the preset (or type your own key and value) and click “Put”. Watch the key hash onto the ring, the coordinator walk clockwise for 3 distinct replicas, and the write fan out to ALL of them — W only controls how many acks it waits for.',
+    body: 'Click “Put” to write the preset key. Watch it hash onto the ring, the coordinator walk clockwise for 3 distinct replicas, and the write fan out to ALL of them — W only controls how many acks it waits for.',
     advanceOn: (s) => s.opType === 'put',
+  },
+  {
+    id: 'put-magnify',
+    target: '[data-tour="magnify"]',
+    placement: 'bottom',
+    title: 'Zoom into a replica’s write path',
+    // Same pause trick as the read-side magnify step below: cancel the
+    // auto-play clock so the transient 🔍 stays mounted while the user reads.
+    waitFor: (s) => s.opType === 'put' && s.opStep === 3,
+    onShow: (s, actions) => actions.pause(),
+    body: 'The write is paused mid-flight: each replica is applying the mutation locally right now. Click the highlighted 🔍 to step through it — the commit-log append (durability) and the memtable upsert.',
+    advanceOn: (s) => s.closeUpKind === 'writepath' || (s.opDone && !s.playing),
+  },
+  {
+    id: 'put-stepper',
+    target: '[data-tour="stepper-play"]',
+    placement: 'top',
+    title: 'Resume the write',
+    body: 'The write is still paused mid-flight. Press ▶ Play to resume it — watch the acks fly back and the coordinator count them against W.',
+    // Hidden while the close-up is open so it never covers it. The opStep
+    // escape hatch covers a user who scrubs forward with Next instead.
+    waitFor: (s) => s.closeUpKind == null,
+    advanceOn: (s) => s.playing || (s.opType === 'put' && s.opStep >= 4),
   },
   {
     id: 'load-sample',
@@ -38,13 +61,20 @@ export const TOUR_STEPS = [
     advanceOn: (s) => s.sampleLoaded,
   },
   {
-    id: 'get',
-    // The whole request area, not just the Get button — the spotlight blocks
-    // clicks outside its hole, and this step needs the cart:7 preset too.
-    target: '[data-tour="put-area"]',
+    id: 'get-key',
+    target: '[data-tour="preset-cart7"]',
     placement: 'right',
-    title: 'Now read something back',
-    body: 'Click the cart:7 preset, then “Get”. The same hash finds the same replicas; the coordinator queries R of them and resolves by newest timestamp — and remember, one replica holds a stale cart:7.',
+    title: 'Pick the stale key',
+    body: 'Click the cart:7 preset — the key whose write node-1 deliberately missed. The read you run next will have to deal with that.',
+    waitFor: (s) => s.sampleLoaded && !s.playing,
+    advanceOn: (s) => s.key === 'cart:7',
+  },
+  {
+    id: 'get',
+    target: '[data-tour="get-btn"]',
+    placement: 'right',
+    title: 'Now read it back',
+    body: 'Click “Get”. The same hash finds the same replicas; the coordinator queries R of them and resolves by newest timestamp — and remember, one replica holds a stale cart:7.',
     waitFor: (s) => s.sampleLoaded && !s.playing,
     advanceOn: (s) => s.opType === 'get',
   },
@@ -83,10 +113,10 @@ export const TOUR_STEPS = [
   },
   {
     id: 'hint-put',
-    target: '[data-tour="put-area"]',
+    target: '[data-tour="put-btn"]',
     placement: 'right',
     title: 'Write through the failure',
-    body: 'Put the same key again (maybe a new value). The write still goes to all 3 replicas — but one is down, so the coordinator stores a HINT for it. Note the quorum math: hints don’t count toward W.',
+    body: 'Put the same key again. The write still goes to all 3 replicas — but one is down, so the coordinator stores a HINT for it. Note the quorum math: hints don’t count toward W.',
     waitFor: (s) => s.opType === 'nodeCrash' && s.opDone && !s.playing,
     advanceOn: (s) => (s.opType === 'put' || s.opType === 'del') && s.downCount > 0,
   },
@@ -104,8 +134,8 @@ export const TOUR_STEPS = [
     target: null,
     title: 'That’s the core loop!',
     body: [
-      'You wrote at W, zoomed inside a replica’s read path, crashed a node, wrote through the failure, and healed it with hinted handoff — all without a leader anywhere.',
-      'Remember the 🔍 magnifiers — every operation has them: a replica’s write path and the quorum math during a Put, flush and compaction inside the LSM tree, a peer’s failure detector during a crash, Merkle trees during Repair. And try “☠️ crash the coordinator” to see why it was never a leader.',
+      'You wrote at W, zoomed inside a replica’s write and read paths, crashed a node, wrote through the failure, and healed it with hinted handoff — all without a leader anywhere.',
+      'Remember the 🔍 magnifiers — every operation has them: the quorum math during a Put, flush and compaction inside the LSM tree, a peer’s failure detector during a crash, Merkle trees during Repair.',
     ],
     waitFor: (s) => s.opType === 'recoverNode' && s.opDone,
     cta: 'Done',

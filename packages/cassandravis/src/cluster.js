@@ -8,10 +8,10 @@ export const N_REPLICAS = 3
 export const VNODES_PER_NODE = 2
 
 // The node a client connects to and that coordinates a request. Any node can
-// coordinate — the coordinator is a peer, NOT a leader. It lives IN cluster
-// state (`cluster.coordinator`): it starts at node-1 and moves only when the
-// "crash the coordinator" scenario makes the client's driver pick another
-// live peer. Ops read it from their payload (`p.coord`), captured at start().
+// coordinate — the coordinator is a peer, NOT a leader. In this sim the
+// client's driver stays connected to node-1, so the coordinator never moves
+// (real drivers spread requests across many coordinators). Ops read it from
+// their payload (`p.coord`), captured at start().
 const INITIAL_COORDINATOR = 'node-1'
 
 // Consistency levels for N=3. W and R are how many acks the coordinator WAITS

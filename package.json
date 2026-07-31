@@ -9,7 +9,7 @@
   "scripts": {
     "dev:cassandravis": "npm run dev -w @bitvis/cassandravis",
     "dev:kubevis": "npm run dev -w @bitvis/kubevis",
-    "dev:opensearchvis": "npm run dev -w @bitvis/opensearchvis",
+    "dev:elasticsearchvis": "npm run dev -w @bitvis/elasticsearchvis",
     "build": "npm run build --workspaces --if-present",
     "preview": "npm run preview --workspaces --if-present"
   }

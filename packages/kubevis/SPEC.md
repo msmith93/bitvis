@@ -10,7 +10,7 @@ containers. A stepper scrubs every operation forwards and backwards with a
 short explanation per step. The reconciliation loop (desired vs actual state)
 is the pedagogical core.
 
-Sibling project: `opensearchvis` (OpenSearch write-path visualizer). kubevis
+Sibling project: `elasticsearchvis` (Elasticsearch write-path visualizer). kubevis
 reuses its architecture — pure derivation of visible state from `(cluster,
 op)`, per-op step modules, one timing file, Framer Motion chip flights.
 

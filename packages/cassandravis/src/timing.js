@@ -1,7 +1,7 @@
 // Every animation-scheduling constant lives here so the pieces that must stay
 // in sync (a JS timeout, the framer transition it waits for, the step budget
 // that reserves time for both) share one named value instead of repeating a
-// literal across files. Same convention as kubevis/opensearchvis.
+// literal across files. Same convention as kubevis/elasticsearchvis.
 
 // ---- Chip flights (components/ChipFlight.jsx) ------------------------------
 // A batch of n chips staggers FLIGHT_STAGGER_MS apart; each chip travels for

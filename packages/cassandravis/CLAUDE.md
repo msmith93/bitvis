@@ -36,7 +36,7 @@ before changing the model.
 
 ## Architecture
 
-Same core pattern as the sibling `opensearchvis`/`kubevis` packages: a **pure
+Same core pattern as the sibling `elasticsearchvis`/`kubevis` packages: a **pure
 derivation of visible state from `(cluster, op)`**, which lets the stepper
 scrub any operation forwards and backwards.
 
@@ -82,7 +82,7 @@ scrub any operation forwards and backwards.
     `start()` folds the previous finished op before beginning a new one.
 
 - **`src/useOpLifecycle.js`** owns the op state machine (ported from
-  opensearchvis): `cluster`/`op`/`opDone`/`playing`, the auto-play clock,
+  elasticsearchvis): `cluster`/`op`/`opDone`/`playing`, the auto-play clock,
   memoized `derived`/`extra`, `start`/`step`/`play`/`pause`/`resetTo`, and
   the `has*` capability flags. **`App.jsx`** keeps UI state (key/value
   inputs, W/R consistency picks, the logical-clock and naming refs) and

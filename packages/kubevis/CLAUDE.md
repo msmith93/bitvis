@@ -41,7 +41,7 @@ correctness requirements — read `SPEC.md` before changing the model.
 
 ## Architecture
 
-Same core pattern as the sibling `opensearchvis` repo: a **pure derivation of
+Same core pattern as the sibling `elasticsearchvis` repo: a **pure derivation of
 visible state from `(cluster, op)`**, which lets the stepper scrub any
 operation forwards and backwards.
 
@@ -83,7 +83,7 @@ operation forwards and backwards.
     `start()` folds the previous finished op before beginning a new one.
 
 - **`src/useOpLifecycle.js`** owns the op state machine (ported from
-  opensearchvis): `cluster`/`op`/`opDone`/`playing`, the auto-play clock,
+  elasticsearchvis): `cluster`/`op`/`opDone`/`playing`, the auto-play clock,
   memoized `derived`/`extra`, `start`/`step`/`play`/`pause`/`resetTo`, and
   `base` (the folded cluster the parser validates against). **`App.jsx`**
   keeps UI state: terminal scrollback, naming/op counters (refs), presets,

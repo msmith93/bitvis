@@ -8,7 +8,7 @@ import Stepper from '../components/Stepper'
 // mini-stepper with its auto-play clock, and the entrance spring out of the
 // element the user clicked. Deliberately NO AnimatePresence exit: stages use
 // framer `layout` chips, and an animated exit around relayouted chips can
-// deadlock removal (see opensearchvis' CoordinatorInspector) — closing
+// deadlock removal (see elasticsearchvis' CoordinatorInspector) — closing
 // unmounts instantly instead.
 const DWELL_MS = 2600
 
