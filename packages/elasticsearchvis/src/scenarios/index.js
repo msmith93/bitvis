@@ -1,4 +1,6 @@
 import intro from './intro'
+import relevance from './relevance'
+import fuzzy from './fuzzy'
 import wildcard from './wildcard'
 import routing from './routing'
 import ondisk from './ondisk'
@@ -42,17 +44,19 @@ import ondisk from './ondisk'
 //   opSearchType active search's type: 'query_then_fetch' | 'dfs_query_then_fetch'
 //   searchType  which type the CONTROL is currently set to (may differ from the
 //               running op's, which is what lets a step wait for the user to flip it)
+//   fuzzyPrefix the fuzzy prefix_length the CONTROL is set to (0 | 1 | 2)
 //   playing     auto-play clock is running
 //   zoomShard   id of the shard being inspected, or null (the close-up stack's
 //               ROOT — unchanged by anything opened on top of it)
 //   coordZoom   coordinator close-up is the stack root
 //   closeUpKind kind of the INNERMOST open close-up, or null when none:
-//               'shard' | 'coordinator' | 'dictionary'
+//               'shard' | 'coordinator' | 'dictionary' | 'scoring'
 //   closeUpDepth how many close-ups are stacked (0 = looking at the cluster)
 //   sampleSet   which dataset is loaded: 'sample' | 'routed' | null
 //
-// The actions a step may drive: pause, reset, setQuery, setRouting, setSearchType.
-export const SCENARIOS = [intro, wildcard, routing, ondisk]
+// The actions a step may drive: pause, reset, setQuery, setRouting, setSearchType,
+// setFuzzyPrefix.
+export const SCENARIOS = [intro, wildcard, fuzzy, routing, relevance, ondisk]
 
 export const DEFAULT_SCENARIO = intro.id
 
