@@ -238,7 +238,15 @@ function ShardLocalStage({ step, active, openCloseUp, model, docs, query }) {
         {step === at.expand && <ExpansionBlock local={local} />}
 
         {step >= at.postings && (
-          <ResultsLane step={step} at={at} local={local} docs={docs} revealed={laneRevealed} />
+          <ResultsLane
+            step={step}
+            at={at}
+            local={local}
+            docs={docs}
+            revealed={laneRevealed}
+            shard={shard}
+            openCloseUp={openCloseUp}
+          />
         )}
 
         <p className="section-title">
@@ -327,7 +335,7 @@ function ExpansionBlock({ local }) {
 // The persistent results lane. One chip per docId, carried across phases via
 // layoutId so framer animates every reposition: candidates → scored order →
 // ranked slots (evicted peel off) → returned list.
-function ResultsLane({ step, at, local, docs, revealed }) {
+function ResultsLane({ step, at, local, docs, revealed, shard, openCloseUp }) {
   const mode =
     step === at.postings
       ? 'candidates'
@@ -387,7 +395,25 @@ function ResultsLane({ step, at, local, docs, revealed }) {
                         </span>
                       )}
                       {mode === 'score' && sc && (
-                        <span className="score">= {fmtScore(sc.score)}</span>
+                        <span className="score" data-score-chip={it.docId}>
+                          = {fmtScore(sc.score)}
+                          {/* Down one more level: the whole BM25 arithmetic for
+                              this one document. */}
+                          <button
+                            className="magnify-btn inline"
+                            data-tour="magnify-score"
+                            title="Zoom into how this score was computed"
+                            onClick={() =>
+                              openCloseUp?.({
+                                kind: 'scoring',
+                                shard: shard.id,
+                                docId: it.docId,
+                              })
+                            }
+                          >
+                            🔍
+                          </button>
+                        </span>
                       )}
                       {(mode === 'topk' || mode === 'return') && (
                         <span className="score">
