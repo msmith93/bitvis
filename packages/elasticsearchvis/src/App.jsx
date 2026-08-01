@@ -5,6 +5,7 @@ import {
   PRESETS,
   EXAMPLE_QUERIES,
   WILDCARD_QUERIES,
+  FUZZY_QUERIES,
   ROUTING_KEYS,
   SAMPLE_DOCS,
   ROUTED_DOCS,
@@ -16,6 +17,8 @@ import {
   SHARD_PLACEMENT,
 } from './cluster'
 import { OP_LABELS, opNote, stepsFor } from './ops'
+import { SEARCH_TYPES, searchSteps, stepKey } from './ops/search'
+import { hasFuzzy } from './wildcard'
 import { useOpLifecycle } from './useOpLifecycle'
 import ClusterStage from './components/ClusterStage'
 import IndexOverlay from './components/IndexOverlay'
@@ -82,6 +85,14 @@ export default function App() {
   const [indexRouting, setIndexRouting] = useState('') // optional _routing at index time
   const [query, setQuery] = useState(EXAMPLE_QUERIES[0])
   const [routing, setRouting] = useState('') // optional _routing on the search
+  // query_then_fetch scores with each shard's own collection stats;
+  // dfs_query_then_fetch pre-queries for the totals first. It changes the RANKING,
+  // not just the step count — which is the whole reason it is exposed.
+  const [searchType, setSearchType] = useState('query_then_fetch')
+  // fuzzy prefix_length: how many opening characters no edit may touch. 0 is
+  // Lucene's default and the reason an unanchored fuzzy costs what a leading
+  // wildcard costs; raising it is what buys the seek back.
+  const [fuzzyPrefix, setFuzzyPrefix] = useState(0)
 
   // Which seeded dataset is seeded, if any. Scenarios read this to detect the
   // load click they scripted and advance rather than stalling. Cleared on Reset.
@@ -102,9 +113,21 @@ export default function App() {
       indexPhase,
       opType: op?.type ?? null,
       opStep: op ? op.step : -1,
+      // Search steps are addressed by NAME, never index: a dfs_query_then_fetch
+      // run has a pre-query round in front and shifts every index after it.
+      opStepKey: op?.type === 'search' ? stepKey(op) : null,
+      opStepsDone:
+        op?.type === 'search'
+          ? searchSteps(op)
+              .slice(0, op.step + 1)
+              .map((s) => s.key)
+          : [],
       opDone,
       opQuery: op?.type === 'search' ? op.payload.query : '',
       opRouting: op?.type === 'search' ? op.payload.routing || null : null,
+      opSearchType: op?.type === 'search' ? op.payload.searchType || 'query_then_fetch' : null,
+      searchType,
+      fuzzyPrefix,
       playing,
       zoomShard,
       coordZoom,
@@ -112,7 +135,7 @@ export default function App() {
       closeUpDepth: closeUps.length,
       sampleSet,
     },
-    { pause, reset: resetCluster, setQuery, setRouting },
+    { pause, reset: resetCluster, setQuery, setRouting, setSearchType, setFuzzyPrefix },
   )
 
   // Each magnifying glass only lives on the op/step its close-up explains. When
@@ -228,6 +251,8 @@ export default function App() {
   const canFlush = hasUncommitted && !playing
   const canMerge = hasMergeable && !playing
   const canSearch = hasSearchable && query.trim() && !playing
+  // Does the box currently hold a `~` token? Gates the prefix_length control.
+  const isFuzzyQuery = query.trim().split(/\s+/).some(hasFuzzy)
 
   function startIndex() {
     if (!canIndex) return
@@ -274,7 +299,12 @@ export default function App() {
 
   function startSearch() {
     if (!canSearch) return
-    start('search', { query: query.trim(), routing: routing.trim() || null })
+    start('search', {
+      query: query.trim(),
+      routing: routing.trim() || null,
+      searchType,
+      fuzzyPrefix,
+    })
   }
 
   // Seed a ready-to-search cluster directly from a list of docs: route each one,
@@ -358,7 +388,7 @@ export default function App() {
     resetCluster()
   }
 
-  const currentStep = op ? stepsFor(op.type)[op.step] : null
+  const currentStep = op ? stepsFor(op)[op.step] : null
   // One extra line about this op's payload (routing target, wildcard cost).
   const note = opNote(op, extra)
   const allDocs = Object.values(derived.docs).sort(
@@ -489,6 +519,16 @@ export default function App() {
                   {q}
                 </button>
               ))}
+              {FUZZY_QUERIES.map((q) => (
+                <button
+                  key={q}
+                  className="preset-chip fuzzy"
+                  title="fuzzy pattern — matched by edit distance against each segment's term dictionary"
+                  onClick={() => setQuery(q)}
+                >
+                  {q}
+                </button>
+              ))}
             </div>
 
             {/* Optional _routing on the query: hash this instead of scattering. */}
@@ -500,6 +540,55 @@ export default function App() {
                 onChange={(e) => setRouting(e.target.value)}
                 placeholder="none — ask every shard"
               />
+            </div>
+
+            {/* fuzzy prefix_length. Only meaningful for a `~` query, so it is
+                disabled otherwise rather than hidden — a control that appears
+                and disappears moves everything below it. */}
+            <div className="search-type-row" data-tour="fuzzy-prefix">
+              <label className="routing-label">
+                fuzzy prefix_length
+                {!isFuzzyQuery && <span className="si-hint"> — needs a ~ query</span>}
+              </label>
+              <div className="seg">
+                {[0, 1, 2].map((n) => (
+                  <button
+                    key={n}
+                    className={'seg-btn' + (fuzzyPrefix === n ? ' on' : '')}
+                    disabled={!isFuzzyQuery}
+                    title={
+                      n === 0
+                        ? 'No character is fixed, so the first one may differ — nothing to seek to.'
+                        : `The first ${n} character${n === 1 ? '' : 's'} must match exactly, so the dictionary can be seeked.`
+                    }
+                    onClick={() => setFuzzyPrefix(n)}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Whose statistics relevance is computed against. Not a performance
+                knob — it changes which document ranks first. */}
+            <div className="search-type-row" data-tour="search-type">
+              <label className="routing-label">search type</label>
+              <div className="seg">
+                {SEARCH_TYPES.map((t) => (
+                  <button
+                    key={t}
+                    className={'seg-btn' + (searchType === t ? ' on' : '')}
+                    title={
+                      t === 'query_then_fetch'
+                        ? 'Each shard scores with its own document counts — the default, and one round trip cheaper.'
+                        : 'A pre-query round collects every shard’s term statistics first, so all shards score against the same collection.'
+                    }
+                    onClick={() => setSearchType(t)}
+                  >
+                    {t === 'query_then_fetch' ? 'query_then_fetch' : 'dfs_query_then_fetch'}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -540,11 +629,7 @@ export default function App() {
           )}
 
           {op?.type === 'search' ? (
-            <SearchResultsPanel
-              search={extra.search}
-              step={op.step}
-              docs={derived.docs}
-            />
+            <SearchResultsPanel search={extra.search} op={op} docs={derived.docs} />
           ) : (
             <InvertedIndexTable cluster={derived} />
           )}
@@ -554,7 +639,7 @@ export default function App() {
       {/* ---------------- Bottom: stepper ---------------- */}
       <Stepper
         dataTour="stepper"
-        steps={op ? stepsFor(op.type) : []}
+        steps={op ? stepsFor(op) : []}
         step={op ? op.step : -1}
         opLabel={op ? OP_LABELS[op.type] : ''}
         playing={playing}

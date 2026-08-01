@@ -1,6 +1,7 @@
 import { analyze } from './analyzer'
 
-// Wildcard query patterns and what they cost in the term dictionary.
+// Multi-term query patterns — wildcards and fuzzies — and what they cost in the
+// term dictionary.
 //
 // A shard's term dictionary is SORTED. That single fact decides everything here:
 //   `sc*`      has a literal prefix, so the dictionary can be SEEKED — jump to
@@ -8,10 +9,19 @@ import { analyze } from './analyzer'
 //   `*search`  has no literal prefix to jump to, so every single term in the
 //              dictionary must be examined. That is why leading wildcards are
 //              expensive, and it gets multiplied by segments and by shards.
+//   `serch~1`  is the SAME story wearing different clothes. A fuzzy match can
+//              differ in its first character, so by default there is nothing to
+//              seek to either — which is why `prefix_length` exists: fix the
+//              first p characters and the seek comes back.
+//
+// So `seekPrefix` is the one field that decides cost, for every kind: non-empty
+// means the dictionary can be seeked, empty means it must be enumerated.
+// dictionaryTrace below reads only that, which is why fuzzy needed no changes
+// to it at all.
 //
 // Naming, because both conventions are in the wild: Elasticsearch calls `search*` a
 // PREFIX QUERY (the wildcard sits at the end); `*search` is the LEADING WILDCARD.
-// PATTERN_LABEL below spells both out so the UI can't teach the wrong word.
+// patternLabel() spells them out so the UI can't teach the wrong word.
 //
 // Flagged simplification (see SPEC.md): the seek is modeled as a binary search
 // over a flat sorted array. Lucene's real term dictionary is an FST + block-tree
@@ -20,13 +30,40 @@ import { analyze } from './analyzer'
 // the same, which is what this teaches.
 
 const WILDCARD_CHARS = /[*?]/
+// `term~`, `term~1`, `term~2` — Lucene's fuzzy operator. The digit is optional;
+// without it the edit distance comes from Fuzziness.AUTO.
+const FUZZY_SUFFIX = /~(\d?)$/
 
 export const hasWildcard = (s) => WILDCARD_CHARS.test(s)
+export const hasFuzzy = (s) => FUZZY_SUFFIX.test(s)
+export const isPatternToken = (s) => hasWildcard(s) || hasFuzzy(s)
+
+// Lucene's LevenshteinAutomata.MAXIMUM_SUPPORTED_DISTANCE. Beyond 2 edits the
+// automaton stops being worth building and nearly everything matches anyway.
+export const MAX_EDITS = 2
+
+// Fuzziness.AUTO with Elasticsearch's defaults (AUTO:3,6): short terms get no
+// slack at all, because one edit on a 2-character term is most of the term.
+export function autoFuzziness(term) {
+  if (term.length <= 2) return 0
+  return term.length <= 5 ? 1 : 2
+}
 
 export const PATTERN_LABEL = {
   term: 'exact term',
   prefix: 'prefix query · wildcard at the end',
   leading: 'leading wildcard',
+  fuzzy: 'fuzzy query',
+}
+
+// The label for ONE pattern. Fuzzy carries numbers (how many edits, how much
+// prefix is pinned), so it can't be a static string like the others.
+export function patternLabel(p) {
+  if (p.kind !== 'fuzzy') return PATTERN_LABEL[p.kind] ?? 'pattern'
+  const edits = `fuzzy query · up to ${p.maxEdits} edit${p.maxEdits === 1 ? '' : 's'}`
+  return p.prefixLength
+    ? `${edits}, first ${p.prefixLength} character${p.prefixLength === 1 ? '' : 's'} fixed`
+    : `${edits}, nothing fixed`
 }
 
 // Drop whatever the analyzer would drop, but KEEP the wildcard operators — this
@@ -41,16 +78,78 @@ function toRegExp(literal) {
   return new RegExp(`^${body}$`)
 }
 
-// One query token -> { raw, literal, kind, seekPrefix, re }.
-// `seekPrefix` is the literal head before the first wildcard: the string the
-// dictionary can be seeked to. Empty means "nothing to seek to".
-export function parsePattern(raw) {
-  const literal = cleanToken(raw)
+// Damerau-Levenshtein (optimal string alignment) distance, bounded: it stops as
+// soon as every cell in a row exceeds `max`, because a caller only ever asks
+// "is this within 2 edits", never "how far apart are these really".
+//
+// Transpositions are counted as one edit, which is Lucene's default
+// (`transpositions: true`) — "hte" is one slip of the fingers from "the", not two.
+export function editDistance(a, b, max = Infinity, transpositions = true) {
+  if (a === b) return 0
+  if (Math.abs(a.length - b.length) > max) return max + 1
+  let prev2 = null
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j)
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i]
+    let best = i
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      let v = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
+      if (
+        transpositions &&
+        i > 1 &&
+        j > 1 &&
+        a[i - 1] === b[j - 2] &&
+        a[i - 2] === b[j - 1]
+      )
+        v = Math.min(v, prev2[j - 2] + 1)
+      cur[j] = v
+      if (v < best) best = v
+    }
+    if (best > max) return max + 1 // no cell can recover; bail out
+    prev2 = prev
+    prev = cur
+  }
+  return prev[b.length]
+}
+
+// One query token -> a pattern.
+//   { raw, literal, kind, seekPrefix, re, maxEdits?, prefixLength?, transpositions? }
+// `seekPrefix` is the head the dictionary can be seeked to — the literal before
+// the first wildcard, or the pinned prefix of a fuzzy. Empty means "nothing to
+// seek to", and that is the whole cost story for every kind.
+export function parsePattern(raw, { prefixLength = 0 } = {}) {
+  const text = String(raw)
+  const fuzzy = text.match(FUZZY_SUFFIX)
+  if (fuzzy) {
+    // Strip the operator BEFORE cleaning, so cleanToken's character class (and
+    // therefore the analyzer's) needs no `~` special case.
+    const literal = cleanToken(text.slice(0, fuzzy.index))
+    const maxEdits = Math.min(
+      MAX_EDITS,
+      fuzzy[1] === '' ? autoFuzziness(literal) : Number(fuzzy[1]),
+    )
+    const pinned = Math.min(prefixLength, literal.length)
+    return {
+      raw: literal ? `${literal}~${maxEdits}` : text.toLowerCase(),
+      literal,
+      // Zero edits is an exact term, not a fuzzy — say so rather than building an
+      // automaton that can only match one string.
+      kind: maxEdits === 0 ? 'term' : 'fuzzy',
+      seekPrefix: maxEdits === 0 ? literal : literal.slice(0, pinned),
+      re: null,
+      maxEdits,
+      prefixLength: pinned,
+      transpositions: true,
+    }
+  }
+
+  const literal = cleanToken(text)
   const first = literal.search(WILDCARD_CHARS)
   const seekPrefix = first === -1 ? literal : literal.slice(0, first)
   const kind = first === -1 ? 'term' : seekPrefix ? 'prefix' : 'leading'
   return {
-    raw: literal || String(raw).toLowerCase(),
+    raw: literal || text.toLowerCase(),
     literal,
     kind,
     seekPrefix,
@@ -58,15 +157,18 @@ export function parsePattern(raw) {
   }
 }
 
-// A query string -> parsed patterns. Wildcard tokens are kept whole; everything
-// else still goes through the standard analyzer, so a plain query behaves
-// exactly as it did before wildcards existed.
-export function parseQuery(raw) {
+// A query string -> parsed patterns. Pattern tokens (`*`, `?`, `~`) are kept
+// whole; everything else still goes through the standard analyzer, so a plain
+// query behaves exactly as it did before any of this existed.
+//
+// `prefixLength` is the app-level fuzzy prefix_length, applied to every fuzzy
+// token in the query.
+export function parseQuery(raw, opts = {}) {
   const out = []
   for (const token of String(raw || '').trim().split(/\s+/)) {
     if (!token) continue
-    if (hasWildcard(token)) {
-      const p = parsePattern(token)
+    if (isPatternToken(token)) {
+      const p = parsePattern(token, opts)
       if (p.literal) out.push(p)
     } else {
       for (const t of analyze(token)) out.push(parsePattern(t))
@@ -75,8 +177,23 @@ export function parseQuery(raw) {
   return out
 }
 
+// The single semantic authority on whether a term matches a pattern. Both zoom
+// levels route through here — src/automaton.js delegates its per-term verdict to
+// this function — which is what keeps the DFA walk and the flat scan from ever
+// disagreeing about what matched.
 export function matchTerm(term, pattern) {
-  return pattern.kind === 'term' ? term === pattern.literal : pattern.re.test(term)
+  if (pattern.kind === 'term') return term === pattern.literal
+  if (pattern.kind === 'fuzzy') {
+    // prefix_length is a hard requirement, not a hint: those characters may not
+    // be edited. Checked here as well as in the dictionary walk, because
+    // matchesAny is also called where there is no walk to filter first.
+    if (pattern.prefixLength && !term.startsWith(pattern.seekPrefix)) return false
+    return (
+      editDistance(term, pattern.literal, pattern.maxEdits, pattern.transpositions) <=
+      pattern.maxEdits
+    )
+  }
+  return pattern.re.test(term)
 }
 
 export const matchesAny = (term, patterns) => patterns.some((p) => matchTerm(term, p))
@@ -86,7 +203,18 @@ export const matchesAny = (term, patterns) => patterns.some((p) => matchTerm(ter
 export const expandTerms = (terms, patterns) =>
   terms.filter((t) => matchesAny(t, patterns))
 
-export const isWildcardQuery = (patterns) => patterns.some((p) => p.kind !== 'term')
+// Any query that has to be RESOLVED against the dictionary rather than looked up
+// in it — wildcard or fuzzy. Both take the same route through the app (expansion
+// step, probe replay, DFA-over-FST walk), so they share one predicate.
+export const isMultiTermQuery = (patterns) => patterns.some((p) => p.kind !== 'term')
+
+// Which flavour, for copy that has to name it. A query mixing both is called
+// what its first non-plain pattern is.
+export function queryKind(patterns) {
+  const p = patterns.find((x) => x.kind !== 'term')
+  if (!p) return 'term'
+  return p.kind === 'fuzzy' ? 'fuzzy' : 'wildcard'
+}
 
 // How ONE pattern is resolved against ONE sorted dictionary, as a replayable
 // trace of probes. This is the model behind the close-up's animation, and its

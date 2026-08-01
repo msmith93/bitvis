@@ -62,7 +62,7 @@ const STEPS = [
     target: '[data-tour="magnify"]',
     placement: 'bottom',
     title: 'Zoom 1: into a shard',
-    waitFor: (s) => s.opQuery === 'search' && s.opStep === 2,
+    waitFor: (s) => s.opQuery === 'search' && s.opStepKey === 'local',
     onShow: (s, actions) => actions.pause(),
     body: 'Click the 🔍. This is the shard close-up you may already know: the segment anatomy at the bottom is the flat table we are about to take apart.',
     advanceOn: (s) => s.closeUpKind === 'shard',

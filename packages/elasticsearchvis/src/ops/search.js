@@ -1,22 +1,28 @@
 import { routeShard, selectServingCopy } from '../cluster'
 import { MAX_GATHER_IDS, MAX_FETCH_WINNERS, LOCAL_TOPK } from '../constants'
-import { segmentInvertedIndex } from '../invertedIndex'
+import { mergeStats, segmentInvertedIndex, shardStats } from '../invertedIndex'
+import { EMPTY_STATS, scoreDoc } from '../relevance'
 import { flightMs, FLIGHT_PAD_MS } from '../timing'
 import {
-  PATTERN_LABEL,
   dictionaryScan,
-  isWildcardQuery,
+  isMultiTermQuery,
   matchesAny,
   parseQuery,
+  patternLabel,
+  queryKind,
 } from '../wildcard'
 
 // The `search` op: two-phase query-then-fetch scatter-gather. Read-only — it
 // has no derive(), so applyOp leaves the committed cluster untouched.
 //
-// Two payload options change WHERE and HOW MUCH work happens:
+// Three payload options change WHERE, HOW MUCH, and HOW WELL:
 //   payload.routing — hash the routing key instead of scattering: exactly one
 //                     shard is queried, the other two do nothing.
-//   a `*` in the query — the term is a wildcard pattern that must first be
+//   payload.searchType — dfs_query_then_fetch adds a pre-query round that
+//                     collects every shard's term statistics first, so relevance
+//                     is computed against the whole index rather than per shard.
+//                     It costs one extra round trip and it CHANGES THE RANKING.
+//   a `*` or `~` in the query — the term is a pattern that must first be
 //                     expanded against each segment's term dictionary.
 
 const STEPS = [
@@ -39,7 +45,7 @@ const STEPS = [
     ms: 1600,
     title: '3 · Each shard searches locally',
     blurb:
-      'Each contacted shard searches its own segments’ inverted indexes, scores the matching docs (a simplified relevance score), and returns only its local top hits — doc ids + scores, not the full documents.',
+      'Each contacted shard searches its own segments’ inverted indexes, scores the matching docs with BM25, and returns only its local top hits — doc ids + scores, not the full documents.',
   },
   {
     key: 'gather',
@@ -64,20 +70,62 @@ const STEPS = [
   },
 ]
 
-// Score one doc against the query patterns: how often each MATCHING term occurs
-// in it. `perTerm` is keyed by the real term, not the pattern, so a wildcard
-// shows which terms it actually hit. For a plain term query this is identical to
-// the term-frequency count the app has always used (a stand-in for BM25).
-export function scoreDoc(doc, patterns) {
-  const perTerm = {}
-  let score = 0
-  for (const field of ['title', 'body'])
-    for (const term of doc.tokens[field])
-      if (matchesAny(term, patterns)) {
-        perTerm[term] = (perTerm[term] || 0) + 1
-        score += 1
-      }
-  return { score, perTerm }
+// The pre-query round, spliced in FRONT of the ordinary walk when the search is
+// a dfs_query_then_fetch. Everything after it is unchanged — which is the point:
+// DFS buys better numbers, not a different algorithm.
+const DFS_STEP = {
+  key: 'dfs',
+  ms: 1400, // overridden by duration() (term flight out, stats back)
+  title: '1 · Pre-query: collect global term statistics',
+  blurb:
+    'Before searching anything, the coordinator asks every shard how many documents it holds and how many of them contain each query term. It sums those into one set of collection statistics and sends them back out with the query, so every shard scores against the same numbers instead of its own. This costs a full extra round trip — which is why it is not the default.',
+}
+
+// The op's steps for THIS search. Renumbers the titles so the footer stays
+// honest about how many phases there really are.
+const DFS_STEPS = [
+  DFS_STEP,
+  ...STEPS.map((s, i) => ({ ...s, title: s.title.replace(/^\d+ · /, `${i + 2} · `) })),
+]
+
+export const searchSteps = (op) => (isDfs(op) ? DFS_STEPS : STEPS)
+
+// Address a step by NAME, never by index — the DFS pre-query shifts every index
+// after it, and hard-coded integers were exactly what made that a refactor. The
+// close-ups already work this way (their `at` maps); this is the same idea for
+// the main stage.
+export const stepKey = (op, i = op?.step) => searchSteps(op)[i]?.key ?? null
+export const stepAt = (op, key) => searchSteps(op).findIndex((s) => s.key === key)
+export const atStep = (op, key) => !!op && op.type === 'search' && stepKey(op) === key
+// True once the walk has reached `key` (for panels that reveal progressively).
+export const pastStep = (op, key) => {
+  if (!op || op.type !== 'search') return false
+  const i = stepAt(op, key)
+  return i !== -1 && op.step >= i
+}
+
+// Which collection statistics each shard scores against. With plain
+// query_then_fetch a shard only knows itself, so every shard uses its own
+// numbers; with dfs_query_then_fetch the coordinator has already summed them and
+// every shard scores against the same totals. The whole visible consequence of
+// that pre-query round trip lives in this one function.
+export const SEARCH_TYPES = ['query_then_fetch', 'dfs_query_then_fetch']
+export const isDfs = (op) => op?.payload?.searchType === 'dfs_query_then_fetch'
+
+function collectionStats(shards, docs, dfs) {
+  const perShard = {}
+  for (const shard of shards) perShard[shard.id] = shardStats(shard, docs)
+  const global = mergeStats(Object.values(perShard))
+  return { mode: dfs ? 'global' : 'shard', perShard, global }
+}
+
+// The stats ONE shard scores with. Exported because the shard close-up has to
+// score with exactly what the cluster-level results panel used, or the two
+// views would quietly disagree.
+export function statsForShard(search, shardId) {
+  if (!search?.stats) return EMPTY_STATS
+  const { mode, perShard, global } = search.stats
+  return (mode === 'global' ? global : perShard[shardId]) ?? EMPTY_STATS
 }
 
 // What resolving this query costs in the term dictionaries it has to touch:
@@ -103,7 +151,10 @@ function dictionaryCost(shards, docs, patterns) {
 
 // Run the (read-only) search against the committed cluster.
 function computeSearch(cluster, op) {
-  const patterns = parseQuery(op.payload.query)
+  // fuzzy prefix_length applies to every fuzzy token in the query.
+  const patterns = parseQuery(op.payload.query, {
+    prefixLength: op.payload.fuzzyPrefix ?? 0,
+  })
   const routing = op.payload.routing || null
   // A routing key hashes to exactly one shard — the only shard that can hold a
   // doc indexed with that key, so it is the only shard worth asking.
@@ -113,11 +164,14 @@ function computeSearch(cluster, op) {
       ? cluster.shards
       : cluster.shards.filter((s) => s.id === routedShard)
 
+  const stats = collectionStats(queried, cluster.docs, isDfs(op))
+
   const serving = {} // shardId -> { node, role }   (queried shards only)
-  const perShard = {} // shardId -> [{ docId, score }]
+  const perShard = {} // shardId -> [{ docId, score }]  — what each shard SHIPPED
 
   for (const shard of queried) {
     serving[shard.id] = selectServingCopy(shard)
+    const shardStat = stats.mode === 'global' ? stats.global : stats.perShard[shard.id]
 
     const docIds = new Set()
     for (const seg of shard.segments)
@@ -129,11 +183,15 @@ function computeSearch(cluster, op) {
       // Tombstoned-but-not-yet-refreshed docs are still searchable (purged is
       // set by a refresh); only purged docs drop out of results.
       if (!doc || doc.purged) continue
-      const { score } = scoreDoc(doc, patterns)
+      const { score } = scoreDoc(doc, patterns, shardStat)
       if (score > 0) hits.push({ docId: id, score })
     }
     hits.sort((a, b) => b.score - a.score || a.docId.localeCompare(b.docId))
-    perShard[shard.id] = hits
+    // A shard returns only its own top k — that is what the query phase IS, and
+    // it is why a document can be ranked out before the coordinator ever sees
+    // it. Everything downstream (the results panel, the gather flights, the
+    // coordinator close-up) is a view of what was actually shipped.
+    perShard[shard.id] = hits.slice(0, LOCAL_TOPK)
   }
 
   const merged = Object.entries(perShard)
@@ -143,9 +201,15 @@ function computeSearch(cluster, op) {
   return {
     terms: patterns.map((p) => p.raw), // display strings (patterns kept verbatim)
     patterns,
-    wildcard: isWildcardQuery(patterns),
+    // `wildcard` means "has to be resolved against the dictionary" — wildcard
+    // OR fuzzy. Both take the same route, so they share the flag; `queryKind`
+    // is what copy uses when it has to name the flavour.
+    wildcard: isMultiTermQuery(patterns),
+    queryKind: queryKind(patterns),
     routing,
     routedShard,
+    searchType: isDfs(op) ? 'dfs_query_then_fetch' : 'query_then_fetch',
+    stats,
     skipped: cluster.shards.filter((s) => !(s.id in serving)).map((s) => s.id),
     cost: dictionaryCost(queried, cluster.docs, patterns),
     serving,
@@ -157,16 +221,18 @@ function computeSearch(cluster, op) {
 // The largest single flight (in tokens) SearchFlight will launch for a step, so
 // duration() can reserve time for it. Mirrors SearchFlight's per-step batches;
 // returns null for steps that launch no flight.
-function searchFlightSize(search, step) {
-  if (step === 0 || step === 1) return search.terms.length // query / fan-out flights
-  if (step === 3) {
+function searchFlightSize(search, key) {
+  // dfs: terms out to every shard; coordinator/scatter: the query itself
+  if (key === 'dfs' || key === 'coordinator' || key === 'scatter')
+    return search.terms.length
+  if (key === 'gather') {
     // one flight per shard with hits, up to MAX_GATHER_IDS id chips each
     const sizes = Object.values(search.perShard).map((hits) =>
       Math.min(hits.length, MAX_GATHER_IDS),
     )
     return Math.max(0, ...sizes)
   }
-  if (step === 4) {
+  if (key === 'fetch') {
     // top winners grouped by shard, one flight per shard
     const byShard = {}
     for (const w of search.merged.slice(0, MAX_FETCH_WINNERS))
@@ -180,6 +246,8 @@ export default {
   type: 'search',
   label: 'Search',
   steps: STEPS,
+  // The payload decides the walk: dfs_query_then_fetch has a pre-query round.
+  stepsOf: searchSteps,
   // no derive(): search never changes the cluster.
 
   extra(cluster, op) {
@@ -196,19 +264,42 @@ export default {
       parts.push(
         `routing “${s.routing}” → hash % 3 = shard ${s.routedShard}: 1 of 3 shards queried, ${s.skipped.length} idle.`,
       )
+    if (s.stats?.mode === 'global')
+      parts.push(
+        `dfs_query_then_fetch: one collection of ${s.stats.global.docCount} documents, so every shard scores against the same statistics.`,
+      )
+    else if (s.stats && Object.keys(s.stats.perShard).length > 1)
+      parts.push(
+        `query_then_fetch: each shard scores against its own ${Object.values(s.stats.perShard)
+          .map((x) => x.docCount)
+          .join(' / ')} documents, so these scores are not strictly comparable.`,
+      )
     if (s.wildcard && s.cost.total)
       parts.push(
         `${s.cost.examined} of ${s.cost.total} dictionary terms examined across ${s.cost.segments} segment${
           s.cost.segments === 1 ? '' : 's'
         } on ${s.cost.shards} shard${s.cost.shards === 1 ? '' : 's'}.`,
       )
+    if (s.queryKind === 'fuzzy') {
+      const p = s.patterns.find((x) => x.kind === 'fuzzy')
+      if (p)
+        parts.push(
+          `“${p.literal}” within ${p.maxEdits} edit${p.maxEdits === 1 ? '' : 's'}, ${
+            p.prefixLength
+              ? `first ${p.prefixLength} character${
+                  p.prefixLength === 1 ? '' : 's'
+                } fixed — the dictionary can still be seeked.`
+              : 'nothing fixed — so the first character may differ and there is nothing to seek to.'
+          }`,
+        )
+    }
     return parts.length ? parts.join(' ') : null
   },
 
   // Content-driven steps only; undefined falls back to the step's static `ms`.
   duration(op, extra) {
     if (!extra.search) return undefined
-    const n = searchFlightSize(extra.search, op.step)
+    const n = searchFlightSize(extra.search, stepKey(op))
     return n != null ? flightMs(n) + FLIGHT_PAD_MS : undefined
   },
 }
@@ -244,7 +335,7 @@ const PLAIN_LOCAL_STEPS = [
     key: 'score',
     title: '4 · Score each candidate',
     blurb:
-      'Each candidate is scored by how often the query terms appear in it. Real Lucene uses BM25 (term frequency, inverse document frequency, field-length norm); here we simplify to a term-frequency count.',
+      'Each candidate is scored with BM25: how often the term occurs here (tf, saturating — the 10th occurrence adds far less than the 2nd), how rare it is across the collection (idf), and how long this document is against the average. Note whose collection: by default a shard only knows its own documents.',
   },
   {
     key: 'topk',
@@ -260,34 +351,48 @@ const PLAIN_LOCAL_STEPS = [
   },
 ]
 
-const seekBlurb = (patterns) => {
+const seekBlurb = (patterns, fuzzy) => {
   const prefixes = patterns.map((p) => `“${p.seekPrefix}”`).join(', ')
-  return `The term dictionary is SORTED, and this pattern has a literal prefix — so the segment jumps straight to where ${prefixes} would sit (a binary search here; real Lucene seeks through an FST + block-tree) and then reads forward only while the prefix still matches. It stops at the first term that doesn’t. Everything outside that range is never touched.`
+  const why = fuzzy
+    ? 'and prefix_length pins its opening characters, so no edit may touch them'
+    : 'and this pattern has a literal prefix'
+  return `The term dictionary is SORTED, ${why} — so the segment jumps straight to where ${prefixes} would sit (a binary search here; real Lucene seeks through an FST + block-tree) and then reads forward only while the prefix still matches. It stops at the first term that doesn’t. Everything outside that range is never touched.`
 }
 
-const ENUMERATE_BLURB =
-  'A leading wildcard has NO literal prefix, so there is nothing to jump to — a match could sit anywhere in the sorted dictionary. The only option is to read every single term and test it: in this segment, in every other segment, on every shard. That is what makes “*term” expensive.'
+const ENUMERATE_BLURB = {
+  wildcard:
+    'A leading wildcard has NO literal prefix, so there is nothing to jump to — a match could sit anywhere in the sorted dictionary. The only option is to read every single term and test it: in this segment, in every other segment, on every shard. That is what makes “*term” expensive.',
+  // The same lesson, reached from the other direction — and the reason
+  // prefix_length exists at all.
+  fuzzy:
+    'With prefix_length 0 the very first character is allowed to be wrong, so a match could sit anywhere in the sorted dictionary and there is nothing to seek to. A fuzzy query is therefore priced exactly like a leading wildcard: every term read, in every segment, on every shard. Pin even one character with prefix_length and the seek comes back.',
+}
 
-function wildcardLocalSteps(patterns) {
+function patternLocalSteps(patterns) {
   const seekable = patterns.every((p) => p.seekPrefix)
+  const kind = queryKind(patterns)
+  const fuzzy = kind === 'fuzzy'
   return [
     {
       key: 'analyze',
-      title: '1 · Parse the pattern',
-      blurb: `This is a wildcard pattern, not a plain term: it gets matched against the dictionary rather than looked up in it. ${patterns
-        .map((p) => `“${p.raw}” — ${PATTERN_LABEL[p.kind]}`)
+      title: fuzzy ? '1 · Compile the pattern' : '1 · Parse the pattern',
+      blurb: `This is ${
+        fuzzy ? 'a fuzzy pattern' : 'a wildcard pattern'
+      }, not a plain term: it gets matched against the dictionary rather than looked up in it. ${patterns
+        .map((p) => `“${p.raw}” — ${patternLabel(p)}`)
         .join(' · ')}.`,
     },
     {
       key: 'lookup',
       title: seekable ? '2 · Seek the term dictionary' : '2 · Enumerate the term dictionary',
-      blurb: seekable ? seekBlurb(patterns) : ENUMERATE_BLURB,
+      blurb: seekable ? seekBlurb(patterns, fuzzy) : ENUMERATE_BLURB[fuzzy ? 'fuzzy' : 'wildcard'],
     },
     {
       key: 'expand',
       title: '3 · Expand to matching terms',
-      blurb:
-        'Every term the pattern matched is collected. From here on the wildcard is just a boolean OR over those terms — the expensive part is already done, and it was the dictionary work, not the matching.',
+      blurb: fuzzy
+        ? 'Every term within the edit budget is collected, and the query becomes a boolean OR over them. Worth looking at what came back: fuzzy has no idea what your words MEAN, so a term one edit away is a match whether or not you wanted it.'
+        : 'Every term the pattern matched is collected. From here on the wildcard is just a boolean OR over those terms — the expensive part is already done, and it was the dictionary work, not the matching.',
     },
     ...PLAIN_LOCAL_STEPS.slice(2).map((s, i) => ({
       ...s,
@@ -297,7 +402,7 @@ function wildcardLocalSteps(patterns) {
 }
 
 export function localSearchSteps(patterns) {
-  return isWildcardQuery(patterns) ? wildcardLocalSteps(patterns) : PLAIN_LOCAL_STEPS
+  return isMultiTermQuery(patterns) ? patternLocalSteps(patterns) : PLAIN_LOCAL_STEPS
 }
 
 // The coordinator close-up walks these steps to show how the coordinator turns
@@ -321,7 +426,7 @@ export const COORD_MERGE_STEPS = [
     key: 'sort',
     title: '3 · Sort by score',
     blurb:
-      'The merged list is sorted by score (ties broken by doc id) to produce the GLOBAL ranking. A shard’s local #1 can lose to another shard’s #2 here.',
+      'The merged list is sorted by score to produce the GLOBAL ranking, and a shard’s local #1 can lose to another shard’s #2 here. Worth distrusting: unless this was a dfs_query_then_fetch, those scores were computed against different collections, so they are not strictly comparable.',
   },
   {
     key: 'cut',
@@ -363,8 +468,9 @@ export function computeCoordinatorMerge(search, n = MAX_FETCH_WINNERS) {
 
 // The shard-local query phase, as data for the inspector's stepped close-up. Pure
 // like computeSearch, and uses the SAME scoring as computeSearch so the numbers
-// here match the cluster-level results panel.
-export function computeShardSearch(shard, patterns, docs, k = LOCAL_TOPK) {
+// here match the cluster-level results panel — which now means it must be handed
+// the same collection stats, via statsForShard(search, shard.id).
+export function computeShardSearch(shard, patterns, docs, k = LOCAL_TOPK, stats = EMPTY_STATS) {
   const segments = shard.segments
     .filter((seg) => seg.searchable)
     .map((seg) => {
@@ -386,7 +492,7 @@ export function computeShardSearch(shard, patterns, docs, k = LOCAL_TOPK) {
   const candidates = [...candidateSet].sort((a, b) => a.localeCompare(b))
 
   const scored = candidates
-    .map((docId) => ({ docId, ...scoreDoc(docs[docId], patterns) }))
+    .map((docId) => ({ docId, ...scoreDoc(docs[docId], patterns, stats) }))
     .sort((a, b) => b.score - a.score || a.docId.localeCompare(b.docId))
 
   const topk = scored.slice(0, k).map(({ docId, score }) => ({ docId, score }))

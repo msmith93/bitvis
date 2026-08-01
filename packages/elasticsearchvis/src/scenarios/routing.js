@@ -43,7 +43,7 @@ const STEPS = [
     target: '[data-tour="cluster"]',
     placement: 'left',
     title: 'One shard. That’s it.',
-    waitFor: (s) => s.opRouting === 'tenant-a' && s.opStep >= 1,
+    waitFor: (s) => s.opRouting === 'tenant-a' && s.opStepsDone.includes('scatter'),
     onShow: (s, actions) => actions.pause(),
     body: 'The coordinator hashed “tenant-a” to a single shard and sent the query only there. The other two shards were never asked — no CPU, no disk, no top-k merge for them. In a big cluster that is the difference between one node working and all of them.',
     cta: 'Got it',
@@ -58,7 +58,7 @@ const STEPS = [
     highlightPlay: true,
     // Hands over to the coordinator step, which pauses as soon as the gather
     // phase renders (same handoff as the intro tour's stepper → coord-magnify).
-    advanceOn: (s) => s.playing || (s.opType === 'search' && s.opStep >= 3),
+    advanceOn: (s) => s.playing || s.opStepsDone.includes('gather'),
   },
   {
     id: 'coord-routed',
@@ -66,7 +66,7 @@ const STEPS = [
     placement: 'bottom',
     title: 'One list to merge',
     waitFor: (s) =>
-      s.opRouting === 'tenant-a' && s.opStep === 3 && s.zoomShard == null,
+      s.opRouting === 'tenant-a' && s.opStepKey === 'gather' && s.zoomShard == null,
     onShow: (s, actions) => actions.pause(),
     body: 'Now click the 🔍 on the coordinator. Every hit it is holding carries the same address — shard 1 — because only one shard was ever asked. There is a single short list to rank, no cross-shard merge, and nothing to wait on.',
     advanceOn: (s) => s.coordZoom || (s.opDone && !s.playing),
@@ -96,7 +96,7 @@ const STEPS = [
     target: '[data-tour="cluster"]',
     placement: 'left',
     title: 'Now everybody works',
-    waitFor: (s) => !s.opRouting && s.opType === 'search' && s.opStep >= 1,
+    waitFor: (s) => !s.opRouting && s.opType === 'search' && s.opStepsDone.includes('scatter'),
     onShow: (s, actions) => actions.pause(),
     body: 'Without the key the coordinator has no idea which shard could hold “tenant-a” data, so it must scatter to all three and merge whatever comes back. Same query, same results — three times the cluster work.',
     cta: 'Got it',
@@ -109,14 +109,14 @@ const STEPS = [
     body: 'Press ▶ Play again. We will stop at the same moment as last time — once every shard has reported in.',
     waitFor: (s) => s.zoomShard == null && !s.coordZoom,
     highlightPlay: true,
-    advanceOn: (s) => s.playing || (s.opType === 'search' && s.opStep >= 3),
+    advanceOn: (s) => s.playing || s.opStepsDone.includes('gather'),
   },
   {
     id: 'coord-unrouted',
     target: '[data-tour="coord-magnify"]',
     placement: 'bottom',
     title: 'Three lists to merge',
-    waitFor: (s) => !s.opRouting && s.opStep === 3 && s.zoomShard == null,
+    waitFor: (s) => !s.opRouting && s.opStepKey === 'gather' && s.zoomShard == null,
     onShow: (s, actions) => actions.pause(),
     body: 'Open the coordinator’s 🔍 once more. This time hits arrive from all three shards, and the coordinator has to interleave them into one global ranking before it can decide what to fetch. Compare the arrivals with the routed run: same query, same winners, three times the lists — and the response can only be as fast as the slowest shard.',
     advanceOn: (s) => s.coordZoom || (s.opDone && !s.playing),

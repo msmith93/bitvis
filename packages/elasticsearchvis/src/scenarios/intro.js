@@ -73,7 +73,7 @@ const STEPS = [
     // Pausing here cancels the auto-play clock so the transient 🔍 button stays
     // mounted while the user reads. The advanceOn escape hatch covers a user who
     // presses ▶ Play instead of clicking the magnifier.
-    waitFor: (s) => s.opType === 'search' && s.opStep === 2,
+    waitFor: (s) => s.opType === 'search' && s.opStepKey === 'local',
     onShow: (s, actions) => actions.pause(),
     body: 'The search is paused mid-flight: each serving shard is running its own local search right now. Click the highlighted 🔍 — that shard holds several of the matching documents — for a granular, step-by-step view inside it.',
     advanceOn: (s) => s.zoomShard != null || (s.opDone && !s.playing),
@@ -86,11 +86,11 @@ const STEPS = [
     body: 'The search is still paused mid-flight. Press ▶ Play right here to resume it — watch every shard’s hits (ids + scores, not documents) fly back to the coordinator.',
     // Spotlights the footer ▶ Play button directly so the tooltip sits right next
     // to it. Hidden while the shard inspector is open so it never covers the
-    // close-up. The opStep escape hatch covers a user who scrubs forward with
+    // close-up. The opStepsDone escape hatch covers a user who scrubs forward with
     // Next instead of pressing Play.
     waitFor: (s) => s.zoomShard == null,
     highlightPlay: true,
-    advanceOn: (s) => s.playing || (s.opType === 'search' && s.opStep >= 3),
+    advanceOn: (s) => s.playing || s.opStepsDone.includes('gather'),
   },
   {
     id: 'coord-magnify',
@@ -100,7 +100,7 @@ const STEPS = [
     // Same pattern as the shard magnifier: pause so the transient 🔍 stays
     // mounted while the user reads; the advanceOn escape hatch covers a user
     // who presses ▶ Play instead of clicking it.
-    waitFor: (s) => s.opType === 'search' && s.opStep === 3 && s.zoomShard == null,
+    waitFor: (s) => s.opStepKey === 'gather' && s.zoomShard == null,
     onShow: (s, actions) => actions.pause(),
     body: 'Every shard has now reported its top hits — ids and scores only. Click the 🔍 on the coordinator to watch it merge the lists, rank them globally, and decide which full documents to fetch from which shards.',
     advanceOn: (s) => s.coordZoom || (s.opDone && !s.playing),

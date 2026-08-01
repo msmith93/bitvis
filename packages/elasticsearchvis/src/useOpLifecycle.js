@@ -15,7 +15,7 @@ export function useOpLifecycle(makeInitialCluster) {
   // `playing` is left alone here so the scheduler below can run the last step's
   // dwell — letting the replica/return flight land — before it stops auto-play.
   useEffect(() => {
-    if (op && op.step >= lastStep(op.type)) setOpDone(true)
+    if (op && op.step >= lastStep(op)) setOpDone(true)
   }, [op])
 
   // The rendered view of the cluster at the current op step, plus transient
@@ -32,7 +32,7 @@ export function useOpLifecycle(makeInitialCluster) {
   // intentionally NOT a dep: it gets a fresh value on every op change.
   useEffect(() => {
     if (!playing || !op) return
-    const atLast = op.step >= lastStep(op.type)
+    const atLast = op.step >= lastStep(op)
     const id = setTimeout(() => {
       if (atLast) setPlaying(false)
       else setOp((prev) => (prev ? { ...prev, step: prev.step + 1 } : prev))
@@ -72,7 +72,7 @@ export function useOpLifecycle(makeInitialCluster) {
     setPlaying(false)
     setOp((prev) => {
       if (!prev) return prev
-      const next = Math.max(0, Math.min(lastStep(prev.type), prev.step + delta))
+      const next = Math.max(0, Math.min(lastStep(prev), prev.step + delta))
       return { ...prev, step: next }
     })
   }
