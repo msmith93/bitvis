@@ -1,6 +1,7 @@
 import { routeShard, selectServingCopy } from '../cluster'
 import { MAX_GATHER_IDS, MAX_FETCH_WINNERS, LOCAL_TOPK } from '../constants'
-import { segmentInvertedIndex } from '../invertedIndex'
+import { mergeStats, segmentInvertedIndex, shardStats } from '../invertedIndex'
+import { EMPTY_STATS, scoreDoc } from '../relevance'
 import { flightMs, FLIGHT_PAD_MS } from '../timing'
 import {
   PATTERN_LABEL,
@@ -39,7 +40,7 @@ const STEPS = [
     ms: 1600,
     title: '3 · Each shard searches locally',
     blurb:
-      'Each contacted shard searches its own segments’ inverted indexes, scores the matching docs (a simplified relevance score), and returns only its local top hits — doc ids + scores, not the full documents.',
+      'Each contacted shard searches its own segments’ inverted indexes, scores the matching docs with BM25, and returns only its local top hits — doc ids + scores, not the full documents.',
   },
   {
     key: 'gather',
@@ -64,20 +65,28 @@ const STEPS = [
   },
 ]
 
-// Score one doc against the query patterns: how often each MATCHING term occurs
-// in it. `perTerm` is keyed by the real term, not the pattern, so a wildcard
-// shows which terms it actually hit. For a plain term query this is identical to
-// the term-frequency count the app has always used (a stand-in for BM25).
-export function scoreDoc(doc, patterns) {
-  const perTerm = {}
-  let score = 0
-  for (const field of ['title', 'body'])
-    for (const term of doc.tokens[field])
-      if (matchesAny(term, patterns)) {
-        perTerm[term] = (perTerm[term] || 0) + 1
-        score += 1
-      }
-  return { score, perTerm }
+// Which collection statistics each shard scores against. With plain
+// query_then_fetch a shard only knows itself, so every shard uses its own
+// numbers; with dfs_query_then_fetch the coordinator has already summed them and
+// every shard scores against the same totals. The whole visible consequence of
+// that pre-query round trip lives in this one function.
+export const SEARCH_TYPES = ['query_then_fetch', 'dfs_query_then_fetch']
+export const isDfs = (op) => op?.payload?.searchType === 'dfs_query_then_fetch'
+
+function collectionStats(shards, docs, dfs) {
+  const perShard = {}
+  for (const shard of shards) perShard[shard.id] = shardStats(shard, docs)
+  const global = mergeStats(Object.values(perShard))
+  return { mode: dfs ? 'global' : 'shard', perShard, global }
+}
+
+// The stats ONE shard scores with. Exported because the shard close-up has to
+// score with exactly what the cluster-level results panel used, or the two
+// views would quietly disagree.
+export function statsForShard(search, shardId) {
+  if (!search?.stats) return EMPTY_STATS
+  const { mode, perShard, global } = search.stats
+  return (mode === 'global' ? global : perShard[shardId]) ?? EMPTY_STATS
 }
 
 // What resolving this query costs in the term dictionaries it has to touch:
@@ -113,11 +122,14 @@ function computeSearch(cluster, op) {
       ? cluster.shards
       : cluster.shards.filter((s) => s.id === routedShard)
 
+  const stats = collectionStats(queried, cluster.docs, isDfs(op))
+
   const serving = {} // shardId -> { node, role }   (queried shards only)
-  const perShard = {} // shardId -> [{ docId, score }]
+  const perShard = {} // shardId -> [{ docId, score }]  — what each shard SHIPPED
 
   for (const shard of queried) {
     serving[shard.id] = selectServingCopy(shard)
+    const shardStat = stats.mode === 'global' ? stats.global : stats.perShard[shard.id]
 
     const docIds = new Set()
     for (const seg of shard.segments)
@@ -129,11 +141,15 @@ function computeSearch(cluster, op) {
       // Tombstoned-but-not-yet-refreshed docs are still searchable (purged is
       // set by a refresh); only purged docs drop out of results.
       if (!doc || doc.purged) continue
-      const { score } = scoreDoc(doc, patterns)
+      const { score } = scoreDoc(doc, patterns, shardStat)
       if (score > 0) hits.push({ docId: id, score })
     }
     hits.sort((a, b) => b.score - a.score || a.docId.localeCompare(b.docId))
-    perShard[shard.id] = hits
+    // A shard returns only its own top k — that is what the query phase IS, and
+    // it is why a document can be ranked out before the coordinator ever sees
+    // it. Everything downstream (the results panel, the gather flights, the
+    // coordinator close-up) is a view of what was actually shipped.
+    perShard[shard.id] = hits.slice(0, LOCAL_TOPK)
   }
 
   const merged = Object.entries(perShard)
@@ -146,6 +162,8 @@ function computeSearch(cluster, op) {
     wildcard: isWildcardQuery(patterns),
     routing,
     routedShard,
+    searchType: isDfs(op) ? 'dfs_query_then_fetch' : 'query_then_fetch',
+    stats,
     skipped: cluster.shards.filter((s) => !(s.id in serving)).map((s) => s.id),
     cost: dictionaryCost(queried, cluster.docs, patterns),
     serving,
@@ -244,7 +262,7 @@ const PLAIN_LOCAL_STEPS = [
     key: 'score',
     title: '4 · Score each candidate',
     blurb:
-      'Each candidate is scored by how often the query terms appear in it. Real Lucene uses BM25 (term frequency, inverse document frequency, field-length norm); here we simplify to a term-frequency count.',
+      'Each candidate is scored with BM25: how often the term occurs here (tf, saturating — the 10th occurrence adds far less than the 2nd), how rare it is across the collection (idf), and how long this document is against the average. Note whose collection: by default a shard only knows its own documents.',
   },
   {
     key: 'topk',
@@ -321,7 +339,7 @@ export const COORD_MERGE_STEPS = [
     key: 'sort',
     title: '3 · Sort by score',
     blurb:
-      'The merged list is sorted by score (ties broken by doc id) to produce the GLOBAL ranking. A shard’s local #1 can lose to another shard’s #2 here.',
+      'The merged list is sorted by score to produce the GLOBAL ranking, and a shard’s local #1 can lose to another shard’s #2 here. Worth distrusting: unless this was a dfs_query_then_fetch, those scores were computed against different collections, so they are not strictly comparable.',
   },
   {
     key: 'cut',
@@ -363,8 +381,9 @@ export function computeCoordinatorMerge(search, n = MAX_FETCH_WINNERS) {
 
 // The shard-local query phase, as data for the inspector's stepped close-up. Pure
 // like computeSearch, and uses the SAME scoring as computeSearch so the numbers
-// here match the cluster-level results panel.
-export function computeShardSearch(shard, patterns, docs, k = LOCAL_TOPK) {
+// here match the cluster-level results panel — which now means it must be handed
+// the same collection stats, via statsForShard(search, shard.id).
+export function computeShardSearch(shard, patterns, docs, k = LOCAL_TOPK, stats = EMPTY_STATS) {
   const segments = shard.segments
     .filter((seg) => seg.searchable)
     .map((seg) => {
@@ -386,7 +405,7 @@ export function computeShardSearch(shard, patterns, docs, k = LOCAL_TOPK) {
   const candidates = [...candidateSet].sort((a, b) => a.localeCompare(b))
 
   const scored = candidates
-    .map((docId) => ({ docId, ...scoreDoc(docs[docId], patterns) }))
+    .map((docId) => ({ docId, ...scoreDoc(docs[docId], patterns, stats) }))
     .sort((a, b) => b.score - a.score || a.docId.localeCompare(b.docId))
 
   const topk = scored.slice(0, k).map(({ docId, score }) => ({ docId, score }))

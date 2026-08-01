@@ -1,4 +1,5 @@
 import { SHARD_PLACEMENT } from '../cluster'
+import { fmtScore } from '../relevance'
 
 // Right-panel view during a search. Reveals the two-phase query-then-fetch flow
 // step by step: per-shard local hits, then the coordinator's merged ranking,
@@ -60,7 +61,7 @@ export default function SearchResultsPanel({ search, step, docs }) {
                   {hits.map((h) => (
                     <div className="ss-hit" key={h.docId}>
                       <Chip id={h.docId} docs={docs} />
-                      <span className="score">score {h.score}</span>
+                      <span className="score">score {fmtScore(h.score)}</span>
                     </div>
                   ))}
                 </div>
@@ -82,7 +83,7 @@ export default function SearchResultsPanel({ search, step, docs }) {
                   <div className="result-head">
                     <Chip id={h.docId} docs={docs} />
                     <span className="result-from">shard {h.shard}</span>
-                    <span className="score">score {h.score}</span>
+                    <span className="score">score {fmtScore(h.score)}</span>
                   </div>
                   {step >= 4 && docs[h.docId] && (
                     <div className="result-body">{docs[h.docId].title}</div>

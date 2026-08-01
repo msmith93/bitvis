@@ -599,10 +599,15 @@ table.ii td.term {
   align-items: center;
   gap: 8px;
 }
+/* BM25 scores are floats, so the digits have to be fixed-width and the box a
+   fixed size — otherwise every re-rank reflows the row it sits in. */
 .score {
   font-size: 11px;
   color: var(--muted);
   font-family: ui-monospace, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .merged-block {
@@ -1275,6 +1280,13 @@ table.ii td.term {
 }
 .si-lane-item .score {
   font-weight: 700;
+  min-width: 44px;
+  text-align: right;
+}
+/* The per-term contributions can outgrow one line once each chip carries its
+   own arithmetic; let them wrap rather than squeezing the score off the row. */
+.si-lane-terms {
+  row-gap: 3px;
 }
 
 /* ---- coordinator inspector (merge & fetch close-up) ---- */
