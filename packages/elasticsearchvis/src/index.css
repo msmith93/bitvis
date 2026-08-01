@@ -1827,8 +1827,12 @@ table.ii td.term {
 .seg-btn + .seg-btn {
   border-left: 1px solid var(--border);
 }
-.seg-btn:hover {
+.seg-btn:hover:not(:disabled) {
   color: var(--text);
+}
+.seg-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 .seg-btn.on {
   color: var(--text);
@@ -1851,6 +1855,11 @@ table.ii td.term {
 .preset-chip.wildcard {
   font-family: ui-monospace, Menlo, monospace;
   border-style: dashed;
+}
+/* dotted, so a fuzzy chip is distinguishable from a wildcard one at a glance */
+.preset-chip.fuzzy {
+  font-family: ui-monospace, Menlo, monospace;
+  border-style: dotted;
 }
 .routing-tag {
   margin-left: 8px;

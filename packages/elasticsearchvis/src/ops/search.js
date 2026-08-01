@@ -4,11 +4,12 @@ import { mergeStats, segmentInvertedIndex, shardStats } from '../invertedIndex'
 import { EMPTY_STATS, scoreDoc } from '../relevance'
 import { flightMs, FLIGHT_PAD_MS } from '../timing'
 import {
-  PATTERN_LABEL,
   dictionaryScan,
-  isWildcardQuery,
+  isMultiTermQuery,
   matchesAny,
   parseQuery,
+  patternLabel,
+  queryKind,
 } from '../wildcard'
 
 // The `search` op: two-phase query-then-fetch scatter-gather. Read-only — it
@@ -150,7 +151,10 @@ function dictionaryCost(shards, docs, patterns) {
 
 // Run the (read-only) search against the committed cluster.
 function computeSearch(cluster, op) {
-  const patterns = parseQuery(op.payload.query)
+  // fuzzy prefix_length applies to every fuzzy token in the query.
+  const patterns = parseQuery(op.payload.query, {
+    prefixLength: op.payload.fuzzyPrefix ?? 0,
+  })
   const routing = op.payload.routing || null
   // A routing key hashes to exactly one shard — the only shard that can hold a
   // doc indexed with that key, so it is the only shard worth asking.
@@ -197,7 +201,11 @@ function computeSearch(cluster, op) {
   return {
     terms: patterns.map((p) => p.raw), // display strings (patterns kept verbatim)
     patterns,
-    wildcard: isWildcardQuery(patterns),
+    // `wildcard` means "has to be resolved against the dictionary" — wildcard
+    // OR fuzzy. Both take the same route, so they share the flag; `queryKind`
+    // is what copy uses when it has to name the flavour.
+    wildcard: isMultiTermQuery(patterns),
+    queryKind: queryKind(patterns),
     routing,
     routedShard,
     searchType: isDfs(op) ? 'dfs_query_then_fetch' : 'query_then_fetch',
@@ -272,6 +280,19 @@ export default {
           s.cost.segments === 1 ? '' : 's'
         } on ${s.cost.shards} shard${s.cost.shards === 1 ? '' : 's'}.`,
       )
+    if (s.queryKind === 'fuzzy') {
+      const p = s.patterns.find((x) => x.kind === 'fuzzy')
+      if (p)
+        parts.push(
+          `“${p.literal}” within ${p.maxEdits} edit${p.maxEdits === 1 ? '' : 's'}, ${
+            p.prefixLength
+              ? `first ${p.prefixLength} character${
+                  p.prefixLength === 1 ? '' : 's'
+                } fixed — the dictionary can still be seeked.`
+              : 'nothing fixed — so the first character may differ and there is nothing to seek to.'
+          }`,
+        )
+    }
     return parts.length ? parts.join(' ') : null
   },
 
@@ -330,34 +351,48 @@ const PLAIN_LOCAL_STEPS = [
   },
 ]
 
-const seekBlurb = (patterns) => {
+const seekBlurb = (patterns, fuzzy) => {
   const prefixes = patterns.map((p) => `“${p.seekPrefix}”`).join(', ')
-  return `The term dictionary is SORTED, and this pattern has a literal prefix — so the segment jumps straight to where ${prefixes} would sit (a binary search here; real Lucene seeks through an FST + block-tree) and then reads forward only while the prefix still matches. It stops at the first term that doesn’t. Everything outside that range is never touched.`
+  const why = fuzzy
+    ? 'and prefix_length pins its opening characters, so no edit may touch them'
+    : 'and this pattern has a literal prefix'
+  return `The term dictionary is SORTED, ${why} — so the segment jumps straight to where ${prefixes} would sit (a binary search here; real Lucene seeks through an FST + block-tree) and then reads forward only while the prefix still matches. It stops at the first term that doesn’t. Everything outside that range is never touched.`
 }
 
-const ENUMERATE_BLURB =
-  'A leading wildcard has NO literal prefix, so there is nothing to jump to — a match could sit anywhere in the sorted dictionary. The only option is to read every single term and test it: in this segment, in every other segment, on every shard. That is what makes “*term” expensive.'
+const ENUMERATE_BLURB = {
+  wildcard:
+    'A leading wildcard has NO literal prefix, so there is nothing to jump to — a match could sit anywhere in the sorted dictionary. The only option is to read every single term and test it: in this segment, in every other segment, on every shard. That is what makes “*term” expensive.',
+  // The same lesson, reached from the other direction — and the reason
+  // prefix_length exists at all.
+  fuzzy:
+    'With prefix_length 0 the very first character is allowed to be wrong, so a match could sit anywhere in the sorted dictionary and there is nothing to seek to. A fuzzy query is therefore priced exactly like a leading wildcard: every term read, in every segment, on every shard. Pin even one character with prefix_length and the seek comes back.',
+}
 
-function wildcardLocalSteps(patterns) {
+function patternLocalSteps(patterns) {
   const seekable = patterns.every((p) => p.seekPrefix)
+  const kind = queryKind(patterns)
+  const fuzzy = kind === 'fuzzy'
   return [
     {
       key: 'analyze',
-      title: '1 · Parse the pattern',
-      blurb: `This is a wildcard pattern, not a plain term: it gets matched against the dictionary rather than looked up in it. ${patterns
-        .map((p) => `“${p.raw}” — ${PATTERN_LABEL[p.kind]}`)
+      title: fuzzy ? '1 · Compile the pattern' : '1 · Parse the pattern',
+      blurb: `This is ${
+        fuzzy ? 'a fuzzy pattern' : 'a wildcard pattern'
+      }, not a plain term: it gets matched against the dictionary rather than looked up in it. ${patterns
+        .map((p) => `“${p.raw}” — ${patternLabel(p)}`)
         .join(' · ')}.`,
     },
     {
       key: 'lookup',
       title: seekable ? '2 · Seek the term dictionary' : '2 · Enumerate the term dictionary',
-      blurb: seekable ? seekBlurb(patterns) : ENUMERATE_BLURB,
+      blurb: seekable ? seekBlurb(patterns, fuzzy) : ENUMERATE_BLURB[fuzzy ? 'fuzzy' : 'wildcard'],
     },
     {
       key: 'expand',
       title: '3 · Expand to matching terms',
-      blurb:
-        'Every term the pattern matched is collected. From here on the wildcard is just a boolean OR over those terms — the expensive part is already done, and it was the dictionary work, not the matching.',
+      blurb: fuzzy
+        ? 'Every term within the edit budget is collected, and the query becomes a boolean OR over them. Worth looking at what came back: fuzzy has no idea what your words MEAN, so a term one edit away is a match whether or not you wanted it.'
+        : 'Every term the pattern matched is collected. From here on the wildcard is just a boolean OR over those terms — the expensive part is already done, and it was the dictionary work, not the matching.',
     },
     ...PLAIN_LOCAL_STEPS.slice(2).map((s, i) => ({
       ...s,
@@ -367,7 +402,7 @@ function wildcardLocalSteps(patterns) {
 }
 
 export function localSearchSteps(patterns) {
-  return isWildcardQuery(patterns) ? wildcardLocalSteps(patterns) : PLAIN_LOCAL_STEPS
+  return isMultiTermQuery(patterns) ? patternLocalSteps(patterns) : PLAIN_LOCAL_STEPS
 }
 
 // The coordinator close-up walks these steps to show how the coordinator turns
