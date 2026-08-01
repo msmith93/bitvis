@@ -1,4 +1,5 @@
 import { SHARD_PLACEMENT } from '../cluster'
+import { pastStep } from '../ops/search'
 import { fmtScore } from '../relevance'
 
 // Right-panel view during a search. Reveals the two-phase query-then-fetch flow
@@ -8,9 +9,16 @@ import { fmtScore } from '../relevance'
 // A shard with no entry in `serving` was never asked — that only happens when
 // the query carried a routing key, and showing those shards sitting idle is the
 // whole point of the routing lesson.
-export default function SearchResultsPanel({ search, step, docs }) {
+export default function SearchResultsPanel({ search, op, docs }) {
   if (!search) return null
-  const { terms, serving, perShard, merged, routing, wildcard } = search
+  const { terms, serving, perShard, merged, routing, wildcard, stats } = search
+  // Reveal by step NAME: a dfs_query_then_fetch search has a pre-query round in
+  // front, so every step index after it shifts by one.
+  const searched = pastStep(op, 'local')
+  const ranked = pastStep(op, 'gather')
+  const fetched = pastStep(op, 'fetch')
+  const returned = pastStep(op, 'return')
+  const dfs = stats?.mode === 'global'
 
   return (
     <div>
@@ -52,7 +60,15 @@ export default function SearchResultsPanel({ search, step, docs }) {
                 shard {sid} · <span className={'role-badge ' + sv.role}>{sv.role}</span> on{' '}
                 {sv.node}
               </div>
-              {step < 2 ? (
+              {stats && (
+                <div className="ss-stats">
+                  {dfs ? 'scoring against the whole index: ' : 'scoring against its own '}
+                  N={dfs ? stats.global.docCount : stats.perShard[sid]?.docCount}
+                  {' · avgdl '}
+                  {(dfs ? stats.global : stats.perShard[sid])?.avgFieldLength.toFixed(1)}
+                </div>
+              )}
+              {!searched ? (
                 <div className="ss-wait">querying…</div>
               ) : hits.length === 0 ? (
                 <div className="ss-none">no local hits</div>
@@ -71,7 +87,7 @@ export default function SearchResultsPanel({ search, step, docs }) {
         })}
       </div>
 
-      {step >= 3 && (
+      {ranked && (
         <div className="merged-block">
           <p className="section-title">Coordinator · merged &amp; ranked</p>
           {merged.length === 0 ? (
@@ -85,14 +101,14 @@ export default function SearchResultsPanel({ search, step, docs }) {
                     <span className="result-from">shard {h.shard}</span>
                     <span className="score">score {fmtScore(h.score)}</span>
                   </div>
-                  {step >= 4 && docs[h.docId] && (
+                  {fetched && docs[h.docId] && (
                     <div className="result-body">{docs[h.docId].title}</div>
                   )}
                 </li>
               ))}
             </ol>
           )}
-          {step >= 5 && <div className="returned">↩ returned to client</div>}
+          {returned && <div className="returned">↩ returned to client</div>}
         </div>
       )}
     </div>

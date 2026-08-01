@@ -2,6 +2,7 @@ import * as shardLocal from './stages/shardLocal'
 import * as coordMerge from './stages/coordMerge'
 import * as dictionary from './stages/dictionary'
 import { segmentInvertedIndex } from '../invertedIndex'
+import { atStep } from '../ops/search'
 import { matchesAny } from '../wildcard'
 
 // The close-up registry: which zoom is available WHERE (which op/step, which
@@ -20,20 +21,20 @@ import { matchesAny } from '../wildcard'
 // kinds appear in the predicates below. It serves both a plain term and a
 // wildcard — same picture, the query decides how the walk behaves.
 
-const SEARCH_LOCAL_STEP = 2 // ops/search.js STEPS: 'local'
-const SEARCH_GATHER_STEPS = [3, 4] // 'gather' + 'fetch'
+// Which search step each zoom belongs to, BY NAME — a dfs_query_then_fetch
+// search has a pre-query step in front, so every index after it shifts.
+const SEARCH_LOCAL_STEP = 'local'
+const SEARCH_GATHER_STEPS = ['gather', 'fetch']
 
 // The zoom offered on a shard card for the current op/step, or null.
 export function shardCloseUp(op, shardId, search) {
-  if (op?.type !== 'search' || op.step !== SEARCH_LOCAL_STEP) return null
+  if (!atStep(op, SEARCH_LOCAL_STEP)) return null
   return search?.serving?.[shardId] ? 'shard' : null
 }
 
 // The zoom offered on the coordinator's node column.
 export function coordCloseUp(op) {
-  return op?.type === 'search' && SEARCH_GATHER_STEPS.includes(op.step)
-    ? 'coordinator'
-    : null
+  return SEARCH_GATHER_STEPS.some((k) => atStep(op, k)) ? 'coordinator' : null
 }
 
 // Auto-close: is this open close-up still valid for the current op/step? Only

@@ -1799,6 +1799,50 @@ table.ii td.term {
   letter-spacing: 0.07em;
   color: var(--muted);
 }
+
+/* search type: whose collection statistics relevance is scored against */
+.search-type-row {
+  margin-top: 8px;
+}
+.search-type-row .routing-label {
+  display: block;
+  margin-bottom: 5px;
+}
+.seg {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.seg-btn {
+  flex: 1;
+  padding: 5px 6px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.seg-btn + .seg-btn {
+  border-left: 1px solid var(--border);
+}
+.seg-btn:hover {
+  color: var(--text);
+}
+.seg-btn.on {
+  color: var(--text);
+  background: var(--panel-2);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+/* which collection each shard scored against — the DFS lesson, per shard */
+.ss-stats {
+  font-size: 10px;
+  color: var(--muted);
+  font-family: ui-monospace, Menlo, monospace;
+  margin-bottom: 5px;
+}
 .preset-chip.on {
   border-color: var(--accent);
   color: var(--text);
