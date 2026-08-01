@@ -9,12 +9,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 - `npm run dev` — start the Vite dev server (the primary way to run/verify the app).
+- `npm run check` — assert the pure models (`scripts/check-models.mjs`). No test
+  framework; plain node. Covers the four things a browser cannot tell you are
+  wrong: the two zoom levels agreeing on what a pattern matched, edit distance,
+  the BM25 numbers the docs quote, and the shard close-up scoring identically to
+  the cluster-level search. **Run it after touching any model.**
 - `npm run build` — production build to `dist/`.
 - `npm run preview` — serve the built `dist/` locally.
 
-There is no test runner, linter, or formatter configured. The deliverable is a
+There is no test framework, linter, or formatter configured. The deliverable is a
 screen-recordable proof-of-concept (see `SPEC.md`), so "verify" means running
-`npm run dev` and stepping through Index → Refresh → Flush → Merge → Search.
+`npm run check` for the arithmetic and then `npm run dev` and stepping through
+Index → Refresh → Flush → Merge → Search.
 
 ## What this app is
 
@@ -40,10 +46,17 @@ which lets the stepper scrub any operation forwards and backwards.
 
 - **`op`** = `{ type, step, payload }` (held by `useOpLifecycle`). Each op type
   (`index`, `refresh`, `flush`, `merge`, `search`) is one module in `src/ops/`
-  declaring `{ type, label, steps, derive?, extra?, duration? }`; each step has
-  the explanation text shown in the right panel and driven by the bottom
+  declaring `{ type, label, steps, stepsOf?, derive?, extra?, duration? }`; each
+  step has the explanation text shown in the right panel and driven by the bottom
   `Stepper`. Adding an op type = one new module + a registry entry in
   `src/ops/index.js`.
+
+  A module may declare `stepsOf(op)` when the PAYLOAD changes the walk — that is
+  how a `dfs_query_then_fetch` search gets its extra pre-query step. Because of
+  it, `stepsFor`/`lastStep` take the whole **op**, not its type, and **nothing may
+  hard-code a search step index**: use `stepKey` / `stepAt` / `atStep` /
+  `pastStep` from `src/ops/search.js`, and `opStepKey` / `opStepsDone` in the
+  scenario snapshot.
 
 - **Derivation** (dispatched by `src/ops/index.js` to the op modules):
   - `deriveCluster(cluster, op)` returns how the cluster should *look* at the
@@ -76,14 +89,20 @@ which lets the stepper scrub any operation forwards and backwards.
   `src/scenarios/index.js`. Steps that ask the user to press ▶ Play set
   `highlightPlay: true` and target `[data-tour="stepper-play"]`.
 
-- **Wildcards + routing** are first-class query features, not scenario-only
-  props. `src/wildcard.js` is the pure model: `parseQuery` keeps `*`/`?` tokens
-  whole (the analyzer would eat them), and `dictionaryTrace` produces the
-  replayable probe list — a binary-search seek when the pattern has a literal
-  prefix, a full enumeration when it doesn't. `ShardInspector` replays that
-  trace per segment on the dictionary step (and `localSearchSteps` gives a
-  wildcard query its own step list, which is why the inspector addresses steps
-  by `key` rather than index). Routing is
+- **Multi-term queries (wildcard + fuzzy) and routing** are first-class query
+  features, not scenario-only props. `src/wildcard.js` is the pure model:
+  `parseQuery` keeps `*`/`?`/`~N` tokens whole (the analyzer would eat them), and
+  `dictionaryTrace` produces the replayable probe list. **`seekPrefix` is the one
+  field that decides cost for every pattern kind** — non-empty means the sorted
+  dictionary can be seeked, empty means it must be enumerated — which is why a
+  fuzzy's `prefix_length` maps straight onto it and `dictionaryTrace` needed no
+  fuzzy branch at all. `matchTerm` is the SINGLE semantic authority on whether a
+  term matches; `src/automaton.js` delegates its per-term verdict back to it, and
+  that is what keeps the two zoom levels from drifting (asserted by
+  `npm run check`). `ShardInspector` replays the trace per segment on the
+  dictionary step (and `localSearchSteps` gives a pattern query its own step
+  list, which is why the inspector addresses steps by `key` rather than index).
+  Routing is
   `docRoute(doc) = routeShard(doc.routing || doc.id)`; a search payload's
   `routing` restricts `computeSearch` to one shard, and every downstream visual
   (stage highlights, scatter flights, both inspectors) follows from the shorter
@@ -112,6 +131,9 @@ which lets the stepper scrub any operation forwards and backwards.
   className? }`, and `src/closeups/index.js` is the registry
   (`shardCloseUp` / `coordCloseUp` / `closeUpStillValid` / `closeUpAnchor` /
   `buildCloseUp`). **Adding a zoom = one module plus one case in the registry.**
+  The `scoring` stage (one document's BM25) and the `dictionary` stage are both
+  nested — opened from inside the shard close-up — so they inherit their validity
+  from the stack root.
   Three things to respect:
   - App holds ONE `closeUps` array (the stack, innermost last), not a flag per
     zoom. Only the top is `active`: the shell runs a clock only for it, and stages
@@ -155,8 +177,19 @@ which lets the stepper scrub any operation forwards and backwards.
 
 - **Analysis** (`src/analyzer.js`): a small stand-in for the standard analyzer —
   lowercase + split on non-(letter/number/apostrophe). No stemming/stopwords,
-  keeping "your words → terms" obvious. Search relevance is term-frequency
-  counting (`computeSearch`), a deliberate stand-in for BM25.
+  keeping "your words → terms" obvious.
+
+- **Relevance** (`src/relevance.js`) is real BM25 with Lucene's constants
+  (k1=1.2, b=0.75). The interesting part is WHOSE statistics it is given:
+  `shardStats`/`mergeStats` (`src/invertedIndex.js`) produce either one shard's
+  own `docCount`/`docFreq` (plain `query_then_fetch`) or the summed totals
+  (`dfs_query_then_fetch`), and `computeSearch` picks between them. **Anything
+  that scores must take its stats from `statsForShard(search, shardId)`** — the
+  shard close-up and the results panel showing different numbers for the same
+  document is the failure mode this prevents, and `npm run check` asserts they
+  agree. `perTerm` carries every input the formula used (tf, docFreq, idf, norm,
+  contribution) so the scoring close-up can render the arithmetic rather than
+  assert it. Scores are floats: render them through `fmtScore`.
 
 - The per-shard inverted index (`shardInvertedIndex` in `src/invertedIndex.js`)
   is built only from `searchable` segments and skips `purged` docs — buffered
