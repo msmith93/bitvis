@@ -74,7 +74,11 @@ which lets the stepper scrub any operation forwards and backwards.
   `Walkthrough.jsx` renders the spotlight and `ScenarioPicker` is the topbar
   menu. The snapshot both predicates read is documented in
   `src/scenarios/index.js`. Steps that ask the user to press ▶ Play set
-  `highlightPlay: true` and target `[data-tour="stepper-play"]`.
+  `highlightPlay: true` and target `[data-tour="stepper-play"]`. The intro tour
+  deliberately ends on the topbar Scenarios button (`[data-tour="scenarios"]`)
+  so the menu gets discovered: that step advances on `scenariosOpen` — the real
+  click that opens the menu, reported up from `ScenarioPicker` — and never asks
+  the user to pick a particular scenario.
 
 - **Wildcards + routing** are first-class query features, not scenario-only
   props. `src/wildcard.js` is the pure model: `parseQuery` keeps `*`/`?` tokens
@@ -161,3 +165,11 @@ which lets the stepper scrub any operation forwards and backwards.
 - The per-shard inverted index (`shardInvertedIndex` in `src/invertedIndex.js`)
   is built only from `searchable` segments and skips `purged` docs — buffered
   docs and applied deletes never appear in search, matching the SPEC guardrails.
+
+- **`MobileWarning`** (`src/components/MobileWarning.jsx`, styled in `index.css`)
+  is a full-screen advisory shown on small touch screens: these visualizers are
+  desktop simulations, so a phone gets told so before it fights the layout. It
+  is advisory ("Continue anyway" dismisses it for the session, with no
+  persistence) and it is deliberately gated on a coarse pointer AND a small
+  viewport, so a narrow desktop window never trips it. Every visualizer app
+  carries an identical copy of it — the landing page does not.

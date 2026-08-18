@@ -17,6 +17,7 @@ import { useTraffic } from './useTraffic'
 import { useWalkthrough } from './useWalkthrough'
 import ClusterStage from './components/ClusterStage'
 import CookieBanner from './components/CookieBanner'
+import MobileWarning from './components/MobileWarning'
 import RequestFlight from './components/RequestFlight'
 import ScenarioBar from './components/ScenarioBar'
 import SidePanel from './components/SidePanel'
@@ -659,6 +660,9 @@ export default function App() {
       {showCookieBanner && (
         <CookieBanner onAccept={handleAcceptCookies} onDecline={handleDeclineCookies} />
       )}
+
+      {/* ---------------- Overlay: "this is a desktop simulation" ---------------- */}
+      <MobileWarning />
     </div>
   )
 }

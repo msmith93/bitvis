@@ -18,6 +18,7 @@ import { CloseUp, buildCloseUp, closeUpStillValid } from './closeups'
 import ScenarioBar from './components/ScenarioBar'
 import Stepper from './components/Stepper'
 import CookieBanner from './components/CookieBanner'
+import MobileWarning from './components/MobileWarning'
 import Walkthrough from './components/Walkthrough'
 import { useWalkthrough } from './useWalkthrough'
 import {
@@ -568,6 +569,9 @@ export default function App() {
 
       {/* ---------------- Overlay: first-run guided tour ---------------- */}
       <Walkthrough tour={tour} allowEscape={closeUp == null} />
+
+      {/* ---------------- Overlay: "this is a desktop simulation" ---------------- */}
+      <MobileWarning />
     </div>
   )
 }

@@ -126,3 +126,11 @@ operation forwards and backwards.
   counts only Running pods. Framer Motion drives stage animations;
   `PodChip` is `forwardRef` because `AnimatePresence popLayout` measures
   exiting children.
+
+- **`MobileWarning`** (`src/components/MobileWarning.jsx`, styled in `index.css`)
+  is a full-screen advisory shown on small touch screens: these visualizers are
+  desktop simulations, so a phone gets told so before it fights the layout. It
+  is advisory ("Continue anyway" dismisses it for the session, with no
+  persistence) and it is deliberately gated on a coarse pointer AND a small
+  viewport, so a narrow desktop window never trips it. Every visualizer app
+  carries an identical copy of it — the landing page does not.
