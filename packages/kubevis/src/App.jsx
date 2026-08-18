@@ -17,6 +17,7 @@ import { useTraffic } from './useTraffic'
 import { useWalkthrough } from './useWalkthrough'
 import ClusterStage from './components/ClusterStage'
 import CookieBanner from './components/CookieBanner'
+import HomeLink from './components/HomeLink'
 import MobileWarning from './components/MobileWarning'
 import RequestFlight from './components/RequestFlight'
 import ScenarioBar from './components/ScenarioBar'
@@ -598,6 +599,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
+        <HomeLink />
         <h1>kubevis</h1>
         <span className="sub">
           how a kubectl command becomes running pods — every step of the control plane

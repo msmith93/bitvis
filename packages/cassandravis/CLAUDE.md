@@ -109,3 +109,9 @@ scrub any operation forwards and backwards.
   persistence) and it is deliberately gated on a coarse pointer AND a small
   viewport, so a narrow desktop window never trips it. Every visualizer app
   carries an identical copy of it — the landing page does not.
+
+- **`HomeLink`** (`src/components/HomeLink.jsx`, styled in `index.css`) is the
+  way back to the bitvis landing page (`https://bitvis.bitsculpt.top`). Each
+  visualizer is its own subdomain, so without it a visitor who enjoys this one
+  has no path to the others; it sits first in the topbar and carries the landing
+  page's own 2×2 dot mark. Every visualizer app carries an identical copy.

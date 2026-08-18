@@ -29,6 +29,7 @@ import { CloseUp, buildCloseUp, closeUpAnchor, closeUpStillValid } from './close
 import DeleteDocOverlay from './components/DeleteDocOverlay'
 import Stepper from './components/Stepper'
 import CookieBanner from './components/CookieBanner'
+import HomeLink from './components/HomeLink'
 import MobileWarning from './components/MobileWarning'
 import Walkthrough from './components/Walkthrough'
 import ScenarioPicker from './components/ScenarioPicker'
@@ -405,6 +406,7 @@ export default function App() {
   return (
     <div className="app">
       <div className="topbar">
+        <HomeLink />
         <h1>Elasticsearch Cluster Visualizer</h1>
         <span className="sub">
           Routing & replication across a 3-node cluster, the write path, and
