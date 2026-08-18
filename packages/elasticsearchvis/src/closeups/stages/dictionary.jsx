@@ -80,6 +80,18 @@ const PATTERN_BLURBS = {
     'The terms that survived are the expansion: from here the wildcard is an ordinary OR over them. And the cost was decided entirely by where the pattern let the walk go.',
 }
 
+// A fuzzy is the same machine built from a different question — "what is within
+// N edits" rather than "what fits this glob" — so it gets the same picture and
+// only the wording changes.
+const FUZZY_BLURBS = {
+  walk:
+    'The edit distance is compiled into a machine too: its states are “matched this much of the term, having spent this many edits”, and an arrow it can still afford is FOLLOWED while one it cannot is PRUNED. Nothing here is comparing strings — the automaton was built once and now just walks.',
+  read:
+    'Only the blocks the walk actually reached are read. With prefix_length 0 that tends to be all of them, because a machine allowed to spend an edit immediately cannot rule out any first character. Raise prefix_length and whole subtrees start going dark.',
+  found:
+    'The terms that survived are the expansion, and the query is now an ordinary OR over them. Read them carefully: edit distance is spelling, not meaning, so a term you never intended can be exactly as close as the one you did.',
+}
+
 export function build({ shard, segId, rows, term, patterns, anchor }) {
   const index = buildTermIndex(rows)
   const pattern = patterns?.find((p) => p.kind !== 'term') ?? null
@@ -108,7 +120,13 @@ export function build({ shard, segId, rows, term, patterns, anchor }) {
 
   const steps = STEPS.map((s) => ({
     ...s,
-    blurb: s.blurb ?? (mode === 'term' ? TERM_BLURBS : PATTERN_BLURBS)[s.key],
+    blurb:
+      s.blurb ??
+      (mode === 'term'
+        ? TERM_BLURBS
+        : pattern.kind === 'fuzzy'
+          ? FUZZY_BLURBS
+          : PATTERN_BLURBS)[s.key],
   }))
   const at = Object.fromEntries(steps.map((s, i) => [s.key, i]))
   const dwell = (i) => {
@@ -136,12 +154,30 @@ export function build({ shard, segId, rows, term, patterns, anchor }) {
   }
 }
 
-// Run the opposite kind of pattern over the same index, so step 4 can put the
-// two costs side by side. Both numbers are derived, never written into copy.
+// Run the pattern's OPPOSITE over the same index, so step 4 can put the two
+// costs side by side. Both numbers are derived, never written into copy.
+//
+// What "opposite" means depends on the kind, because each kind has its own
+// version of the same question — can the walk be anchored at the front?
+//   leading  `*search`  ↔ `search*`   the anchored glob
+//   prefix   `sc*`      ↔ `*search`   a leading wildcard on this dictionary
+//   fuzzy    prefix_length 0 ↔ 2      the SAME pattern, anchored or not, which is
+//                                     the cleanest contrast of the three: one
+//                                     knob, nothing else changed.
 function buildContrast(index, alphabet, pattern) {
-  const raw =
-    pattern.kind === 'leading' ? `${pattern.literal.replace(/^\*+/, '')}*` : '*search'
-  const other = parsePattern(raw)
+  let other
+  if (pattern.kind === 'fuzzy') {
+    // Flip prefix_length between 0 and 2 and re-parse, so the comparison isolates
+    // the one thing that decides whether a fuzzy can be seeked.
+    const flipped = pattern.prefixLength > 0 ? 0 : 2
+    other = parsePattern(`${pattern.literal}~${pattern.maxEdits}`, {
+      prefixLength: flipped,
+    })
+  } else {
+    other = parsePattern(
+      pattern.kind === 'leading' ? `${pattern.literal.replace(/^\*+/, '')}*` : '*search',
+    )
+  }
   if (!other.literal) return null
   const trace = intersectTrace(index, compileAutomaton(other, alphabet))
   return { pattern: other, trace }
@@ -413,9 +449,15 @@ function FoundPattern({ hits, dfa, pattern, contrast, index }) {
         <table className="cu-contrast">
           <tbody>
             <tr className="head">
-              <th>pattern</th>
-              <td>“{pattern.raw}”</td>
-              <td>“{contrast.pattern.raw}”</td>
+              <th>{pattern.kind === 'fuzzy' ? 'prefix_length' : 'pattern'}</th>
+              <td>
+                {pattern.kind === 'fuzzy' ? pattern.prefixLength : `“${pattern.raw}”`}
+              </td>
+              <td>
+                {pattern.kind === 'fuzzy'
+                  ? contrast.pattern.prefixLength
+                  : `“${contrast.pattern.raw}”`}
+              </td>
             </tr>
             <tr>
               <th>accepts any character to begin with</th>
@@ -449,12 +491,32 @@ function FoundPattern({ hits, dfa, pattern, contrast, index }) {
         </table>
       )}
 
-      <CostLine tone="warn">
-        A pattern that starts with a wildcard accepts <b>any</b> first character, so
-        no arrow can ever be rejected and every block has to be read. That is the
-        entire reason a leading wildcard is expensive — not a heuristic, just what
-        the machine allows.
-      </CostLine>
+      {pattern.kind === 'fuzzy' ? (
+        <CostLine tone={dfa.startAcceptsAnything ? 'warn' : 'good'}>
+          {dfa.startAcceptsAnything ? (
+            <>
+              With <b>prefix_length {pattern.prefixLength}</b> the machine may spend
+              an edit on the very first character, so it accepts <b>any</b> of them
+              and no arrow can be rejected. A fuzzy query is priced exactly like a
+              leading wildcard, for exactly the same structural reason.
+            </>
+          ) : (
+            <>
+              <b>prefix_length {pattern.prefixLength}</b> forbids edits at the front,
+              so the machine accepts only “{pattern.seekPrefix[0]}” to begin with and
+              the rest of the dictionary is pruned unread. Same query, same edit
+              budget — one knob.
+            </>
+          )}
+        </CostLine>
+      ) : (
+        <CostLine tone="warn">
+          A pattern that starts with a wildcard accepts <b>any</b> first character, so
+          no arrow can ever be rejected and every block has to be read. That is the
+          entire reason a leading wildcard is expensive — not a heuristic, just what
+          the machine allows.
+        </CostLine>
+      )}
     </>
   )
 }

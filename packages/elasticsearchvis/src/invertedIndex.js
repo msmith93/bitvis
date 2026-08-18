@@ -36,6 +36,62 @@ export function shardInvertedIndex(shard, docs) {
   return indexRows(map)
 }
 
+// The collection statistics BM25 needs, over ONE shard: how many documents it
+// can currently search, their average length, and each term's document
+// frequency. This is what a shard knows on its own — and scoring with it is
+// exactly what makes plain query_then_fetch's relevance shard-dependent.
+//
+// Derived from the same searchable-segments view search uses, so a buffered or
+// purged doc can no more affect a score than it can appear in a result.
+// `docFreq` comes straight off shardInvertedIndex, whose rows already de-dupe a
+// doc that appears in several segments.
+export function shardStats(shard, docs) {
+  const rows = shardInvertedIndex(shard, docs)
+  const docIds = new Set()
+  for (const seg of shard.segments) {
+    if (!seg.searchable) continue
+    for (const id of seg.docIds) {
+      const doc = docs[id]
+      if (doc && !doc.purged) docIds.add(id)
+    }
+  }
+  let totalLength = 0
+  for (const id of docIds) {
+    const { title, body } = docs[id].tokens
+    totalLength += title.length + body.length
+  }
+  const docFreq = {}
+  for (const row of rows) docFreq[row.term] = row.docIds.length
+  return {
+    docCount: docIds.size,
+    totalLength,
+    avgFieldLength: docIds.size ? totalLength / docIds.size : 0,
+    docFreq,
+  }
+}
+
+// Sum per-shard stats into the collection-wide view. This is the pre-query round
+// of dfs_query_then_fetch: docCounts and docFreqs add up across shards (a doc
+// lives on exactly one shard, so nothing is double-counted), and the average
+// length has to be recomputed from the totals rather than averaged.
+export function mergeStats(statsList) {
+  const docFreq = {}
+  let docCount = 0
+  let totalLength = 0
+  for (const s of statsList) {
+    docCount += s.docCount
+    totalLength += s.totalLength
+    for (const [term, n] of Object.entries(s.docFreq))
+      docFreq[term] = (docFreq[term] || 0) + n
+  }
+  return {
+    docCount,
+    totalLength,
+    avgFieldLength: docCount ? totalLength / docCount : 0,
+    docFreq,
+  }
+}
+
 // What ONE segment physically stores, as data for the close-up's anatomy view:
 // its inverted index (term dictionary + postings, via segmentInvertedIndex), the
 // stored _source of each doc, and each doc's delete state (the live-docs bitset).
