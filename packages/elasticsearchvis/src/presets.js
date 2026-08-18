@@ -32,6 +32,19 @@ export const EXAMPLE_QUERIES = ['search', 'data', 'elasticsearch lucene']
 // dictionary ("elasticsearch" and "search") — visible proof that no seek exists.
 export const WILDCARD_QUERIES = ['sc*', 'search*', '*search']
 
+// Fuzzy patterns, chosen so the three things worth knowing about fuzzy each get
+// their own chip. All three are verified against the sample dictionary:
+//   serch~    a typo, corrected. Bare `~` means Fuzziness.AUTO, and at 5
+//             characters that is 1 edit — so this matches "search" and nothing
+//             else. The motivating case.
+//   search~2  expands to search / searched / searches: proof that a fuzzy query
+//             is a boolean OR over terms, not one lookup. NOT stemming — it
+//             found those by spelling, not by meaning.
+//   store~1   expands to score / store / stores. "score" is one edit from
+//             "store" and has nothing to do with it. This is the honest cost of
+//             fuzziness and the chip exists to make it land.
+export const FUZZY_QUERIES = ['serch~', 'search~2', 'store~1']
+
 // Routing keys used by the routed sample set below (and its scenario).
 export const ROUTING_KEYS = ['tenant-a', 'tenant-b', 'tenant-c']
 

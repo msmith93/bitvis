@@ -2,7 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion'
 import FlyingTokens, { selectorRect } from '../../components/tokenFlight'
-import { localSearchSteps, computeShardSearch } from '../../ops/search'
+import { localSearchSteps, computeShardSearch, statsForShard } from '../../ops/search'
+import { fmtScore } from '../../relevance'
 import { segmentAnatomy } from '../../invertedIndex'
 import { matchesAny } from '../../wildcard'
 import {
@@ -34,13 +35,17 @@ import { LOCAL_TOPK } from '../../constants'
 // budget can be computed without rendering. Pure.
 function deriveShardLocal({ shard, search, docs }) {
   const patterns = search.patterns
-  const local = computeShardSearch(shard, patterns, docs, LOCAL_TOPK)
+  // Score with exactly the stats the cluster-level run used, or this panel and
+  // the results panel would show different numbers for the same document.
+  const stats = statsForShard(search, shard.id)
+  const local = computeShardSearch(shard, patterns, docs, LOCAL_TOPK, stats)
   const steps = localSearchSteps(patterns)
   return {
     shard,
     search,
     patterns,
     wildcard: search.wildcard,
+    stats,
     local,
     anatomy: shard.segments
       .filter((s) => s.searchable)
@@ -233,7 +238,15 @@ function ShardLocalStage({ step, active, openCloseUp, model, docs, query }) {
         {step === at.expand && <ExpansionBlock local={local} />}
 
         {step >= at.postings && (
-          <ResultsLane step={step} at={at} local={local} docs={docs} revealed={laneRevealed} />
+          <ResultsLane
+            step={step}
+            at={at}
+            local={local}
+            docs={docs}
+            revealed={laneRevealed}
+            shard={shard}
+            openCloseUp={openCloseUp}
+          />
         )}
 
         <p className="section-title">
@@ -322,7 +335,7 @@ function ExpansionBlock({ local }) {
 // The persistent results lane. One chip per docId, carried across phases via
 // layoutId so framer animates every reposition: candidates → scored order →
 // ranked slots (evicted peel off) → returned list.
-function ResultsLane({ step, at, local, docs, revealed }) {
+function ResultsLane({ step, at, local, docs, revealed, shard, openCloseUp }) {
   const mode =
     step === at.postings
       ? 'candidates'
@@ -333,7 +346,7 @@ function ResultsLane({ step, at, local, docs, revealed }) {
       : 'return'
   const titles = {
     candidates: 'Candidate docs (union of posting lists)',
-    score: 'Score each candidate (term-frequency stand-in)',
+    score: 'Score each candidate (BM25)',
     topk: `Top-k priority queue (k = ${local.k}, a min-heap)`,
     return: 'Local top hits → coordinator',
   }
@@ -374,18 +387,38 @@ function ResultsLane({ step, at, local, docs, revealed }) {
                       <DocChip id={it.docId} docs={docs} hit />
                       {mode === 'score' && sc && (
                         <span className="si-lane-terms">
-                          {Object.entries(sc.perTerm).map(([t, n]) => (
-                            <span key={t} className="si-tf">
-                              {t} ×{n}
+                          {Object.entries(sc.perTerm).map(([t, f]) => (
+                            <span key={t} className="si-tf" title={`idf ${f.idf.toFixed(3)} · df ${f.docFreq}`}>
+                              {t} ×{f.tf} → {fmtScore(f.contribution)}
                             </span>
                           ))}
                         </span>
                       )}
-                      {mode === 'score' && sc && <span className="score">= {sc.score}</span>}
+                      {mode === 'score' && sc && (
+                        <span className="score" data-score-chip={it.docId}>
+                          = {fmtScore(sc.score)}
+                          {/* Down one more level: the whole BM25 arithmetic for
+                              this one document. */}
+                          <button
+                            className="magnify-btn inline"
+                            data-tour="magnify-score"
+                            title="Zoom into how this score was computed"
+                            onClick={() =>
+                              openCloseUp?.({
+                                kind: 'scoring',
+                                shard: shard.id,
+                                docId: it.docId,
+                              })
+                            }
+                          >
+                            🔍
+                          </button>
+                        </span>
+                      )}
                       {(mode === 'topk' || mode === 'return') && (
                         <span className="score">
                           {mode === 'return' ? 'score ' : ''}
-                          {sc?.score ?? it.score}
+                          {fmtScore(sc?.score ?? it.score)}
                         </span>
                       )}
                     </motion.div>
@@ -409,7 +442,7 @@ function ResultsLane({ step, at, local, docs, revealed }) {
                   transition={{ type: 'spring', stiffness: 360, damping: 28 }}
                 >
                   <DocChip id={s.docId} docs={docs} />
-                  <span className="score">{s.score}</span>
+                  <span className="score">{fmtScore(s.score)}</span>
                 </motion.span>
               ))}
             </AnimatePresence>
