@@ -6,8 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview",
-    "check": "node scripts/check-models.mjs"
+    "preview": "vite preview"
   },
   "dependencies": {
     "framer-motion": "^11.3.19",

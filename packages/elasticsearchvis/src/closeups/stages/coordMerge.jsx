@@ -1,7 +1,6 @@
 import { Fragment } from 'react'
 import { motion } from 'framer-motion'
 import { COORD_MERGE_STEPS, computeCoordinatorMerge } from '../../ops/search'
-import { fmtScore } from '../../relevance'
 
 // The close-up for the coordinator during the gather/fetch phases: how the
 // per-shard hit lists become one global ranking, and which full documents get
@@ -237,7 +236,7 @@ function HitChip({ hit, docs, rank, showShard, dim, body, delay = 0, col, row })
       {rank != null && <span className="si-rank">#{rank}</span>}
       <DocChip id={hit.docId} docs={docs} hit={!dim} />
       {body != null && <span className="ci-doc-body">{body}</span>}
-      <span className="score">{fmtScore(hit.score)}</span>
+      <span className="score">{hit.score}</span>
       {showShard && <span className="ci-shard-tag">shard {hit.shard}</span>}
     </motion.div>
   )
