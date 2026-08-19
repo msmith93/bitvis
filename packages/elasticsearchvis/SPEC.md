@@ -83,11 +83,6 @@ distinctions are the whole pedagogical point.
    ones discarded; deleted docs physically dropped. Both copies merge.
 
 ### Search (scatter-gather, query-then-fetch)
-0. **Pre-query (dfs_query_then_fetch only)** — before searching anything, the
-   coordinator asks every shard for its document count and each query term's
-   document frequency, sums them, and sends the totals back out with the query.
-   One extra round trip, and the only thing it changes is which numbers BM25 is
-   given — see "Relevance" below for why that is worth a step of its own.
 1. **Coordinator receives the query** — query string analyzed into terms.
 2. **Scatter (query phase)** — coordinator fans the query out to ONE copy of
    every shard (primary or replica), spread across nodes. This is why search runs
@@ -100,62 +95,6 @@ distinctions are the whole pedagogical point.
 5. **Fetch phase** — coordinator fetches full `_source` for the winning ids.
 6. **Return to client** — merged, ranked results returned. Buffered and
    tombstoned docs never appear.
-
-### Relevance — BM25 (KEEP THIS ACCURATE)
-Scoring is Lucene's `BM25Similarity`, with Lucene's constants:
-
-```
-score(D, t) = idf(t) · ( tf · (k1 + 1) ) / ( tf + k1 · (1 - b + b · |D|/avgdl) )
-idf(t)      = ln( 1 + (N - n + 0.5) / (n + 0.5) )        k1 = 1.2   b = 0.75
-```
-
-Three factors that pull against each other, and all three must stay visible:
-1. **tf saturates.** k1 caps what repetition buys — the tenth occurrence of a
-   term is worth far less than the second. A model that scored raw occurrences
-   would rank a keyword-stuffed document top, and that is exactly what the old
-   term-frequency stand-in did.
-2. **idf** measures rarity against a COLLECTION. A term in every document
-   discriminates nothing and must score near zero.
-3. **The length norm** damps long documents, so a hit in a short field is
-   stronger evidence than the same hit buried in a long one.
-
-**The distributed part is the lesson.** There are two honest answers to "which
-collection?", and the app must model both:
-- **`query_then_fetch`** — each shard scores with its OWN `docCount` and
-  `docFreq`. A document therefore ranks differently depending on which shard it
-  routed to, and a shard holding fewer documents inflates idf for everything on
-  it. Scores from different shards are **not strictly comparable**, and the
-  coordinator sorts them together anyway. Say so.
-- **`dfs_query_then_fetch`** — the pre-query round above collects and sums every
-  shard's statistics first, so all shards score against the same numbers. Costs
-  a round trip; changes the ranking.
-
-Both must be reachable from the UI, and the difference must be **demonstrated,
-not asserted** — on the sample documents, searching `search`, per-shard statistics
-rank doc-3 first (it sits on a 4-document shard) while global statistics rank
-doc-2 first and drop doc-3 to fifth. `npm run check` asserts exactly that.
-
-A shard returns its local top-k, not everything it scored — so a document can be
-ranked out before the coordinator ever sees it.
-
-### Fuzzy queries (edit distance — KEEP THIS ACCURATE)
-`serch~`, `serch~1`, `serch~2`. A fuzzy is the same shape of problem as a
-wildcard, and must be modeled with the same machinery rather than a special case:
-1. **The distance is Damerau-Levenshtein**, transpositions counted as one edit
-   (Lucene's `transpositions: true` default), capped at **2**
-   (`LevenshteinAutomata.MAXIMUM_SUPPORTED_DISTANCE`).
-2. **A bare `~` means `Fuzziness.AUTO`** with Elasticsearch's `AUTO:3,6`
-   defaults — 0 edits below 3 characters, 1 up to 5, 2 beyond.
-3. **`prefix_length` is the cost story, and it is the SAME cost story as the
-   leading wildcard.** At 0 the automaton may spend an edit on the very first
-   character, so no arc can be pruned and every term is read — priced exactly
-   like `*search`, and for the same structural reason. Pin characters and the
-   seek comes back. Both numbers must be derived by running the two automata.
-4. **Fuzzy matches spelling, not meaning.** `store~1` expands to `score`, `store`
-   and `stores`. This is not a defect to hide — it is the honest cost, and the
-   app should show it.
-5. The expansion is a boolean OR over the matched terms, scored by BM25 like any
-   other terms.
 
 ### Wildcard queries (term-dictionary cost)
 A segment's term dictionary is SORTED, which is the whole reason wildcards differ
@@ -309,7 +248,7 @@ future view that draws the term list must not imply otherwise.
 ## UI layout
 - Left: document input + presets + Index; lifecycle buttons (Refresh / Flush /
   Merge / Reset); the sample-data loaders; search box + example queries + the
-  optional routing key + the fuzzy prefix_length + the search type; and a "Delete a document" button that opens the document
+  optional routing key; and a "Delete a document" button that opens the document
   list (each doc's routed shard and a delete/tombstone toggle) as a scrollable
   overlay — it lives behind a button so a dozen sample docs can't crowd out the
   controls above it.
@@ -354,18 +293,8 @@ Documented so reviewers can verify the teaching stays honest:
   actually saved rather than claiming a payoff it didn't get.
 - Primary + replica are modeled as one logical shard rendered on two nodes (no
   replica lag; replica merges shown in lockstep with the primary).
-- **Relevance** is real BM25 with Lucene's constants, but over ONE combined text
-  field (title + body together) rather than per-field norms, and using the exact
-  field length where Lucene quantizes the norm into a single byte — so real
-  scores step in coarser increments than these. The scoring close-up says so.
-- **Fuzzy expansion is not blended.** Elasticsearch's default rewrite blends the
-  document frequencies of the expanded terms and boosts by edit distance; here
-  each matched term is scored on its own frequencies, so a close match and a
-  distant one are weighted alike.
+- Relevance score is term-frequency, a stand-in for BM25.
 - Replica selection during scatter is deterministic, not adaptive replica
   selection.
-- `dfs_query_then_fetch` is modeled as one summed set of statistics rather than
-  a real two-round protocol with per-shard `DfsSearchResult` objects; what it
-  changes about the SCORES is exact.
 - Coordinator fixed to node-1; single index with 3 shards / 1 replica; no
   shard/replica/merge tuning exposed.

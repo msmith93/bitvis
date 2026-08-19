@@ -1,9 +1,7 @@
 import * as shardLocal from './stages/shardLocal'
 import * as coordMerge from './stages/coordMerge'
 import * as dictionary from './stages/dictionary'
-import * as scoring from './stages/scoring'
 import { segmentInvertedIndex } from '../invertedIndex'
-import { atStep } from '../ops/search'
 import { matchesAny } from '../wildcard'
 
 // The close-up registry: which zoom is available WHERE (which op/step, which
@@ -16,27 +14,26 @@ import { matchesAny } from '../wildcard'
 //   { kind: 'shard', shard }                        — a serving shard's local search
 //   { kind: 'coordinator' }                         — the coordinator's merge & fetch
 //   { kind: 'dictionary', shard, seg, term }        — that segment's .tip + .tim
-//   { kind: 'scoring', shard, docId }               — that doc's BM25 arithmetic
 //
-// The last two are opened from inside the shard close-up, so they are always
-// nested and inherit their validity from the stack root. Only root kinds appear
-// in the predicates below. The dictionary zoom serves both a plain term and a
-// pattern — same picture, the query decides how the walk behaves.
+// The last is the ON-DISK zoom: it is opened from inside the shard close-up, so
+// it is always nested and inherits its validity from the stack root. Only root
+// kinds appear in the predicates below. It serves both a plain term and a
+// wildcard — same picture, the query decides how the walk behaves.
 
-// Which search step each zoom belongs to, BY NAME — a dfs_query_then_fetch
-// search has a pre-query step in front, so every index after it shifts.
-const SEARCH_LOCAL_STEP = 'local'
-const SEARCH_GATHER_STEPS = ['gather', 'fetch']
+const SEARCH_LOCAL_STEP = 2 // ops/search.js STEPS: 'local'
+const SEARCH_GATHER_STEPS = [3, 4] // 'gather' + 'fetch'
 
 // The zoom offered on a shard card for the current op/step, or null.
 export function shardCloseUp(op, shardId, search) {
-  if (!atStep(op, SEARCH_LOCAL_STEP)) return null
+  if (op?.type !== 'search' || op.step !== SEARCH_LOCAL_STEP) return null
   return search?.serving?.[shardId] ? 'shard' : null
 }
 
 // The zoom offered on the coordinator's node column.
 export function coordCloseUp(op) {
-  return SEARCH_GATHER_STEPS.some((k) => atStep(op, k)) ? 'coordinator' : null
+  return op?.type === 'search' && SEARCH_GATHER_STEPS.includes(op.step)
+    ? 'coordinator'
+    : null
 }
 
 // Auto-close: is this open close-up still valid for the current op/step? Only
@@ -58,12 +55,10 @@ export function closeUpAnchor(cu, search) {
       return search?.serving?.[cu.shard]?.role === 'replica'
         ? `[data-replica-target="${cu.shard}"]`
         : `[data-shard-target="${cu.shard}"]`
-    // The nested zooms spring out of the element that opened them, inside the
-    // shard panel that is already on screen.
+    // The on-disk zooms spring out of the column head that opened them, inside
+    // the shard panel that is already on screen.
     case 'dictionary':
       return `[data-anat-dict="${cu.seg}"]`
-    case 'scoring':
-      return `[data-score-chip="${cu.docId}"]`
     default:
       return null
   }
@@ -84,19 +79,6 @@ export function buildCloseUp(cu, { op, derived, search }) {
     }
     case 'coordinator':
       return coordMerge.build({ search, docs: derived.docs, query, anchor })
-
-    // ---- the relevance zoom, keyed on one scored doc of one shard ----
-    case 'scoring': {
-      const shard = derived.shards.find((s) => s.id === cu.shard)
-      if (!shard || !derived.docs[cu.docId] || !search.stats) return null
-      return scoring.build({
-        shard,
-        docId: cu.docId,
-        search,
-        docs: derived.docs,
-        anchor,
-      })
-    }
 
     // ---- the on-disk zoom, keyed on one segment of one shard ----
     case 'dictionary': {
