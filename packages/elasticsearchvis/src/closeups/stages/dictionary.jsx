@@ -250,7 +250,14 @@ function DictionaryStage({
   let lev = null
 
   if (mode === 'term') {
-    arcProps = { walk: walking ? trace.fst : null, revealed: shown }
+    arcProps = {
+      walk: walking ? trace.fst : null,
+      revealed: shown,
+      matches:
+        reading && trace.found && trace.block
+          ? matchNodesOf(index, new Map([[trace.block.fp, [trace.meta.term]]]))
+          : null,
+    }
     focusFp = walking ? trace.block?.fp ?? null : null
     expandedFp = reading ? trace.block?.fp ?? null : null
   } else {
@@ -280,6 +287,17 @@ function DictionaryStage({
     loadedFps = reading
       ? new Set(hits.visits.filter((v) => v.action === 'load').map((v) => v.fp))
       : null
+    // Only once the blocks have been read — before that the walk genuinely does
+    // not know which of them held anything.
+    if (reading) {
+      const byFp = new Map()
+      for (const v of hits.visits) {
+        if (v.action !== 'accept') continue
+        if (!byFp.has(v.fp)) byFp.set(v.fp, [])
+        byFp.get(v.fp).push(v.term)
+      }
+      arcProps = { ...arcProps, matches: matchNodesOf(index, byFp) }
+    }
   }
 
   const fstSide = (
@@ -401,6 +419,30 @@ function DictionaryStage({
 // ---------------------------------------------------------------------------
 // The two cursors, folded out of the trace
 // ---------------------------------------------------------------------------
+
+// Which FST states point at a block where a term actually matched, and which
+// terms those were.
+//
+// This is deliberately NOT "the node is the term". A state's bubble holds a .tim
+// ADDRESS: 34 states index 89 terms here, one leaf points at a block of seven,
+// and minimization merges states that two different prefixes reach — so a node
+// can never be labelled with a word without lying about the structure. What it
+// CAN honestly say is "the walk that came through here ended up paying off, and
+// this is what it found", which is the thing the picture was missing.
+function matchNodesOf(index, byFp) {
+  const out = new Map()
+  if (!byFp.size) return out
+  for (const st of index.fst.states) {
+    if (st.out == null) continue
+    const block = index.byFp[st.out]
+    // A floor-split block is pointed at by its parent's address, so the terms
+    // may live under any of its floors.
+    const fps = [st.out, ...(block?.floors?.map((f) => f.fp) ?? [])]
+    const terms = [...new Set(fps.flatMap((fp) => byFp.get(fp) ?? []))]
+    if (terms.length) out.set(st.id, terms)
+  }
+  return out
+}
 
 // Which FST states sit behind an arc that was pruned — the terms nobody read.
 function subtreeOf(fst, prunes) {

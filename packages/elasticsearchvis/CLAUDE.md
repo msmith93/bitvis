@@ -182,7 +182,10 @@ which lets the stepper scrub any operation forwards and backwards.
   previous visit's `dfaTo` is the wrong state and almost nothing lights up), and
   the arc walk only consumes block prefixes so it can never reach an accepting
   state — `termPath` finishes the word on step 4, which is the only view that
-  reaches the grid's right-hand column.
+  reaches the grid's right-hand column. `ArcGraph`'s `matches` prop marks the
+  states whose block held a matching term (halo + the word below the bubble, from
+  the read step on) — that is the only thing allowed to put a word near a node,
+  and `SPEC.md` explains why it hangs outside the bubble rather than in it.
 
 - **`SAMPLE_DOCS` is load-bearing for three scenarios at once**, and its job is
   partly to be *vocabulary* rather than prose. A fuzzy query can only prune when

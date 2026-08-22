@@ -225,6 +225,12 @@ export function SuffixBlock({ block, scan, revealed = Infinity }) {
 // .tip — the FST
 // ---------------------------------------------------------------------------
 
+// How far a matched-term label sits from its node, and roughly how wide one
+// character of it is — used both to place the label and to widen the canvas so a
+// label on the last column isn't clipped.
+const HIT_GAP = 23
+const HIT_CH = 6.4
+
 // Lay the FST out in columns by distance from the root, so the arc walk reads
 // left to right. Pure geometry over the model; no layout library.
 function fstLayout(fst) {
@@ -286,10 +292,23 @@ export function ArcGraph({
   dimmed,
   cursor: cursorState,
   focus: focusState,
+  matches,
   revealed = Infinity,
 }) {
   const { pos, width, height } = fstLayout(fst)
   const box = useRef(null)
+
+  // Matched words sit to the RIGHT of their node, not under it: rows are 46px
+  // apart and columns 108px, so below is the cramped direction and a label there
+  // collides with the next node down. The canvas has to grow to fit a label on
+  // the last column, or it gets clipped instead.
+  const hitLabel = (terms) =>
+    terms.length > 2 ? `${terms[0]} +${terms.length - 1}` : terms.join(', ')
+  let svgWidth = width
+  for (const [id, terms] of matches ?? []) {
+    const p = pos.get(id)
+    if (p) svgWidth = Math.max(svgWidth, p.x + HIT_GAP + hitLabel(terms).length * HIT_CH + 12)
+  }
   const walked = new Set()
   const walkedArcs = new Set()
   let cursor = fst.root
@@ -331,7 +350,7 @@ export function ArcGraph({
 
   return (
     <div className="cu-fst" ref={box} style={{ minHeight: Math.min(height, 300) }}>
-      <svg width={width} height={height} className="cu-fst-svg">
+      <svg width={svgWidth} height={height} className="cu-fst-svg">
         {fst.states.flatMap((s) =>
           s.arcs.map((a) => {
             const p1 = pos.get(s.id)
@@ -359,6 +378,7 @@ export function ArcGraph({
           const p = pos.get(s.id)
           if (!p) return null
           const hasOut = s.out != null
+          const hit = matches?.get(s.id)
           return (
             <g
               key={s.id}
@@ -368,13 +388,23 @@ export function ArcGraph({
                 (s.id === cursor && walk ? ' cursor' : '') +
                 (s.id === cursorState ? ' cursor' : '') +
                 (dimmed?.has(s.id) ? ' dim' : '') +
+                (hit ? ' matched' : '') +
                 (hasOut ? ' has-out' : '')
               }
             >
+              {hit && <circle cx={p.x} cy={p.y} r={23} className="cu-state-halo" />}
               <circle cx={p.x} cy={p.y} r={17} />
               {hasOut && (
                 <text x={p.x} y={p.y + 4} className="cu-state-out">
                   {hex(s.out)}
+                </text>
+              )}
+              {/* The terms the block behind this address turned out to hold —
+                  set BESIDE the bubble, never inside it, so it reads as "what
+                  was found here" rather than as the node's name. */}
+              {hit && (
+                <text x={p.x + HIT_GAP} y={p.y + 4} className="cu-state-hit">
+                  {hitLabel(hit)}
                 </text>
               )}
             </g>
@@ -404,6 +434,11 @@ export function ArcGraph({
         <span><i className="dot walked" /> the arrows this query followed · grey was never looked at</span>
         {pruned?.size > 0 && (
           <span><i className="dot pruned" /> rejected — everything behind it is skipped unread</span>
+        )}
+        {matches?.size > 0 && (
+          <span>
+            <i className="dot matched" /> its block held a match — the word under it is what was found
+          </span>
         )}
         <span className="cu-fst-size">
           {fst.fstStates} states

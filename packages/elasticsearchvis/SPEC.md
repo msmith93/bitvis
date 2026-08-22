@@ -216,7 +216,20 @@ and floor selection are shared, because to Lucene both are just an
    be pruned and every block loads. The cost difference is therefore STRUCTURAL,
    not a heuristic. Both numbers must be derived by running the two automata,
    never written into the copy.
-4. **Do not rebuild the DFA transition table.** It was rendered and removed: for
+4. **A node may be marked with what its BLOCK held, never with a term of its
+   own.** Nothing in the picture used to connect the walk to the answer, so a
+   state whose `.tim` block turned out to contain a matching term now gets a halo
+   and the matched word(s) hung BELOW the bubble. The distinction is not
+   cosmetic: a state's bubble is a block ADDRESS, 34 states index 89 terms here,
+   one leaf points at a block of seven, and minimization merges states that two
+   different prefixes reach — so labelling a node *as* a word would be false.
+   "The walk through here paid off, and this is what was found" is true. The
+   label only appears from the READ step onwards, because before the blocks are
+   fetched the walk genuinely does not know. It is set to the RIGHT of the
+   bubble, not under it: rows are 46px apart and columns 108px, so a label below
+   collides with the next node down, and `ArcGraph` widens its canvas to fit a
+   label that lands on the last column.
+5. **Do not rebuild the DFA transition table.** It was rendered and removed: for
    `sc*` it was 3 rows × 16 columns of mostly em-dashes, and because `maxCols`
    truncated at 14 while the segment had 19 distinct characters, `s` — the one
    transition that explains the pattern — fell off the end, leaving the start row

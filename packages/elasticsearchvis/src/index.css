@@ -3256,3 +3256,34 @@ table.ii td.term {
   color: var(--muted);
   opacity: 0.55;
 }
+
+/* A state whose .tim block turned out to hold a matching term. Deliberately a
+   halo plus a label BELOW the bubble rather than a caption inside it: the bubble
+   is the block address, and a node is never the word (one leaf here points at a
+   block of seven terms, and minimization merges states two prefixes reach). */
+.cu-state.matched circle {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  fill: rgba(0, 191, 179, 0.28);
+}
+.cu-state-halo {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1;
+  opacity: 0.45;
+  stroke-dasharray: 3 3;
+}
+.cu-state-hit {
+  fill: var(--accent-soft);
+  font-size: 10px;
+  font-weight: 700;
+  text-anchor: start;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  paint-order: stroke;
+  stroke: var(--panel);
+  stroke-width: 3px;
+}
+.cu-fst-legend .dot.matched {
+  border-color: var(--accent);
+  background: rgba(0, 191, 179, 0.35);
+}
