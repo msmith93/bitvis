@@ -24,6 +24,8 @@ import { CloseUp, buildCloseUp, closeUpAnchor, closeUpStillValid } from './close
 import DeleteDocOverlay from './components/DeleteDocOverlay'
 import Stepper from './components/Stepper'
 import CookieBanner from './components/CookieBanner'
+import HomeLink from './components/HomeLink'
+import MobileWarning from './components/MobileWarning'
 import Walkthrough from './components/Walkthrough'
 import ScenarioPicker from './components/ScenarioPicker'
 import DocLoader from './components/DocLoader'
@@ -86,6 +88,11 @@ export default function App() {
   // load click they scripted and advance rather than stalling. Cleared on Reset.
   const [sampleSet, setSampleSet] = useState(null) // 'sample' | 'routed' | null
 
+  // Whether the topbar Scenarios menu is open. Lives here (rather than only in
+  // ScenarioPicker) because the intro tour's last step waits on the real click
+  // that opens it.
+  const [scenariosOpen, setScenariosOpen] = useState(false)
+
   // Analytics (GA4) — banner is only shown to users in GDPR regions
   const [showCookieBanner, setShowCookieBanner] = useState(false)
 
@@ -110,6 +117,7 @@ export default function App() {
       closeUpKind: closeUps.at(-1)?.kind ?? null,
       closeUpDepth: closeUps.length,
       sampleSet,
+      scenariosOpen,
     },
     { pause, reset: resetCluster, setQuery, setRouting },
   )
@@ -356,6 +364,7 @@ export default function App() {
   return (
     <div className="app">
       <div className="topbar">
+        <HomeLink />
         <h1>Elasticsearch Cluster Visualizer</h1>
         <span className="sub">
           Routing & replication across a 3-node cluster, the write path, and
@@ -365,6 +374,7 @@ export default function App() {
           activeId={tour.id}
           running={tour.status === 'running'}
           onStart={tour.start}
+          onOpenChange={setScenariosOpen}
         />
       </div>
 
@@ -592,6 +602,9 @@ export default function App() {
 
       {/* ---------------- Overlay: guided scenario ---------------- */}
       <Walkthrough tour={tour} allowEscape={closeUps.length === 0} />
+
+      {/* ---------------- Overlay: "this is a desktop simulation" ---------------- */}
+      <MobileWarning />
     </div>
   )
 }

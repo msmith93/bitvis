@@ -51,6 +51,8 @@ import ondisk from './ondisk'
 //               'shard' | 'coordinator' | 'dictionary'
 //   closeUpDepth how many close-ups are stacked (0 = looking at the cluster)
 //   sampleSet   which dataset is loaded: 'sample' | 'routed' | null
+//   scenariosOpen the topbar Scenarios menu is open (the intro tour's last step
+//               advances on it, to leave the user looking at the menu)
 //
 // The actions a step may drive: pause, reset, setQuery, setRouting.
 export const SCENARIOS = [intro, wildcard, routing, ondisk]

@@ -5,9 +5,17 @@ import { SCENARIOS } from '../scenarios'
 // Top-right menu that starts (or restarts) a guided scenario. Picking the one
 // that is already running replays it from step 1 — that is the point of having
 // the menu at all, since the intro tour used to be a one-shot on first load.
-export default function ScenarioPicker({ activeId, running, onStart }) {
+//
+// `onOpenChange` reports the menu's open state up to App, which puts it in the
+// scenario snapshot: the intro tour's last step asks the user to open this menu
+// and advances on the real click, without asking them to pick anything.
+export default function ScenarioPicker({ activeId, running, onStart, onOpenChange }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
+
+  useEffect(() => {
+    onOpenChange?.(open)
+  }, [open, onOpenChange])
 
   useEffect(() => {
     if (!open) return

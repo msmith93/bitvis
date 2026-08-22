@@ -130,13 +130,25 @@ const STEPS = [
     body: [
       'You indexed a document, made it searchable with a refresh, loaded a fuller sample dataset, and ran a scatter-gather search to completion — and you can replay any operation from the footer.',
       'Remember the two 🔍 magnifiers: one on each serving shard during the local search, and one on the coordinator while it gathers and fetches — click either any time for the granular view. Try Flush, Merge, and deleting documents next.',
-      'There is more in the Scenarios menu, top right: why leading wildcard queries are expensive, and what a routing key actually does.',
+      'One last thing to show you: this tour is not the only lesson here.',
     ],
     // Belt-and-suspenders: never surface the end card until the search animation
     // has fully completed (and both inspectors are closed).
     waitFor: (s) =>
       s.zoomShard == null && !s.coordZoom && s.opType === 'search' && s.opDone,
-    cta: 'Done',
+    cta: 'Show me',
+  },
+  {
+    id: 'scenarios',
+    target: '[data-tour="scenarios"]',
+    placement: 'left',
+    title: 'More lessons live here',
+    body: 'Open the Scenarios menu to see the rest — why a leading wildcard is expensive, what a routing key really does, and what a term dictionary looks like on disk. Click it to take a look; you do not have to start one.',
+    // The tour ends the moment the menu opens: the point is that the user
+    // discovers the menu exists, not that they commit to a particular lesson.
+    // Anything they pick from the open menu starts that scenario as usual.
+    waitFor: (s) => s.closeUpDepth === 0,
+    advanceOn: (s) => s.scenariosOpen,
   },
 ]
 

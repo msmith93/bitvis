@@ -18,6 +18,8 @@ import { CloseUp, buildCloseUp, closeUpStillValid } from './closeups'
 import ScenarioBar from './components/ScenarioBar'
 import Stepper from './components/Stepper'
 import CookieBanner from './components/CookieBanner'
+import HomeLink from './components/HomeLink'
+import MobileWarning from './components/MobileWarning'
 import Walkthrough from './components/Walkthrough'
 import { useWalkthrough } from './useWalkthrough'
 import {
@@ -359,6 +361,7 @@ export default function App() {
   return (
     <div className="app">
       <div className="topbar">
+        <HomeLink />
         <h1>Cassandra Cluster Visualizer</h1>
         <span className="sub">
           The ring, tunable quorums, hinted handoff, and the LSM tree — a
@@ -568,6 +571,9 @@ export default function App() {
 
       {/* ---------------- Overlay: first-run guided tour ---------------- */}
       <Walkthrough tour={tour} allowEscape={closeUp == null} />
+
+      {/* ---------------- Overlay: "this is a desktop simulation" ---------------- */}
+      <MobileWarning />
     </div>
   )
 }

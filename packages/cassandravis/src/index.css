@@ -2626,3 +2626,114 @@ table.ii td.term {
 .cu-leaf.mismatch {
   border-color: var(--danger);
 }
+
+/* ================= mobile warning =================
+   Full-screen advisory shown on small touch screens (see
+   components/MobileWarning.jsx). Sits above every other overlay, including the
+   cookie banner at 10000, so it is the first thing a phone visitor reads. */
+.mobile-warning {
+  position: fixed;
+  inset: 0;
+  z-index: 11000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.82);
+  backdrop-filter: blur(3px);
+}
+.mobile-warning-card {
+  max-width: 420px;
+  width: 100%;
+  max-height: 100%;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 22px 20px;
+  text-align: center;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+}
+.mobile-warning-icon {
+  font-size: 30px;
+  line-height: 1;
+  margin-bottom: 10px;
+}
+.mobile-warning-card h2 {
+  margin: 0 0 10px;
+  font-size: 19px;
+  color: var(--text);
+}
+.mobile-warning-card p {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.mobile-warning-card .btn {
+  margin-top: 4px;
+  padding: 10px 18px;
+  font-size: 14px;
+}
+
+/* ================= home link (back to the bitvis landing page) =================
+   First item in the topbar (see components/HomeLink.jsx). The 2×2 dot mark is
+   the landing page's own, so the hub is recognisable from inside any
+   visualizer; the "all visualizations" label is what actually tells a visitor
+   the others exist, and it drops out on narrow windows where the topbar's own
+   subtitle is already being clipped. */
+.home-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  align-self: center;
+  padding: 5px 10px;
+  margin: -5px 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  text-decoration: none;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+.home-link:hover {
+  color: var(--text);
+  background: var(--panel-2);
+  border-color: var(--accent);
+}
+.home-mark {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 2px;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.home-mark span {
+  border-radius: 50%;
+}
+.home-mark span:nth-child(1),
+.home-mark span:nth-child(4) {
+  background: #326ce5;
+}
+.home-mark span:nth-child(2),
+.home-mark span:nth-child(3) {
+  background: #00bfb3;
+}
+.home-word {
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.2px;
+}
+.home-all::before {
+  content: '·';
+  margin-right: 6px;
+}
+@media (max-width: 1100px) {
+  .home-all {
+    display: none;
+  }
+}
