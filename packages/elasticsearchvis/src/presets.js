@@ -35,7 +35,7 @@ export const WILDCARD_QUERIES = ['sc*', 'search*', '*search']
 // Routing keys used by the routed sample set below (and its scenario).
 export const ROUTING_KEYS = ['tenant-a', 'tenant-b', 'tenant-c']
 
-// A larger curated set for the "Load sample docs" button. Routing (by doc id) puts
+// A larger curated set, the default entry in the "Load docs" menu. Routing (by doc id) puts
 // 4 of these on shard 0, with deliberately different counts of the word "search"
 // (4 / 3 / 2 / 1) so the close-up's scoring and top-k eviction are visible for the
 // default `search` query. Ids are assigned doc-1..doc-N in array order.
@@ -91,4 +91,34 @@ export const ROUTED_DOCS = [
   { routing: 'tenant-a', title: 'Order 1003 cancelled', body: 'order 1003 cancelled before the warehouse picked it.' },
   { routing: 'tenant-b', title: 'Order 2003 shipped', body: 'order 2003 shipped to the customer overnight.' },
   { routing: 'tenant-c', title: 'Order 3003 pending', body: 'order 3003 pending payment from the customer.' },
+]
+
+// The datasets offered by the "Load docs" menu, in menu order. Adding one is a
+// single entry here — nothing in App.jsx or the menu component needs touching.
+//
+//   id        also the value of the walkthrough snapshot's `sampleSet`, so a
+//             scenario step advances with `(s) => s.sampleSet === '<id>'`
+//   colorBy   which stage colour each doc gets. The default set colours by doc
+//             so individual documents are followable; the routed set colours by
+//             TENANT instead, which is what makes "everything with this routing
+//             key lives on one shard" visible at a glance.
+export const DATASETS = [
+  {
+    id: 'sample',
+    label: 'Sample docs',
+    blurb: '14 documents about search, spread across all three shards by _id.',
+    docs: SAMPLE_DOCS,
+    tombstoned: 'doc-8',
+    colorBy: (d, i) => i,
+  },
+  {
+    id: 'routed',
+    label: 'Routed docs',
+    blurb: 'Nine orders for three tenants, each indexed with its tenant as the routing key.',
+    docs: ROUTED_DOCS,
+    colorBy: (d, i) => {
+      const tenant = ROUTING_KEYS.indexOf(d.routing)
+      return tenant === -1 ? i : tenant
+    },
+  },
 ]

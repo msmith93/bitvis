@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { blockRange, statePrefixes } from '../blocktree'
+import { blockRange } from '../blocktree'
 
 // Small pieces shared by the on-disk close-up stages. These render the models in
 // src/blocktree.js, src/postings.js and src/automaton.js, so anything that
@@ -256,20 +256,23 @@ function fstLayout(fst) {
 }
 
 // The term index as the automaton it is: states, labelled arcs, and the file
-// pointer that some states carry. `walk` is an fstSeek() result — its arcs are
+// pointer that some states carry.
+//
+// Drawn by the convention, not as a teaching diagram: characters live ONLY on
+// the arcs, and a state's bubble holds its output — the .tim address — or is
+// empty. A state is never labelled with the prefix that reaches it, because a
+// prefix is a property of the PATH and minimization can merge states two
+// different prefixes reach. We hang outputs on states rather than arcs (see
+// buildFst), which makes this a Moore machine, and Moore puts the output in the
+// bubble. Lucene's own Util.toDot does the same thing with node ADDRESSES.
+//
+// `walk` is an fstSeek() result — its arcs are
 // drawn as the live path, and a missing arc is drawn as the dead end it is.
-// `prunedArcs` / `followedArcs` come from an automaton intersection instead.
-export function ArcGraph({ fst, index, walk, followed, pruned, revealed = Infinity }) {
+// `followed` comes from an automaton intersection instead, and holds ONLY the
+// arcs the pattern accepted: a rejected arc is left at its resting grey rather
+// than drawn in red, so the picture shows the work done and not the work saved.
+export function ArcGraph({ fst, index, walk, followed, revealed = Infinity }) {
   const { pos, width, height } = fstLayout(fst)
-  // A state MEANS "the letters spelled so far" — label it that way. The raw ids
-  // are assigned by minimization's post-order renumbering, so the start state
-  // gets the highest one and a walk appears to run 9 → 7 → 6.
-  const prefixes = statePrefixes(fst)
-  const label = (id) => {
-    const p = prefixes[id]
-    if (p == null) return String(id) // shared by several prefixes: no honest label
-    return p === '' ? 'start' : p
-  }
   const walked = new Set()
   const walkedArcs = new Set()
   let cursor = fst.root
@@ -293,13 +296,7 @@ export function ArcGraph({ fst, index, walk, followed, pruned, revealed = Infini
             const p2 = pos.get(a.to)
             if (!p1 || !p2) return null
             const key = `${s.id}:${a.label}`
-            const cls = walkedArcs.has(key)
-              ? 'walked'
-              : followed?.has(key)
-              ? 'followed'
-              : pruned?.has(key)
-              ? 'pruned'
-              : ''
+            const cls = walkedArcs.has(key) ? 'walked' : followed?.has(key) ? 'followed' : ''
             return (
               <g key={key} className={'cu-arc ' + cls}>
                 <line x1={p1.x + 15} y1={p1.y} x2={p2.x - 15} y2={p2.y} />
@@ -325,11 +322,8 @@ export function ArcGraph({ fst, index, walk, followed, pruned, revealed = Infini
               }
             >
               <circle cx={p.x} cy={p.y} r={17} />
-              <text x={p.x} y={p.y + 4} className="cu-state-id">
-                {label(s.id)}
-              </text>
               {hasOut && (
-                <text x={p.x} y={p.y + 30} className="cu-state-out">
+                <text x={p.x} y={p.y + 4} className="cu-state-out">
                   {hex(s.out)}
                 </text>
               )}
@@ -353,11 +347,11 @@ export function ArcGraph({ fst, index, walk, followed, pruned, revealed = Infini
       </svg>
       <div className="cu-fst-legend">
         <span className="cu-fst-key">
-          a circle is <b>the letters spelled so far</b> · an arrow <b>consumes one
-          character</b> · an address under a circle means <b>“a block lives here”</b>
+          an arrow <b>consumes one character</b> · a circle is <b>a node</b>, and an
+          address inside one means <b>“a block lives here”</b>
         </span>
         <span><i className="dot has-out" /> carries a .tim block pointer</span>
-        <span><i className="dot walked" /> the path this seek took</span>
+        <span><i className="dot walked" /> the arrows this query followed · grey was never looked at</span>
         <span className="cu-fst-size">
           {fst.fstStates} states
           {fst.trieStates > fst.fstStates

@@ -64,7 +64,7 @@ const STEPS = [
 
 const TERM_BLURBS = {
   walk:
-    'Follow one arrow per letter. A circle is the letters spelled so far. Whenever a circle carries an address, remember it — that is the last block that could still contain the term. All of this happens in memory.',
+    'Follow one arrow per letter — the arrows are the term, one character each. Whenever the node you land on carries an address, remember it: that is the last block that could still contain the term. All of this happens in memory.',
   read:
     'The arrows ran out, so the address you were carrying is the answer: the only block that can hold this term. It is read, and its rows are scanned in order. Every other block on the right is untouched.',
   found:
@@ -73,7 +73,7 @@ const TERM_BLURBS = {
 
 const PATTERN_BLURBS = {
   walk:
-    'A pattern can match many terms, so instead of spelling one out, the query is turned into a little machine that says which characters are still acceptable. Run it along the arrows: an arrow it accepts is FOLLOWED, an arrow it rejects is PRUNED — and everything behind a pruned arrow is skipped without being read.',
+    'A pattern can match many terms, so instead of spelling one out, the query is turned into a little machine that says which characters are still acceptable. Only the arrows it accepts light up — and that is the whole walk. Every grey arrow was rejected on sight, and everything behind it is skipped without ever being looked at.',
   read:
     'Only the blocks the walk actually reached are read. Everything greyed out on the right was eliminated by the walk above — not by a shortcut or a guess, but because the pattern provably cannot match anything inside it.',
   found:
@@ -99,10 +99,13 @@ export function build({ shard, segId, rows, term, patterns, anchor }) {
   // asserted: the same dictionary, the other kind of pattern.
   const contrast = pattern ? buildContrast(index, alphabet, pattern) : null
 
+  // Only FOLLOWED arcs are animated. Drawing the prunes too spent most of the
+  // step performing work the pattern let the index skip, which is the opposite
+  // of the lesson; the counts still get stated in the cost line below.
   const units =
     mode === 'term'
       ? Math.max(1, trace.fst.arcs.length)
-      : Math.max(1, hits.visits.filter((v) => v.action === 'follow' || v.action === 'prune').length)
+      : Math.max(1, hits.visits.filter((v) => v.action === 'follow').length)
   const rowCount = Math.max(1, trace?.inBlock?.rows.length ?? 1)
   const tick = mode === 'term' ? FST_ARC_MS : AUTOMATON_STEP_MS
 
@@ -112,7 +115,9 @@ export function build({ shard, segId, rows, term, patterns, anchor }) {
   }))
   const at = Object.fromEntries(steps.map((s, i) => [s.key, i]))
   const dwell = (i) => {
-    if (i === at.walk) return Math.min(units, 40) * tick + 900
+    // Floored: a follows-only pattern walk can be three arcs long, which would
+    // otherwise hurry the step past its own blurb.
+    if (i === at.walk) return Math.max(CU_DWELL_MS, Math.min(units, 40) * tick + 900)
     if (i === at.read && mode === 'term') return rowCount * BLOCK_READ_MS + 900
     return CU_DWELL_MS
   }
@@ -162,11 +167,9 @@ function DictionaryStage({
   tick,
 }) {
   // Verdicts are what the pattern walk reveals; arcs are what the term walk
-  // reveals. One counter either way.
-  const verdicts =
-    mode === 'pattern'
-      ? hits.visits.filter((v) => v.action === 'follow' || v.action === 'prune')
-      : []
+  // reveals. One counter either way. Prunes are deliberately not among them —
+  // the picture shows only the arrows the pattern allowed.
+  const verdicts = mode === 'pattern' ? hits.visits.filter((v) => v.action === 'follow') : []
   const total = mode === 'term' ? trace.fst.arcs.length : verdicts.length
   const walked = useReveal(step === at.walk && active, total, tick)
   const rows = useReveal(
@@ -191,12 +194,11 @@ function DictionaryStage({
     expandedFp = reading ? trace.block?.fp ?? null : null
   } else {
     const followed = new Set()
-    const pruned = new Set()
     for (const v of verdicts.slice(0, shown)) {
       const from = stateFor(index.fst, v.prefix)
-      if (from != null) (v.action === 'follow' ? followed : pruned).add(`${from}:${v.label}`)
+      if (from != null) followed.add(`${from}:${v.label}`)
     }
-    arcProps = walking ? { followed, pruned } : {}
+    arcProps = walking ? { followed } : {}
     loadedFps = reading
       ? new Set(hits.visits.filter((v) => v.action === 'load').map((v) => v.fp))
       : null
@@ -324,9 +326,16 @@ function StepNote({ step, at, mode, index, trace, hits, dfa, pattern, contrast, 
     ) : (
       <CostLine tone={hits.prunesNothing ? 'warn' : 'good'}>
         {hits.prunedArcs} arc{hits.prunedArcs === 1 ? '' : 's'} pruned
-        {hits.prunesNothing
-          ? ' — nothing was eliminated, so every block below is still in play.'
-          : `, and every term behind them is skipped unread.`}{' '}
+        {hits.prunesNothing ? (
+          ' — nothing was eliminated, so every block below is still in play.'
+        ) : (
+          <>
+            {' '}
+            — the grey ones. Nothing walked them, and the{' '}
+            <b>{hits.termsPruned}</b> term{hits.termsPruned === 1 ? '' : 's'} behind
+            them are skipped unread.
+          </>
+        )}{' '}
         Still nothing read from disk.
       </CostLine>
     )
@@ -475,10 +484,9 @@ function PatternWalk({ dfa, pattern, verdicts }) {
       </div>
       <div className="cu-verdicts">
         {verdicts.map((v, i) => (
-          <span key={i} className={'cu-verdict ' + v.action}>
-            {v.action === 'prune' ? '✗' : '✓'} “{v.prefix}
+          <span key={i} className="cu-verdict follow">
+            ✓ “{v.prefix}
             {v.label}”
-            {v.action === 'prune' && <em>−{v.termsSkipped} terms</em>}
           </span>
         ))}
       </div>

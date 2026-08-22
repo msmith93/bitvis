@@ -25,7 +25,7 @@ const STEPS = [
     target: '[data-tour="index-doc"]',
     placement: 'right',
     title: 'Index your first document',
-    body: 'Everything starts with a document. Click “＋ Index a document” to open the editor.',
+    body: 'Everything starts with a document. Click to open the editor.',
     advanceOn: (s) => s.indexPhase === 'editing',
   },
   {
@@ -42,18 +42,23 @@ const STEPS = [
     target: '[data-tour="refresh"]',
     placement: 'right',
     title: 'Not searchable… yet',
-    body: 'Your document landed in the shard’s in-memory buffer, which searches never see. Elasticsearch is near-real-time: click “Refresh” to build an immutable segment and make the doc searchable.',
+    body: 'Your document landed in the shard’s in-memory buffer, which searches never see. Elasticsearch is near-real-time: click “Refresh” to build an immutable segment and make the doc searchable. ' +
+            'Normally this operation would run automatically every ~1s on the cluster.',
     waitFor: (s) => s.indexPhase === 'done' && !s.playing,
     advanceOn: (s) => s.opType === 'refresh',
   },
   {
     id: 'load-sample',
-    target: '[data-tour="load-sample"]',
+    target: '[data-tour="load-docs"]',
+    targetExtra: '[data-tour="load-docs-menu"]',
+    dataset: 'sample',
     placement: 'right',
     title: 'Load a richer dataset',
-    body: 'A single document makes for a lonely search. Click “Load sample docs” to seed a realistic cluster — about a dozen documents routed and replicated across all three shards — so the search you run next has something interesting to rank.',
+    body: 'A single document makes for a lonely search. Open “Load docs” and pick “Sample docs” to seed a realistic cluster — about a dozen documents routed and replicated across all three shards — so the search you run next has something interesting to rank.',
     waitFor: (s) => s.opType === 'refresh' && s.opDone && !s.playing,
-    // Either dataset satisfies "now there is something to search".
+    // `dataset` above is what the menu offers here, but either set satisfies
+    // "now there is something to search" — so a load that happened earlier,
+    // before this step was showing, still advances it rather than stranding it.
     advanceOn: (s) => s.sampleSet != null,
   },
   {

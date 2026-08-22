@@ -9,11 +9,16 @@ import ondisk from './ondisk'
 // selected; the topbar's ScenarioPicker switches (or restarts) them.
 //
 // A step is:
-//   { id, target?, placement?, title, body, cta?, secondary?, highlightPlay?,
-//     waitFor?(snapshot), advanceOn?(snapshot), onShow?(snapshot, actions) }
+//   { id, target?, targetExtra?, placement?, title, body, cta?, secondary?,
+//     highlightPlay?, dataset?, waitFor?(snapshot), advanceOn?(snapshot),
+//     onShow?(snapshot, actions) }
 //
 //   target        CSS selector of the real control to spotlight; null renders a
 //                 centered card instead (welcome / finish).
+//   targetExtra   CSS selector of a second element the spotlight hole must also
+//                 cover when it is present. For controls that OPEN something —
+//                 the Load docs menu — since the dim layer swallows clicks
+//                 outside the hole and the menu would otherwise be unclickable.
 //   waitFor       gates VISIBILITY only. While false the step is entered but
 //                 renders nothing — that is how a scenario waits out an
 //                 animation, or stays out of the way of an open close-up.
@@ -25,6 +30,11 @@ import ondisk from './ondisk'
 //                 does the thing the step is asking for.
 //   highlightPlay pulses the footer ▶ Play button while this step is showing
 //                 (App reads it); pair it with target '[data-tour="stepper-play"]'.
+//   dataset       a DATASETS id this step wants loaded. While the step is
+//                 showing, the Load docs menu pulses that entry and disables
+//                 every other one, so a scripted load cannot pick the wrong set.
+//                 The spotlight can't do this itself — its hole is a single
+//                 rectangle and can't exclude an item in the middle of a menu.
 //
 // The snapshot both predicates read (built fresh by App on every render):
 //   indexPhase  'closed' | 'editing' | 'flying' | 'done'

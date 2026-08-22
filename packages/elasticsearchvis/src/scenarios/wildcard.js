@@ -20,10 +20,12 @@ const STEPS = [
   },
   {
     id: 'load',
-    target: '[data-tour="load-sample"]',
+    target: '[data-tour="load-docs"]',
+    targetExtra: '[data-tour="load-docs-menu"]',
+    dataset: 'sample',
     placement: 'right',
     title: 'Start with some data',
-    body: 'Click “Load sample docs” to fill the cluster with searchable segments — we need a term dictionary with something in it.',
+    body: 'Open “Load docs” and pick “Sample docs” to fill the cluster with searchable segments — we need a term dictionary with something in it.',
     advanceOn: (s) => s.sampleSet === 'sample',
   },
   {
@@ -110,7 +112,7 @@ const STEPS = [
     body: [
       'A prefix like “sc*” costs a seek plus the matching range. A leading wildcard costs the ENTIRE term dictionary — and that price is paid per segment, per shard, on every node the query touches. The line under “What’s happening” totals it up for the query you just ran.',
       'It is also why the usual fix is to index the data differently rather than query harder: a reverse field, an ngram/wildcard field, or a prefix you can actually seek to.',
-      'This view models the seek as a binary search over a flat sorted array. Real Lucene walks an FST + block-tree, and it compiles the pattern into an automaton rather than testing a regex — both of which you can watch one zoom deeper, via the 🔍 on the “term dictionary” column head (or the “What an inverted index really looks like” scenario).',
+      'This view models the seek as a binary search over a flat sorted array. Real Lucene walks an FST + block-tree, and it compiles the pattern into an automaton rather than testing a regex — both of which you can watch one zoom deeper, via the 🔍 on the “term dictionary” column head (or the “Inside a segment’s term dictionary” scenario).',
     ],
     waitFor: (s) => s.zoomShard == null && !s.coordZoom,
     cta: 'Done',

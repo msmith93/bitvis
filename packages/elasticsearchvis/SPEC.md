@@ -203,11 +203,22 @@ working. These are requirements, not polish:
   on-screen ratio (~2×) badly understates Lucene's ~30× at 25–48 terms per block.
   Show the derived counts, name the real block size, and say the demo understates
   it. Never quote the toy ratio as the saving.
-- **Label FST states with the prefix that reaches them**, not their id.
-  Minimization renumbers by post-order DFS, so the start state gets the HIGHEST
-  id and a raw-id walk appears to run 9 → 7 → 6. Use `statePrefixes()`, which
-  returns null for any state several prefixes reach so the label can fall back
-  honestly.
+- **Draw the FST by the convention: characters on the ARCS, the output inside
+  the state's bubble, and no other label on a state.** Never a raw id —
+  minimization renumbers by post-order DFS, so the start state gets the HIGHEST
+  id and an id walk appears to run 9 → 7 → 6. And never the prefix that reaches
+  the state either: a prefix is a property of the PATH, not the state, and
+  minimization can merge states that two different prefixes reach, so there is
+  no honest label to give. (An earlier build labelled states with their prefix
+  to dodge the id problem; it dodged it by asserting something untrue.) Showing
+  the output instead is what the model already implies — we hang outputs on
+  STATES rather than arcs, which makes this a Moore machine, and the Moore
+  convention is that the output goes in the bubble. Lucene's own `Util.toDot`
+  agrees closely enough to settle it: nodes get their binary offset (an
+  ADDRESS), or no label at all when `labelStates` is off. A state that carries
+  nothing is drawn as an empty circle, which is the honest majority case.
+  The prefix is not lost — `SpellOut` prints `at “sc”` per row and `PatternWalk`
+  prints its `✓ “sc”` chips, both directly under the graph.
 - **Keep the four-hop chain on screen.** `.tip` (which block) → `.tim` (which
   term) → `.doc` (which documents) → `.fdt` (the text). Collapsing the first and
   last hop — reading `.tip` as "points at the document" — is the natural mistake

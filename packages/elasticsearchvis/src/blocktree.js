@@ -181,39 +181,6 @@ export function blockRange(index, block) {
 // .tip — the FST over block prefixes
 // ---------------------------------------------------------------------------
 
-// The prefix that reaches each FST state — which is what a state MEANS: "the
-// letters spelled so far". Rendering states as their prefix instead of an
-// arbitrary id is the difference between a legible walk and nonsense (after
-// minimization renumbers by post-order DFS, the start state comes out with the
-// HIGHEST id, so a seek appears to run 9 → 7 → 6).
-//
-// Minimization can in principle merge states that more than one prefix reaches;
-// such a state has no single honest label, so it gets null and the caller falls
-// back to the id.
-export function statePrefixes(fst) {
-  const seen = new Map() // state id -> the prefix that first reached it
-  const ambiguous = new Set()
-  const queue = [[fst.root, '']]
-  seen.set(fst.root, '')
-
-  while (queue.length) {
-    const [id, prefix] = queue.shift()
-    for (const arc of fst.states[id].arcs) {
-      const next = prefix + arc.label
-      if (!seen.has(arc.to)) {
-        seen.set(arc.to, next)
-        queue.push([arc.to, next])
-      } else if (seen.get(arc.to) !== next) {
-        ambiguous.add(arc.to)
-      }
-    }
-  }
-
-  return Object.fromEntries(
-    fst.states.map((s) => [s.id, ambiguous.has(s.id) ? null : seen.get(s.id) ?? null]),
-  )
-}
-
 // A trie over every block's prefix, carrying that block's file pointer as the
 // output of the state the prefix ends on, then MINIMIZED so states with
 // identical continuations are shared.
@@ -338,10 +305,13 @@ export function fstSeek(index, term) {
       missAt = i
       break
     }
+    // `from` is the state this arc LEAVES, which is what the diagram keys walked
+    // arcs by — so it has to be read before `state` advances.
+    const from = state
     state = arc.to
     const out = states[state].out
     if (out != null) blockFp = out
-    arcs.push({ label, from: state === root ? root : arc.to, to: arc.to, out: out ?? null })
+    arcs.push({ label, from, to: arc.to, out: out ?? null })
   }
 
   return { arcs, blockFp, missAt, endState: state }

@@ -1,4 +1,4 @@
-// "How is a term actually found on disk?"
+// "What is a term dictionary actually made of?"
 //
 // The deepest lesson in the app, and the one that pays off the flat sorted table
 // the other scenarios teach with. It drives the user down three zoom levels —
@@ -13,20 +13,22 @@ const STEPS = [
   {
     id: 'welcome',
     target: null,
-    title: 'How do you search a dictionary you can’t fit in memory?',
+    title: 'What is a term dictionary actually made of?',
     body: [
-      'A single shard can hold millions of distinct terms. Loading all of them just to find one would defeat the point — so the term dictionary stays on disk, in blocks.',
-      'What Lucene keeps in memory instead is a small graph called an FST, and its only job is to tell you which single block to read. That structure is what makes a text field searchable at all, and you are about to watch one work.',
+      'Every other view in this app draws a segment’s dictionary as a flat sorted table. That is a useful lie. Underneath, it is two structures in two different files, and only one of them is ever in memory.',
+      'The terms themselves live on disk in .tim, packed into blocks. What indexes them is a small graph called an FST in .tip, and its only job is to tell you which single block to read. You are about to take one apart.',
     ],
     cta: 'Take me down',
     secondary: 'Skip for now',
   },
   {
     id: 'load',
-    target: '[data-tour="load-sample"]',
+    target: '[data-tour="load-docs"]',
+    targetExtra: '[data-tour="load-docs-menu"]',
+    dataset: 'sample',
     placement: 'right',
     title: 'Load some documents',
-    body: 'Click “Load sample docs”. We need a real dictionary with real terms in it — everything from here on is derived from these documents, not mocked up.',
+    body: 'Open “Load docs” and pick “Sample docs”. We need a real dictionary with real terms in it — everything from here on is derived from these documents, not mocked up.',
     advanceOn: (s) => s.sampleSet === 'sample',
   },
   {
@@ -84,7 +86,7 @@ const STEPS = [
   {
     id: 'finish',
     target: null,
-    title: 'A small graph over a dictionary you never load',
+    title: 'Two structures, two files, one block read',
     // Waits for the whole stack to be closed, so the closing card never lands on
     // top of a panel the user is still reading.
     body: [
@@ -98,8 +100,8 @@ const STEPS = [
 
 export default {
   id: 'ondisk',
-  label: 'How a term is found without loading the dictionary',
-  blurb: 'The FST: a small graph in memory that indexes a term dictionary too big to hold.',
+  label: 'Inside a segment’s term dictionary',
+  blurb: 'Three zooms down to what an inverted index really is: an FST in .tip that picks one block of terms out of .tim.',
   steps: STEPS,
   setup: (actions) => actions.reset(),
 }

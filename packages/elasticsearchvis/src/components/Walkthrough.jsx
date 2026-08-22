@@ -20,6 +20,20 @@ function moved(a, b) {
   )
 }
 
+// Smallest rect covering both, so one hole can expose a trigger and the menu it
+// opened. Either side may be null (nothing to cover, or not mounted).
+function union(a, b) {
+  if (!a || !b) return a || b
+  const left = Math.min(a.left, b.left)
+  const top = Math.min(a.top, b.top)
+  return {
+    left,
+    top,
+    width: Math.max(a.left + a.width, b.left + b.width) - left,
+    height: Math.max(a.top + a.height, b.top + b.height) - top,
+  }
+}
+
 // Track a target's viewport rect with a rAF loop while a spotlight step is
 // visible. This transparently follows window resizes, framer-motion springs
 // settling, and targets that mount late — a null rect means "not there yet",
@@ -86,7 +100,14 @@ export default function Walkthrough({ tour, allowEscape = true }) {
   const { status, step, visible, stepIndex, stepCount, next, skip, finish } = tour
   const running = status === 'running'
   const spotlight = running && visible && step?.target ? step : null
-  const rect = useTargetRect(spotlight?.target, !!spotlight)
+  const targetRect = useTargetRect(spotlight?.target, !!spotlight)
+  // A step whose control opens a menu names the menu as `targetExtra`. The dim
+  // panels swallow every click outside the hole, so the hole has to grow to
+  // cover the menu while it is open — otherwise the step spotlights a trigger
+  // whose options can't be clicked. Absent (menu closed) it is simply null and
+  // the hole is the trigger alone.
+  const extraRect = useTargetRect(spotlight?.targetExtra, !!spotlight)
+  const rect = union(targetRect, extraRect)
 
   // Escape ends the tour — except while the shard inspector is open (the
   // inspector owns the key there; App passes allowEscape accordingly).

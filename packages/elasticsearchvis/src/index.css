@@ -1292,6 +1292,7 @@ table.ii td.term {
   gap: 6px 12px;
   align-items: start;
   align-content: start;
+  padding-left: 5px;
 }
 .ci-col-head {
   display: flex;
@@ -1771,6 +1772,91 @@ table.ii td.term {
   line-height: 1.4;
 }
 
+/* ---------------- Load docs menu ---------------- */
+/* Absolutely positioned so opening it never shifts the controls below it in the
+   Documents column — the same reason nothing in that column is ever unmounted. */
+.doc-loader {
+  position: relative;
+  margin-top: 8px;
+  z-index: 40;
+}
+.doc-loader-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.doc-loader-trigger .caret {
+  color: var(--muted);
+}
+.doc-loader-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.doc-loader-item {
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.doc-loader-item:hover {
+  background: var(--panel-2);
+}
+.doc-loader-item.active {
+  outline: 1px solid var(--accent);
+}
+/* While a scenario is asking for one dataset: pulse that one, and put the rest
+   beyond reach so the script cannot be derailed by picking the other. */
+.doc-loader-item.wanted {
+  outline: 1px solid var(--accent);
+  animation: tour-pulse 1.4s ease-out infinite;
+}
+.doc-loader-item:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.doc-loader-item:disabled:hover {
+  background: none;
+}
+.doc-loader-item-label {
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.doc-loader-loaded {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--good);
+  border: 1px solid rgba(84, 179, 153, 0.4);
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+.doc-loader-item-blurb {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
 /* ---------------- Routing controls ---------------- */
 .routing-row {
   display: flex;
@@ -2162,15 +2248,8 @@ table.ii td.term {
   fill: var(--good);
   font-weight: 700;
 }
-.cu-arc.pruned line {
-  stroke: var(--danger);
-  stroke-dasharray: 3 3;
-  opacity: 0.75;
-}
-.cu-arc.pruned text {
-  fill: var(--danger);
-  opacity: 0.85;
-}
+/* .cu-arc.dead is the TERM-mode "no arrow for this letter" marker — a different
+   thing from a pattern pruning an arc, which is now simply left undrawn. */
 .cu-arc.dead line {
   stroke: var(--danger);
   stroke-dasharray: 3 3;
@@ -2201,12 +2280,7 @@ table.ii td.term {
   stroke: var(--good);
   stroke-width: 3;
 }
-.cu-state-id {
-  fill: var(--text);
-  font-size: 11px;
-  text-anchor: middle;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
+/* The state's output, drawn INSIDE its bubble — states carry no other label. */
 .cu-state-out {
   fill: var(--accent);
   font-size: 9px;
@@ -2308,17 +2382,6 @@ table.ii td.term {
   color: var(--good);
   border-color: rgba(84, 179, 153, 0.45);
   background: rgba(84, 179, 153, 0.12);
-}
-.cu-verdict.prune {
-  color: var(--danger);
-  border-color: rgba(248, 107, 99, 0.45);
-  background: rgba(248, 107, 99, 0.1);
-}
-.cu-verdict em {
-  font-style: normal;
-  font-size: 9px;
-  margin-left: 5px;
-  opacity: 0.85;
 }
 .cu-term-test {
   font-size: 11px;

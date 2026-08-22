@@ -5,9 +5,7 @@ import {
   PRESETS,
   EXAMPLE_QUERIES,
   WILDCARD_QUERIES,
-  ROUTING_KEYS,
-  SAMPLE_DOCS,
-  ROUTED_DOCS,
+  DATASETS,
 } from './presets'
 import {
   docRoute,
@@ -28,6 +26,7 @@ import Stepper from './components/Stepper'
 import CookieBanner from './components/CookieBanner'
 import Walkthrough from './components/Walkthrough'
 import ScenarioPicker from './components/ScenarioPicker'
+import DocLoader from './components/DocLoader'
 import { useWalkthrough } from './useWalkthrough'
 import { selectorRect } from './components/tokenFlight'
 import {
@@ -289,7 +288,10 @@ export default function App() {
   // Deliberately does NOT end a running scenario: the intro scripts a load, and
   // its later steps only need `sampleSet` plus a search, so an off-script load
   // can't strand it either.
-  function loadDocs(source, { kind, tombstoned = null, colorBy }) {
+  function loadDataset(id) {
+    const set = DATASETS.find((d) => d.id === id)
+    if (!set) return
+    const { docs: source, tombstoned = null, colorBy } = set
     const c = initialCluster()
     const byShard = Object.fromEntries(SHARD_PLACEMENT.map((p) => [p.id, []]))
     source.forEach((d, i) => {
@@ -322,24 +324,10 @@ export default function App() {
     setIndexPhase('closed')
     setCloseUps([])
     setDocsOpen(false)
-    setSampleSet(kind)
+    setSampleSet(id)
     docNum.current = source.length + 1
     segNum.current = seg
   }
-
-  const loadSampleDocs = () =>
-    loadDocs(SAMPLE_DOCS, { kind: 'sample', tombstoned: 'doc-8', colorBy: (d, i) => i })
-
-  // The routed set is coloured by tenant instead of by doc, so "everything with
-  // this routing key lives on one shard" is visible at a glance on the stage.
-  const loadRoutedDocs = () =>
-    loadDocs(ROUTED_DOCS, {
-      kind: 'routed',
-      colorBy: (d, i) => {
-        const tenant = ROUTING_KEYS.indexOf(d.routing)
-        return tenant === -1 ? i : tenant
-      },
-    })
 
   // Clear the cluster back to empty. This is what a scenario's setup() calls, so
   // it must NOT end the scenario — the Reset button below does that itself.
@@ -432,22 +420,13 @@ export default function App() {
           >
             ＋ Index a document
           </button>
-          <button
-            className="btn block"
-            data-tour="load-sample"
-            style={{ marginTop: 8 }}
-            onClick={loadSampleDocs}
-          >
-            Load sample docs
-          </button>
-          <button
-            className="btn block"
-            data-tour="load-routed"
-            style={{ marginTop: 8 }}
-            onClick={loadRoutedDocs}
-          >
-            Load routed docs
-          </button>
+          <DocLoader
+            loaded={sampleSet}
+            required={
+              tour.status === 'running' && tour.visible ? tour.step?.dataset ?? null : null
+            }
+            onLoad={loadDataset}
+          />
           <button
             className="btn block"
             style={{ marginTop: 8 }}
@@ -533,7 +512,7 @@ export default function App() {
               <h3>Ready</h3>
               <p>
                 {allDocs.length === 0
-                  ? 'Nothing indexed yet. Use ＋ Index a document to walk one document through the write path, or Load sample docs to fill the cluster and go straight to a search.'
+                  ? 'Nothing indexed yet. Use ＋ Index a document to walk one document through the write path, or Load docs to fill the cluster and go straight to a search.'
                   : 'Run a Search, or use Refresh / Flush / Merge to move these documents through the rest of the lifecycle. Every operation replays step by step in the footer.'}
               </p>
             </div>

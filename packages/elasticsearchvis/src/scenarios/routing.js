@@ -20,10 +20,12 @@ const STEPS = [
   },
   {
     id: 'load',
-    target: '[data-tour="load-routed"]',
+    target: '[data-tour="load-docs"]',
+    targetExtra: '[data-tour="load-docs-menu"]',
+    dataset: 'routed',
     placement: 'right',
     title: 'Load data that was indexed with routing',
-    body: 'Click “Load routed docs”. Nine orders for three tenants, each indexed with its tenant as the routing key. Every tenant gets its own colour on the stage — notice that one colour never appears on more than one shard, no matter what the _ids are.',
+    body: 'Open “Load docs” and pick “Routed docs”. Nine orders for three tenants, each indexed with its tenant as the routing key. Every tenant gets its own colour on the stage — notice that one colour never appears on more than one shard, no matter what the _ids are.',
     advanceOn: (s) => s.sampleSet === 'routed',
   },
   {
