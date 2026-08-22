@@ -23,7 +23,7 @@ import { INSPECTOR_DWELL_MS } from '../timing'
 // invisible backdrop that swallows every click (this app hit exactly that in
 // the old CoordinatorInspector). Closing unmounts instantly instead; App's
 // `.layout` zoom-back covers the transition.
-export default function CloseUp({ stack, onPop, openCloseUp, highlightClose }) {
+export default function CloseUp({ stack, onPop, openCloseUp, highlightClose, held }) {
   if (!stack?.length) return null
   return stack.map((ctx, i) => (
     <Panel
@@ -32,6 +32,7 @@ export default function CloseUp({ stack, onPop, openCloseUp, highlightClose }) {
       depth={i}
       active={i === stack.length - 1}
       openCloseUp={openCloseUp}
+      held={held}
       // Only the root panel gets the tour's "click ✕ to exit" nudge — a nested
       // zoom is off-script and closing it doesn't leave the close-up.
       highlightClose={highlightClose && i === 0}
@@ -40,7 +41,7 @@ export default function CloseUp({ stack, onPop, openCloseUp, highlightClose }) {
   ))
 }
 
-function Panel({ ctx, depth, active, openCloseUp, highlightClose, onClose }) {
+function Panel({ ctx, depth, active, openCloseUp, highlightClose, held, onClose }) {
   const { title, sub, steps, Stage, stageProps, source, className, dwell } = ctx
   const last = steps.length - 1
   const [step, setStep] = useState(0)
@@ -49,8 +50,13 @@ function Panel({ ctx, depth, active, openCloseUp, highlightClose, onClose }) {
   // Auto-play clock. `dwell` is a per-step budget (a stage with flights or a
   // probe replay to fit needs more than the flat default); it is excluded from
   // the deps because build() hands over a fresh closure on every re-derive.
+  // `held` freezes the clock without clearing `active`: a tour step that is
+  // asking the reader to LOOK at this panel must not have the panel play on
+  // past the thing being described. It cannot be folded into `active`, because
+  // stages read that to park their own timers and useReveal JUMPS TO THE END
+  // when it goes false — which would finish the very animation we are holding.
   useEffect(() => {
-    if (!playing || !active) return
+    if (!playing || !active || held) return
     if (step >= last) {
       setPlaying(false)
       return
@@ -58,8 +64,13 @@ function Panel({ ctx, depth, active, openCloseUp, highlightClose, onClose }) {
     const ms = dwell?.(step) ?? INSPECTOR_DWELL_MS
     const id = setTimeout(() => setStep((s) => Math.min(last, s + 1)), ms)
     return () => clearTimeout(id)
+    // `held` belongs in here: the tour tip appears a beat AFTER the panel opens,
+    // so a dwell timer is already in flight by the time it flips. Without the
+    // dep the effect never re-runs, the pending timeout is never cleared, and
+    // the panel steps once more before it settles — which is exactly the step
+    // the reader was being asked to look at.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playing, active, step, last])
+  }, [playing, active, held, step, last])
 
   // Spring out of the clicked element, measured once at mount while the page
   // (or the parent panel) is still at rest behind the opening overlay.

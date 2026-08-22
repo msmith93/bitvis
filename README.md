@@ -12,7 +12,7 @@ the landing page that ties them together.
 | Package | Live | What it teaches |
 | --- | --- | --- |
 | [`packages/kubevis`](packages/kubevis) | [kubevis.bitsculpt.top](https://kubevis.bitsculpt.top) | How Kubernetes turns kubectl commands into running pods (control plane, scheduler, self-healing). |
-| [`packages/elasticsearchvis`](packages/elasticsearchvis) | [elasticsearchvis.bitsculpt.top](https://elasticsearchvis.bitsculpt.top) | How Elasticsearch indexes and searches a distributed cluster (segments, refresh/flush/merge, scatter-gather). |
+| [`packages/elasticsearchvis`](packages/elasticsearchvis) | [elasticsearchvis.bitsculpt.top](https://elasticsearchvis.bitsculpt.top) | How Elasticsearch indexes and searches a distributed cluster (segments, refresh/flush/merge, scatter-gather, and the FST + automaton a wildcard or fuzzy query is really resolved against). |
 | [`packages/cassandravis`](packages/cassandravis) | [cassandravis.bitsculpt.top](https://cassandravis.bitsculpt.top) | How a leaderless NoSQL store (Cassandra) replicates and stores data (the ring, tunable quorums, hinted handoff, read repair, the LSM tree). |
 | [`packages/landing`](packages/landing) | [bitvis.bitsculpt.top](https://bitvis.bitsculpt.top) | The landing page — a plain static card grid linking to every visualization. |
 

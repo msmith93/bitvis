@@ -110,6 +110,42 @@ so much in price. Model both paths and keep the distinction visible:
    boolean OR over them. The expensive part was the dictionary work, not the
    matching, and the cost multiplies by segments × shards.
 
+### Fuzzy queries (edit distance — KEEP THIS ACCURATE)
+`serch~`, `serch~1`, `serch~2`. A fuzzy is the same shape of problem as a
+wildcard, and must be modeled with the same machinery rather than as a special
+case:
+1. **The distance is Damerau-Levenshtein**, a transposition counting as ONE edit
+   (Lucene's `transpositions: true` default), capped at **2**
+   (`LevenshteinAutomata.MAXIMUM_SUPPORTED_DISTANCE`).
+2. **A bare `~` means `Fuzziness.AUTO`** with Elasticsearch's `AUTO:3,6`
+   defaults — 0 edits below 3 characters, 1 up to 5, 2 beyond. A `~0` is an exact
+   term, not a fuzzy, and must be called one.
+3. **The edit budget is the cost story.** One more edit multiplies the states in
+   the machine, removes its ability to reject arcs, and pushes the walk into
+   blocks it could previously skip — for the same word against the same
+   dictionary. The dictionary zoom's contrast table states it by running BOTH
+   automata; every number in it must be derived, never written into the copy.
+4. **Fuzzy matches spelling, not meaning.** `store~1` expands to `score` as well
+   as `store` and `stores`. That is not a defect to hide — it is the honest cost,
+   and the app must show it.
+5. The expansion is a boolean OR over the matched terms, exactly like a wildcard's.
+6. **`prefix_length` is modeled but deliberately NOT exposed.** `parsePattern`
+   accepts it, `buildLevenshteinNfa` honours it, and `npm run check` exercises
+   it, because it is real Lucene semantics and it is what keeps `seekPrefix`
+   meaning the same thing for every pattern kind. It has no UI control and no
+   scenario: it used to exist only because the old dataset could not prune
+   without it (see below), and a knob that exists to paper over a dataset is a
+   knob that should not exist.
+7. **A default fuzzy query MUST visibly prune.** This is a property of the
+   DATASET, not of the algorithm, and it is the whole payoff of the fuzzy
+   scenario. `SAMPLE_DOCS` therefore has a job beyond being readable: each shard
+   must hold enough DISTINCT vocabulary that block prefixes discriminate and the
+   `.tip` FST is at least three arcs deep. The original fourteen documents gave
+   24–43 terms per shard, mostly inflections of the same few stems, an FST two
+   arcs deep, and `serch~` pruned **zero** arcs on shard 0 while reading 100% of
+   it. `npm run check` guards this on every shard; if it fails, add vocabulary
+   rather than reintroducing a knob.
+
 ## Inverted index view
 Each shard has its OWN inverted index (term → posting list of doc ids) built from
 its searchable segments. Show these per shard. A search unions posting lists
@@ -161,14 +197,19 @@ What survives: the `.tip → .tim → .doc → .fdt` chain (so `.doc` is still v
 closing line naming the `.doc` pointer, and one clause in the shard inspector
 noting Lucene writes no skip data below 128 documents.
 
-### Wildcards — the same picture, driven by a pattern (`src/automaton.js`)
+### Patterns — the same picture, driven by a query (`src/automaton.js`)
 A wildcard is **not a separate zoom**. A plain term is the degenerate case of a
 pattern — one path through the FST, one block read — so the dictionary zoom
 serves both and the query decides how the walk behaves. They were two close-ups
 drawing the same two structures; that duplication is why they were merged.
 
+The **only** thing a pattern's kind may decide is which NFA gets built — a glob
+for `*`/`?`, a Levenshtein grid for `~`. Determinization, the FST walk, pruning
+and floor selection are shared, because to Lucene both are just an
+`AutomatonQuery`. Adding a third kind of pattern must not add a third walk.
+
 1. The pattern compiles to an NFA, then is **determinized** (Lucene caps this at
-   `maxDeterminizedStates` = 10000).
+   `maxDeterminizedStates` = 10000, which this app enforces).
 2. The automaton is run against the `.tip` arcs in lockstep. An arc it has no live
    transition for is **pruned** — every term behind it is skipped unread.
 3. A **leading wildcard's start state accepts any character**, so no arc can ever
@@ -182,6 +223,73 @@ drawing the same two structures; that duplication is why they were merged.
    entirely blank. The FST already shows the consequence directly and in colour.
    One line stating what the pattern accepts (from `startAcceptsAnything`) carries
    everything the table did.
+
+### The Levenshtein automaton, when it is DRAWN (fuzzy only)
+A glob's interesting question is which arcs survived, and the FST alone answers
+it. An edit-distance machine's interesting question is which `(characters
+matched, edits spent)` states are still alive — a SET, changing every character,
+that nothing in the FST can show. So for a fuzzy pattern, and only for a fuzzy
+pattern, the dictionary zoom draws the automaton beside the term index.
+
+- **The layout changes with the MODE, never with the step.** In fuzzy mode the
+  split holds the two things that are in memory (the term index and the compiled
+  query) and the `.tim` block column becomes a full-width strip beneath them.
+  That is a property of the query, so the one-picture rule above still holds
+  within a mode: a step may still only change what is lit.
+- **The picture's coordinates come from the model.** `buildLevenshteinNfa`
+  returns a `grid` of nodes carrying their own `(i, e)`; a view may never
+  reverse-engineer a position out of a state id, and the states it lights come
+  straight from `dfa.states[...].nfaSet`. `npm run check` asserts the two address
+  the same states, because otherwise the picture is a decoration that happens to
+  move in time with something.
+- **The arc walk CANNOT accept, and the picture must not pretend otherwise.**
+  The `.tip` FST indexes BLOCKS, so its arcs are block prefixes — one to three
+  characters on this data. Walking them advances the automaton by at most three
+  positions out of five, which means no accepting state is ever reached during
+  the walk; the match is decided afterwards, by `matchTerm`, when a block is
+  read and its terms are completed. A picture that stops at the arc walk leaves
+  the grid stuck partway across with no explanation, which is exactly how it
+  read before. Step 4 therefore replays the winning term's COMPLETION —
+  `termPath` in `automaton.js` runs the DFA over the rest of the word — so the
+  machine visibly reaches the right-hand column and accepts. `termPath.accepts`
+  must agree with `matchTerm` for every term tested; `npm run check` asserts it.
+- **Pan to the arc being DECIDED, not to the cursor.** They differ precisely
+  where it matters: a pruned arc is reported from the node the walk is standing
+  on, so for `sc*` the cursor sits on the root through sixteen consecutive
+  rejections while arcs die all over the graph. The pan follows the arc's far
+  end (`fstTo`), and it is instant rather than smooth — one decision is a 260ms
+  tick, and a smooth scroll would still be travelling when the next one lands.
+- **Draw the SET, never a single cursor.** After part of a word the machine
+  genuinely cannot tell which reading will pay off, and one glowing node would
+  misrepresent that.
+- **Prunes are drawn, for every kind of pattern.** This reverses an earlier
+  decision that a glob should animate only its follows (on the grounds that
+  drawing skipped work wasted the step). That was backwards: for `sc*` the whole
+  lesson is that every arc but `s` dies at the root, and leaving those undrawn
+  made the cheapest pattern look identical to the most expensive one. There is
+  now ONE replay with one set of rules — followed arcs green, rejected arcs red,
+  the subtree behind a rejection dimmed, a cursor that pans — and the only thing
+  a query's kind still decides is whether the automaton panel appears beside the
+  index, because a glob has no `(i, e)` grid to draw.
+- **The pinned prefix is shown as missing edges, not as a caption.** Inside
+  `prefix_length` the model emits no edit edges at all; the band names what the
+  reader can already see is absent. Nothing in the UI can currently set a
+  prefix length (see above), so this branch is unreachable in practice — it is
+  kept because the model still supports the parameter, and a picture that
+  silently ignored it would be lying about what ran.
+- **A tour step that only asks to be READ freezes the panel.** `CloseUp` takes a
+  `held` prop (App sets it for any step with a `cta` and no `advanceOn`) which
+  stops the auto-play clock without clearing `active` — `active` must stay true,
+  because stages read it to park their own timers and `useReveal` JUMPS TO THE
+  END when it goes false, which would finish the very animation being held.
+  Without this the walk plays out behind the tooltip describing it, and the
+  reader dismisses the tip to find the thing already over.
+- **The FST panel is BOUNDED and PANS.** `fstLayout` puts depth on x and stacks
+  siblings on y, and the .tip FST is bushy rather than deep — a hundred-term
+  dictionary is a graph two thousand pixels tall. `.cu-fst` is capped and
+  `ArcGraph` scrolls the current cursor into view on every revealed step, so the
+  panel's size is independent of the dictionary's and the eye follows the walk
+  instead of hunting for it.
 
 ### How this level must be PRESENTED
 The structures above are only half the job. Two earlier builds modelled them
@@ -241,6 +349,15 @@ future view that draws the term list must not imply otherwise.
   don't contrast against them either.
 - Every number rendered must come from the model, not from prose. If a step
   asserts a count, a reader must be able to find it in the trace.
+- The arithmetic at this level is checked by `npm run check`
+  (`scripts/check-models.mjs`), which is NOT a test suite for the app — the app
+  is still verified by running it. It asserts only the things a browser will
+  happily animate incorrectly: that the two zoom levels agree on what matched,
+  that `editDistance` is really bounded Damerau-Levenshtein, that
+  `Fuzziness.AUTO` switches where Elasticsearch says, that the drawn automaton
+  describes the one that ran, and that the intersection trace's cursors agree
+  with the walk. Add to it when you add arithmetic; don't grow it into a test
+  suite for the UI.
 - When the data can't demonstrate something (no VInt tail, no second skip level),
   say so and explain the threshold. Never imply a structure that isn't there.
 
@@ -288,10 +405,20 @@ Documented so reviewers can verify the teaching stays honest:
   Lucene's 25–48. Every panel that shrinks a constant renders a badge naming both
   values, and the memory claim must say the toy ratio understates the real one.
   This is the ONLY simplification at that level — the FST, the block tree, floor
-  blocks, prefix compression and the DFA intersection are all modeled for real.
+  blocks, prefix compression and the DFA intersection — glob and Levenshtein
+  alike — are all modeled for real.
+- **Fuzzy expansion is not blended.** Elasticsearch's default rewrite blends the
+  document frequencies of the expanded terms and boosts by edit distance; here
+  each matched term is scored on its own frequencies, so a close match and a
+  distant one are worth the same. The dictionary cost — which is what these zooms
+  are about — is unaffected.
 - The SHARD-level view (one zoom up) still models a term lookup as a binary
-  search over a flat sorted array, and wildcard matching as a regex over the
-  segment's terms. That is deliberate: it teaches the cost story in one picture,
+  search over a flat sorted array, and pattern matching as a direct test against
+  each of the segment's terms (a regex for a glob, an edit-distance computation
+  for a fuzzy). For a fuzzy the two levels therefore report DIFFERENT costs on
+  purpose — a flat sorted list has no prefix to seek to and must read all of it,
+  while the real term index prunes. The op note says so explicitly and points at
+  the zoom, so the headline number cannot be read as contradicting the picture. That is deliberate: it teaches the cost story in one picture,
   and the on-disk zoom beneath it shows what really happens. The two agree on
   which terms match — `src/automaton.js`'s intersection is checked against
   `expandTerms` — so the levels can't drift apart.

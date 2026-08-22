@@ -5,6 +5,7 @@ import {
   PRESETS,
   EXAMPLE_QUERIES,
   WILDCARD_QUERIES,
+  FUZZY_QUERIES,
   DATASETS,
 } from './presets'
 import {
@@ -320,10 +321,16 @@ export default function App() {
     let seg = 1
     for (const shard of c.shards) {
       const ids = byShard[shard.id]
-      for (let j = 0; j < ids.length; j += 2)
+      // Aim for ~3 segments per shard whatever the dataset's size, so a bigger
+      // set doesn't turn a shard card into a stack of a dozen slivers. The two
+      // shipped sets are unchanged by this (5 docs still give 3 segments, 4
+      // give 2, the routed set's 3 give 2) — it only bounds what a larger set
+      // can do to the cluster view.
+      const per = Math.max(2, Math.ceil(ids.length / 3))
+      for (let j = 0; j < ids.length; j += per)
         shard.segments.push({
           id: `seg-${seg++}`,
-          docIds: ids.slice(j, j + 2),
+          docIds: ids.slice(j, j + per),
           searchable: true,
           committed: true,
         })
@@ -478,6 +485,16 @@ export default function App() {
                   {q}
                 </button>
               ))}
+              {FUZZY_QUERIES.map((q) => (
+                <button
+                  key={q}
+                  className="preset-chip fuzzy"
+                  title="fuzzy pattern — matched by edit distance against each segment's term dictionary"
+                  onClick={() => setQuery(q)}
+                >
+                  {q}
+                </button>
+              ))}
             </div>
 
             {/* Optional _routing on the query: hash this instead of scattering. */}
@@ -590,6 +607,10 @@ export default function App() {
         onPop={popCloseUp}
         openCloseUp={openCloseUp}
         highlightClose={tour.status === 'running'}
+        // A tour step that only asks to be READ (a cta, nothing to advance on)
+        // freezes the panel's auto-play, so the walk it is describing does not
+        // play out behind the tooltip while the user is still reading.
+        held={tour.visible && !!tour.step?.cta && !tour.step?.advanceOn}
       />
 
       {/* ---------------- Cookie consent (GDPR regions only) ---------------- */}

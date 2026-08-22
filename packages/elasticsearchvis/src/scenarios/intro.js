@@ -54,7 +54,7 @@ const STEPS = [
     dataset: 'sample',
     placement: 'right',
     title: 'Load a richer dataset',
-    body: 'A single document makes for a lonely search. Open “Load docs” and pick “Sample docs” to seed a realistic cluster — about a dozen documents routed and replicated across all three shards — so the search you run next has something interesting to rank.',
+    body: 'A single document makes for a lonely search. Open “Load docs” and pick “Sample docs” to seed a realistic cluster — about thirty documents routed and replicated across all three shards — so the search you run next has something interesting to rank.',
     waitFor: (s) => s.opType === 'refresh' && s.opDone && !s.playing,
     // `dataset` above is what the menu offers here, but either set satisfies
     // "now there is something to search" — so a load that happened earlier,
@@ -143,7 +143,7 @@ const STEPS = [
     target: '[data-tour="scenarios"]',
     placement: 'left',
     title: 'More lessons live here',
-    body: 'Open the Scenarios menu to see the rest — why a leading wildcard is expensive, what a routing key really does, and what a term dictionary looks like on disk. Click it to take a look; you do not have to start one.',
+    body: 'Open the Scenarios menu to see the rest — why a leading wildcard is expensive, what a routing key really does, what a term dictionary looks like on disk, and how a typo still finds the document. Click it to take a look; you do not have to start one.',
     // The tour ends the moment the menu opens: the point is that the user
     // discovers the menu exists, not that they commit to a particular lesson.
     // Anything they pick from the open menu starts that scenario as usual.

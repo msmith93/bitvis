@@ -3,11 +3,11 @@ import { MAX_GATHER_IDS, MAX_FETCH_WINNERS, LOCAL_TOPK } from '../constants'
 import { segmentInvertedIndex } from '../invertedIndex'
 import { flightMs, FLIGHT_PAD_MS } from '../timing'
 import {
-  PATTERN_LABEL,
   dictionaryScan,
-  isWildcardQuery,
+  isPatternQuery,
   matchesAny,
   parseQuery,
+  patternLabel,
 } from '../wildcard'
 
 // The `search` op: two-phase query-then-fetch scatter-gather. Read-only — it
@@ -16,8 +16,9 @@ import {
 // Two payload options change WHERE and HOW MUCH work happens:
 //   payload.routing — hash the routing key instead of scattering: exactly one
 //                     shard is queried, the other two do nothing.
-//   a `*` in the query — the term is a wildcard pattern that must first be
-//                     expanded against each segment's term dictionary.
+//   a `*` or `~` in the query — the term is a PATTERN (wildcard or fuzzy) that
+//                     must first be expanded against each segment's term
+//                     dictionary.
 
 const STEPS = [
   {
@@ -143,7 +144,8 @@ function computeSearch(cluster, op) {
   return {
     terms: patterns.map((p) => p.raw), // display strings (patterns kept verbatim)
     patterns,
-    wildcard: isWildcardQuery(patterns),
+    wildcard: isPatternQuery(patterns),
+    fuzzy: patterns.some((p) => p.kind === 'fuzzy'),
     routing,
     routedShard,
     skipped: cluster.shards.filter((s) => !(s.id in serving)).map((s) => s.id),
@@ -202,6 +204,16 @@ export default {
           s.cost.segments === 1 ? '' : 's'
         } on ${s.cost.shards} shard${s.cost.shards === 1 ? '' : 's'}.`,
       )
+    // The count above comes from the FLAT model this level uses (see SPEC.md):
+    // a fuzzy has no prefix to seek to, so a sorted array has to read all of it.
+    // The term index one zoom down does better, and saying so here stops the
+    // headline number from contradicting the picture underneath it.
+    if (s.fuzzy) {
+      const p = s.patterns.find((x) => x.kind === 'fuzzy')
+      parts.push(
+        `fuzzy: up to ${p.maxEdits} edit${p.maxEdits === 1 ? '' : 's'} — a match may differ in its very first character, so a sorted list has nothing to seek to. The real term index prunes; open the 🔍 to watch it.`,
+      )
+    }
     return parts.length ? parts.join(' ') : null
   },
 
@@ -268,26 +280,34 @@ const seekBlurb = (patterns) => {
 const ENUMERATE_BLURB =
   'A leading wildcard has NO literal prefix, so there is nothing to jump to — a match could sit anywhere in the sorted dictionary. The only option is to read every single term and test it: in this segment, in every other segment, on every shard. That is what makes “*term” expensive.'
 
-function wildcardLocalSteps(patterns) {
+// A fuzzy is in exactly the same position as a leading wildcard AT THIS LEVEL,
+// and it is worth saying so in its own words rather than calling it a wildcard —
+// and worth pointing at the zoom, where the real index does better.
+const FUZZY_ENUMERATE_BLURB =
+  'A fuzzy match may differ in its very first character, so there is no literal prefix to jump to — against a flat sorted list the match could be anywhere, and every term gets read and tested. That is what this level models. The real term dictionary is not a flat list, though: one zoom down, the 🔍 shows the same query rejecting whole branches unread.'
+
+function patternLocalSteps(patterns) {
   const seekable = patterns.every((p) => p.seekPrefix)
+  const fuzzy = patterns.some((p) => p.kind === 'fuzzy')
   return [
     {
       key: 'analyze',
       title: '1 · Parse the pattern',
-      blurb: `This is a wildcard pattern, not a plain term: it gets matched against the dictionary rather than looked up in it. ${patterns
-        .map((p) => `“${p.raw}” — ${PATTERN_LABEL[p.kind]}`)
+      blurb: `This is a pattern, not a plain term: it gets matched against the dictionary rather than looked up in it. ${patterns
+        .map((p) => `“${p.raw}” — ${patternLabel(p)}`)
         .join(' · ')}.`,
     },
     {
       key: 'lookup',
       title: seekable ? '2 · Seek the term dictionary' : '2 · Enumerate the term dictionary',
-      blurb: seekable ? seekBlurb(patterns) : ENUMERATE_BLURB,
+      blurb: seekable ? seekBlurb(patterns) : fuzzy ? FUZZY_ENUMERATE_BLURB : ENUMERATE_BLURB,
     },
     {
       key: 'expand',
       title: '3 · Expand to matching terms',
-      blurb:
-        'Every term the pattern matched is collected. From here on the wildcard is just a boolean OR over those terms — the expensive part is already done, and it was the dictionary work, not the matching.',
+      blurb: fuzzy
+        ? 'Every term within the edit budget is collected. From here on the fuzzy query is just a boolean OR over those terms — the expensive part is already done, and it was the dictionary work. Read the list: edit distance compares SPELLING, so anything close enough is in, whether or not you meant it.'
+        : 'Every term the pattern matched is collected. From here on the wildcard is just a boolean OR over those terms — the expensive part is already done, and it was the dictionary work, not the matching.',
     },
     ...PLAIN_LOCAL_STEPS.slice(2).map((s, i) => ({
       ...s,
@@ -297,7 +317,7 @@ function wildcardLocalSteps(patterns) {
 }
 
 export function localSearchSteps(patterns) {
-  return isWildcardQuery(patterns) ? wildcardLocalSteps(patterns) : PLAIN_LOCAL_STEPS
+  return isPatternQuery(patterns) ? patternLocalSteps(patterns) : PLAIN_LOCAL_STEPS
 }
 
 // The coordinator close-up walks these steps to show how the coordinator turns

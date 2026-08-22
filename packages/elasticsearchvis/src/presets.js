@@ -32,6 +32,19 @@ export const EXAMPLE_QUERIES = ['search', 'data', 'elasticsearch lucene']
 // dictionary ("elasticsearch" and "search") — visible proof that no seek exists.
 export const WILDCARD_QUERIES = ['sc*', 'search*', '*search']
 
+// Fuzzy patterns, one per thing worth knowing about fuzzy. All three are
+// verified against the sample dictionaries by scripts/check-models.mjs:
+//   serch~    a typo, corrected. A bare `~` is Fuzziness.AUTO, which at five
+//             characters is 1 edit — so this matches "search" and nothing else.
+//             The motivating case.
+//   search~2  expands to search / searched / searches across the shards: proof
+//             that a fuzzy query is a boolean OR over terms rather than one
+//             lookup. NOT stemming — it found those by spelling, not meaning.
+//   store~1   expands to score as well as store / stores. "score" is one edit
+//             from "store" and has nothing to do with it. That is the honest
+//             cost of fuzziness, and this chip exists to make it land.
+export const FUZZY_QUERIES = ['serch~', 'search~2', 'store~1']
+
 // Routing keys used by the routed sample set below (and its scenario).
 export const ROUTING_KEYS = ['tenant-a', 'tenant-b', 'tenant-c']
 
@@ -73,6 +86,62 @@ export const SAMPLE_DOCS = [
   { title: 'Score and schema', body: 'a schema maps the fields; the score ranks what you searched for.' },
   // doc-14 → shard 0
   { title: 'Searchable data in Elasticsearch', body: 'elasticsearch makes data searchable: scan the schema, score the results, keep searching.' },
+
+  // ---- doc-15 onward: vocabulary, deliberately ----------------------------
+  // These exist to make the term dictionary WIDE rather than to add documents
+  // worth reading. A fuzzy query can only prune the index when the dictionary
+  // has enough distinct words to make a block prefix discriminating: with the
+  // fourteen docs above, every shard held 24-43 terms that were mostly
+  // inflections of the same few stems, the .tip FST was two arcs deep, and a
+  // one-edit automaton could not die inside it — `serch~` pruned NOTHING and
+  // read 100% of shard 0. With these, each shard holds ~90-105 terms and the
+  // same query prunes 11-17 arcs. SPEC.md records this as a requirement.
+  //
+  // Two rules when adding more:
+  //   1. NEVER include the bare term "search". Shard 0's 4/3/2/1 term
+  //      frequencies drive the close-up's top-k eviction demo, and one more
+  //      scoring document there changes what it shows.
+  //   2. Nothing may END in "search" but "search" and "elasticsearch" — the
+  //      wildcard scenario's whole point is that `*search` matches exactly two
+  //      terms sitting far apart in the sorted dictionary.
+  // Routing cycles s1, s2, s0 from doc-15, so they are added in threes.
+  //
+  // doc-15 → shard 1
+  { title: 'Refresh interval', body: 'a refresh makes recent writes visible; tune the interval to trade latency for throughput.' },
+  // doc-16 → shard 2
+  { title: 'Segment merging', body: 'merging rewrites many small segments into fewer larger ones and reclaims deleted docs.' },
+  // doc-17 → shard 0
+  { title: 'Scoring and relevance', body: 'relevance ranks documents; boosting a field changes which ones surface first.' },
+  // doc-18 → shard 1
+  { title: 'Translog durability', body: 'the translog records every write so a crash can replay uncommitted operations.' },
+  // doc-19 → shard 2
+  { title: 'Query clauses', body: 'a bool query combines must, should and filter clauses into one request.' },
+  // doc-20 → shard 0
+  { title: 'Caching filters', body: 'a filter cache remembers which documents matched so repeated clauses stay cheap.' },
+  // doc-21 → shard 1
+  { title: 'Mapping fields', body: 'a mapping declares field types: keyword, text, date, boolean and numeric.' },
+  // doc-22 → shard 2
+  { title: 'Analyzers and tokens', body: 'an analyzer splits text into tokens, lowercases them and strips punctuation.' },
+  // doc-23 → shard 0
+  { title: 'Shard sizing', body: 'oversharding wastes heap; undersharding limits parallelism, so size shards deliberately.' },
+  // doc-24 → shard 1
+  { title: 'Bulk indexing', body: 'bulk requests batch many documents into one round trip and reduce overhead.' },
+  // doc-25 → shard 2
+  { title: 'Replica allocation', body: 'the allocator places replicas on different nodes to survive a failure.' },
+  // doc-26 → shard 0
+  { title: 'Coordinating nodes', body: 'a coordinating node fans requests out, gathers replies and merges them.' },
+  // doc-27 → shard 1
+  { title: 'Aggregations', body: 'buckets and metrics summarise millions of rows without returning them.' },
+  // doc-28 → shard 2
+  { title: 'Snapshot and restore', body: 'snapshots copy segments to a repository so an index can be restored later.' },
+  // doc-29 → shard 0
+  { title: 'Index lifecycle', body: 'a lifecycle policy rolls indices over, shrinks them, then deletes the oldest.' },
+  // doc-30 → shard 1
+  { title: 'Ingest pipelines', body: 'a pipeline enriches documents before they are written, parsing and renaming fields.' },
+  // doc-31 → shard 2
+  { title: 'Circuit breakers', body: 'breakers reject requests that would exhaust the heap rather than crash the node.' },
+  // doc-32 → shard 0
+  { title: 'Monitoring a cluster', body: 'watch heap pressure, queue depth and merge throughput to spot trouble early.' },
 ]
 
 // A second sample set for the routing scenario: every document carries an
@@ -106,7 +175,7 @@ export const DATASETS = [
   {
     id: 'sample',
     label: 'Sample docs',
-    blurb: '14 documents about search, spread across all three shards by _id.',
+    blurb: '32 documents about search, spread across all three shards by _id.',
     docs: SAMPLE_DOCS,
     tombstoned: 'doc-8',
     colorBy: (d, i) => i,

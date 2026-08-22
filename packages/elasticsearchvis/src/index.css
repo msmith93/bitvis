@@ -2223,7 +2223,11 @@ table.ii td.term {
   border-radius: 8px;
   background: rgba(22, 23, 28, 0.4);
   padding: 4px;
-  overflow-x: auto;
+  /* Bounded, and it pans to follow the walk (see ArcGraph). Without the cap a
+     hundred-term dictionary makes this panel taller than the screen, because
+     the FST fans out sideways and fstLayout stacks that fan vertically. */
+  max-height: 340px;
+  overflow: auto;
 }
 .cu-fst-svg {
   display: block;
@@ -2853,4 +2857,402 @@ table.ii td.term {
   .home-all {
     display: none;
   }
+}
+
+/* ---------------- Fuzzy: the Levenshtein automaton beside the FST ----------
+   Every colour below is one of the :root tokens, same as everywhere else in
+   this file. The grid's job is to make three things instantly separable:
+   states that are ALIVE right now, states that just became alive, and the
+   moment nothing survives at all. */
+
+/* A pruned arc on the FST. Only fuzzy mode passes `pruned`, so a wildcard's
+   picture is unchanged — it still shows only the work that was done. */
+.cu-arc.pruned line {
+  stroke: var(--danger);
+  stroke-width: 2;
+  stroke-dasharray: 4 3;
+  opacity: 0.85;
+}
+.cu-arc.pruned text {
+  fill: var(--danger);
+  font-weight: 700;
+}
+.cu-state.dim circle {
+  opacity: 0.28;
+}
+.cu-fst-legend .dot.pruned {
+  border-color: var(--danger);
+  background: rgba(248, 107, 99, 0.3);
+}
+
+.cu-lev {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(22, 23, 28, 0.4);
+  padding: 4px;
+  overflow-x: auto;
+  transition: background 0.2s ease;
+}
+/* Nothing survived the last character. The panel itself says so, because the
+   absence of any lit state is easy to miss. */
+.cu-lev.dead {
+  background: rgba(248, 107, 99, 0.08);
+}
+.cu-lev-svg {
+  display: block;
+}
+
+/* The pinned prefix — inside this band the model emits no edit edges at all,
+   and seeing that absence is the point. No UI control sets a prefix length today
+   (SPEC.md says why), so this is styling for a model feature the picture still
+   honours rather than something the app can currently show. */
+.cu-lev-pin rect {
+  fill: rgba(0, 191, 179, 0.07);
+  stroke: rgba(0, 191, 179, 0.4);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+}
+.cu-lev-pin text {
+  fill: var(--accent);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+.cu-lev-layer {
+  fill: var(--muted);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.cu-lev-edge line,
+.cu-lev-edge path {
+  stroke: var(--border);
+  stroke-width: 1.5;
+}
+.cu-lev-edge text {
+  fill: var(--muted);
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-anchor: middle;
+}
+/* A match costs nothing, so it is the only edge drawn in the "free" colour. */
+.cu-lev-edge.match line {
+  stroke: rgba(223, 229, 239, 0.45);
+}
+.cu-lev-edge.match text {
+  fill: var(--text);
+}
+/* Everything below costs an edit. Deletion consumes no input, so it is the
+   dashed curve — the one transition that fires without a character arriving. */
+.cu-lev-edge.insert line,
+.cu-lev-edge.substitute line {
+  stroke: rgba(254, 197, 20, 0.4);
+}
+.cu-lev-edge.insert text,
+.cu-lev-edge.substitute text {
+  fill: rgba(254, 197, 20, 0.75);
+  font-style: italic;
+}
+.cu-lev-edge.delete path {
+  stroke: rgba(254, 197, 20, 0.35);
+  stroke-dasharray: 3 3;
+}
+.cu-lev-edge.delete text {
+  fill: rgba(254, 197, 20, 0.6);
+}
+.cu-lev-edge.transpose line {
+  stroke: rgba(152, 162, 179, 0.3);
+}
+.cu-lev-edge.transpose text {
+  fill: rgba(152, 162, 179, 0.6);
+  font-size: 9px;
+}
+/* The transition the walk just used. */
+.cu-lev-edge.taken line,
+.cu-lev-edge.taken path {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-dasharray: none;
+}
+.cu-lev-edge.taken text {
+  fill: var(--accent);
+  font-weight: 700;
+  font-style: normal;
+}
+
+.cu-lev-state circle {
+  fill: var(--panel-2);
+  stroke: var(--border);
+  stroke-width: 1.5;
+}
+.cu-lev-state.bridge circle {
+  fill: var(--panel);
+  stroke: rgba(152, 162, 179, 0.4);
+}
+.cu-lev-ring {
+  fill: none;
+  stroke: rgba(0, 191, 179, 0.35);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+/* Alive right now — and there is usually more than one. */
+.cu-lev-state.live circle {
+  fill: rgba(84, 179, 153, 0.25);
+  stroke: var(--good);
+  stroke-width: 2.5;
+}
+.cu-lev-state.live.accept circle {
+  fill: rgba(0, 191, 179, 0.3);
+  stroke: var(--accent);
+}
+.cu-lev-state.entered circle {
+  stroke-width: 3;
+  filter: drop-shadow(0 0 5px rgba(84, 179, 153, 0.7));
+}
+.cu-lev-tag {
+  fill: var(--muted);
+  font-size: 9px;
+  text-anchor: middle;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.cu-lev-state.live .cu-lev-tag {
+  fill: var(--text);
+  font-weight: 700;
+}
+
+.cu-lev-legend {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 6px 8px 2px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.cu-lev-legend .dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 4px;
+  border: 1.5px solid var(--border);
+}
+.cu-lev-legend .dot.live {
+  border-color: var(--good);
+  background: rgba(84, 179, 153, 0.3);
+}
+.cu-lev-legend .dot.accept {
+  border-color: var(--accent);
+  border-style: dashed;
+}
+.cu-lev-size {
+  margin-left: auto;
+}
+.cu-lev-key b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* ---------------- The intersection readout --------------------------------
+   Neither structure above can state this on its own: it is what the two of
+   them, taken together, currently know. */
+.cu-isect {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  margin: 10px 0 0;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel-2);
+  overflow: hidden;
+  transition: border-color 0.2s ease;
+}
+.cu-isect.dead {
+  border-color: rgba(248, 107, 99, 0.6);
+}
+.cu-isect.edit {
+  border-color: rgba(254, 197, 20, 0.5);
+}
+.cu-isect-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 7px 12px;
+  border-right: 1px solid var(--border);
+  min-width: 0;
+}
+.cu-isect-cell.grow {
+  flex: 1;
+}
+.cu-isect-k {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.cu-isect-cell b {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--text);
+}
+.cu-isect-prefix .cu-isect-x {
+  color: var(--danger);
+  font-style: normal;
+  margin-left: 3px;
+}
+.cu-isect-states {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.cu-isect-state {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-style: normal;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--good);
+  background: rgba(84, 179, 153, 0.2);
+  color: var(--text);
+}
+.cu-isect-state.accept {
+  border-color: var(--accent);
+  background: rgba(0, 191, 179, 0.22);
+  color: var(--accent-soft);
+}
+.cu-isect-state.new {
+  box-shadow: 0 0 0 2px rgba(84, 179, 153, 0.28);
+}
+.cu-isect-state.none {
+  border-color: var(--danger);
+  background: rgba(248, 107, 99, 0.16);
+  color: var(--danger);
+}
+.cu-isect-verdict {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 7px 14px;
+  min-width: 190px;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: right;
+  align-items: flex-end;
+}
+.cu-isect-verdict i {
+  font-style: normal;
+  font-weight: 400;
+  font-size: 10px;
+  color: var(--muted);
+}
+.cu-isect-verdict.exact {
+  color: var(--accent);
+  background: rgba(0, 191, 179, 0.08);
+}
+.cu-isect-verdict.edit {
+  color: var(--warn);
+  background: rgba(254, 197, 20, 0.1);
+}
+.cu-isect-verdict.dead {
+  color: var(--danger);
+  background: rgba(248, 107, 99, 0.12);
+}
+
+/* The .tim strip: in fuzzy mode the block column leaves the split and runs the
+   full width beneath it, so the two in-memory structures can sit side by side.
+   It is still the same component and still shows every block — the RAM/disk
+   distinction is drawn, it just isn't drawn as two columns. */
+.cu-side.cu-disk-strip {
+  margin-top: 10px;
+}
+.cu-side.cu-disk-strip .cu-bcol {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 4px;
+  align-content: start;
+}
+
+/* The fuzzy preset chips. */
+.preset-chip.fuzzy {
+  font-family: ui-monospace, Menlo, monospace;
+  border-style: dotted;
+  border-color: rgba(254, 197, 20, 0.5);
+}
+/* Edit distance, on a matched term chip — the honest label on a fuzzy hit. */
+.term-chip-edits {
+  font-style: normal;
+  margin-left: 5px;
+  padding-left: 5px;
+  border-left: 1px solid rgba(0, 191, 179, 0.35);
+  font-size: 9px;
+  color: var(--muted);
+}
+
+/* Fuzzy mode puts two graphs side by side rather than a graph and a list, and
+   the automaton is the wider of the two — it grows with the length of the query
+   term, where the FST does not. */
+.cu-split.fuzzy {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+}
+
+/* The edge vocabulary, in the legend rather than on thirty tiny captions. Each
+   swatch is drawn exactly as its edges are. */
+.cu-lev-edges {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.cu-lev-edges .edge {
+  display: inline-block;
+  width: 16px;
+  height: 0;
+  margin: 0 2px 0 8px;
+  border-top-width: 2px;
+  border-top-style: solid;
+}
+.cu-lev-edges .edge:first-child {
+  margin-left: 0;
+}
+.cu-lev-edges .edge.match {
+  border-top-color: rgba(223, 229, 239, 0.6);
+}
+.cu-lev-edges .edge.insert,
+.cu-lev-edges .edge.substitute {
+  border-top-color: rgba(254, 197, 20, 0.6);
+}
+.cu-lev-edges .edge.substitute {
+  transform: rotate(20deg);
+}
+.cu-lev-edges .edge.delete {
+  border-top-style: dashed;
+  border-top-color: rgba(254, 197, 20, 0.55);
+}
+.cu-lev-edges .edge.transpose {
+  border-top-color: rgba(152, 162, 179, 0.5);
+}
+
+/* The readout after the walk has finished: a total, not a verdict. */
+.cu-isect.done {
+  border-color: rgba(0, 191, 179, 0.4);
+}
+.cu-isect-verdict.done {
+  color: var(--accent);
+  background: rgba(0, 191, 179, 0.06);
+  font-weight: 400;
+}
+
+/* Step 4's word-completion strip: what the block scan feeds the machine after
+   the arc walk has run out of prefix. */
+.cu-isect-was {
+  font-style: normal;
+  color: var(--accent);
+  opacity: 0.75;
+}
+.cu-isect-todo {
+  font-style: normal;
+  color: var(--muted);
+  opacity: 0.55;
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { blockRange } from '../blocktree'
 
@@ -271,8 +271,25 @@ function fstLayout(fst) {
 // `followed` comes from an automaton intersection instead, and holds ONLY the
 // arcs the pattern accepted: a rejected arc is left at its resting grey rather
 // than drawn in red, so the picture shows the work done and not the work saved.
-export function ArcGraph({ fst, index, walk, followed, revealed = Infinity }) {
+//
+// `pruned` opts INTO drawing the rejections, for the one case where they are the
+// lesson rather than the noise: a fuzzy query, where whether an arc can die at
+// all is the whole reason the intersection is cheap. `dimmed` fades the states
+// behind those arcs — the terms nobody read — and `cursor` marks where the walk
+// is standing right now, so the FST and the automaton beside it move together.
+export function ArcGraph({
+  fst,
+  index,
+  walk,
+  followed,
+  pruned,
+  dimmed,
+  cursor: cursorState,
+  focus: focusState,
+  revealed = Infinity,
+}) {
   const { pos, width, height } = fstLayout(fst)
+  const box = useRef(null)
   const walked = new Set()
   const walkedArcs = new Set()
   let cursor = fst.root
@@ -287,8 +304,33 @@ export function ArcGraph({ fst, index, walk, followed, revealed = Infinity }) {
   }
   const missing = walk?.arcs.slice(0, revealed).find((a) => a.missing)
 
+  // The .tip FST is BUSHY, not deep: fstLayout puts depth on x (a handful of
+  // columns) and stacks siblings on y, so a dictionary with a hundred terms is
+  // a graph a couple of thousand pixels TALL. Rather than let that set the
+  // panel's height, the box is capped and pans to wherever the walk currently
+  // is — which also reads better, because the eye follows the action instead of
+  // hunting for it in a static picture.
+  // Pan to the node this step is ABOUT, not to where the walk is standing. They
+  // differ exactly where it matters: a pruned arc is reported from the node the
+  // walk sits on, and for `sc*` that is the root for sixteen consecutive
+  // rejections — so following the cursor left the picture motionless while arcs
+  // died all over the graph. `focus` is the arc's far end, which is the thing
+  // actually changing. Instant rather than smooth: one decision is a 260ms tick,
+  // and a smooth scroll would still be travelling when the next one lands.
+  const at = focusState ?? cursorState ?? cursor
+  const spot = pos.get(at)
+  useEffect(() => {
+    const el = box.current
+    if (!el || !spot) return
+    el.scrollTo({
+      top: Math.max(0, Math.min(spot.y - el.clientHeight / 2, el.scrollHeight - el.clientHeight)),
+      left: Math.max(0, Math.min(spot.x - el.clientWidth / 2, el.scrollWidth - el.clientWidth)),
+      behavior: 'auto',
+    })
+  }, [spot?.x, spot?.y])
+
   return (
-    <div className="cu-fst" style={{ minHeight: height }}>
+    <div className="cu-fst" ref={box} style={{ minHeight: Math.min(height, 300) }}>
       <svg width={width} height={height} className="cu-fst-svg">
         {fst.states.flatMap((s) =>
           s.arcs.map((a) => {
@@ -296,7 +338,13 @@ export function ArcGraph({ fst, index, walk, followed, revealed = Infinity }) {
             const p2 = pos.get(a.to)
             if (!p1 || !p2) return null
             const key = `${s.id}:${a.label}`
-            const cls = walkedArcs.has(key) ? 'walked' : followed?.has(key) ? 'followed' : ''
+            const cls = walkedArcs.has(key)
+              ? 'walked'
+              : followed?.has(key)
+                ? 'followed'
+                : pruned?.has(key)
+                  ? 'pruned'
+                  : ''
             return (
               <g key={key} className={'cu-arc ' + cls}>
                 <line x1={p1.x + 15} y1={p1.y} x2={p2.x - 15} y2={p2.y} />
@@ -318,6 +366,8 @@ export function ArcGraph({ fst, index, walk, followed, revealed = Infinity }) {
                 'cu-state' +
                 (walked.has(s.id) ? ' walked' : '') +
                 (s.id === cursor && walk ? ' cursor' : '') +
+                (s.id === cursorState ? ' cursor' : '') +
+                (dimmed?.has(s.id) ? ' dim' : '') +
                 (hasOut ? ' has-out' : '')
               }
             >
@@ -352,11 +402,193 @@ export function ArcGraph({ fst, index, walk, followed, revealed = Infinity }) {
         </span>
         <span><i className="dot has-out" /> carries a .tim block pointer</span>
         <span><i className="dot walked" /> the arrows this query followed · grey was never looked at</span>
+        {pruned?.size > 0 && (
+          <span><i className="dot pruned" /> rejected — everything behind it is skipped unread</span>
+        )}
         <span className="cu-fst-size">
           {fst.fstStates} states
           {fst.trieStates > fst.fstStates
             ? ` (a plain trie needed ${fst.trieStates} — minimizing saved ${fst.trieStates - fst.fstStates})`
             : ' — nothing merged at this size; minimizing is what keeps a real .tip in memory'}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// The query side — a Levenshtein automaton
+// ---------------------------------------------------------------------------
+
+// The (i, e) grid, drawn where the model already put it: a column per character
+// of the query term, a ROW PER EDIT SPENT. Nothing here is a layout decision —
+// `grid` comes out of buildLevenshteinNfa with coordinates attached, so the
+// picture cannot drift from the machine it claims to be.
+//
+// The one thing this has to get across, and the reason it is not just a second
+// ArcGraph: the walk is in a SET of these states at once, not one of them. After
+// consuming "car" against "cat~1" the automaton is simultaneously "matched three
+// characters, one edit spent" and "matched two, one spent, expecting a t" — and
+// which of those survives the NEXT character is the whole game. A single glowing
+// node would be a lie.
+const LEV_COL = 80
+const LEV_ROW = 76
+const LEV_R = 17
+const LEV_BRIDGE_R = 9
+
+const levPos = (n) => ({ x: 58 + n.i * LEV_COL, y: 44 + n.e * LEV_ROW })
+
+// Pull a segment back from both centers so it starts and ends at the node edges
+// rather than under them.
+function trim(p1, p2, r1, r2) {
+  const dx = p2.x - p1.x
+  const dy = p2.y - p1.y
+  const len = Math.hypot(dx, dy) || 1
+  return {
+    x1: p1.x + (dx / len) * r1,
+    y1: p1.y + (dy / len) * r1,
+    x2: p2.x - (dx / len) * r2,
+    y2: p2.y - (dy / len) * r2,
+  }
+}
+
+// A deletion and a substitution join the SAME two states, so one of them has to
+// bow out of the way or they draw on top of each other. The deletion curves,
+// which suits it — it is the one transition that consumes no input at all.
+function bow(p1, p2, amount) {
+  const mx = (p1.x + p2.x) / 2
+  const my = (p1.y + p2.y) / 2
+  const dx = p2.x - p1.x
+  const dy = p2.y - p1.y
+  const len = Math.hypot(dx, dy) || 1
+  return { cx: mx - (dy / len) * amount, cy: my + (dx / len) * amount }
+}
+
+const EDGE_LABEL = { insert: 'any', substitute: 'any', delete: 'ε' }
+
+export function AutomatonGrid({ grid, live, entered, taken, dead, pattern }) {
+  if (!grid) return null
+  const pos = new Map(grid.nodes.map((n) => [n.id, levPos(n)]))
+  const width = 58 + grid.n * LEV_COL + 44
+  const height = 44 + grid.maxEdits * LEV_ROW + 52
+  const liveSet = live ?? new Set()
+  const enteredSet = entered ?? new Set()
+  const takenSet = taken ?? new Set()
+  const pinned = grid.prefixLength
+
+  return (
+    <div className={'cu-lev' + (dead ? ' dead' : '')} style={{ minHeight: height }}>
+      <svg width={width} height={height} className="cu-lev-svg">
+        {/* The pinned prefix, as a band rather than a caption: inside it there
+            are no edit edges at all, and seeing that absence is the point. */}
+        {pinned > 0 && (
+          <g className="cu-lev-pin">
+            <rect
+              x={32}
+              y={18}
+              width={pinned * LEV_COL + 6}
+              height={height - 46}
+              rx={10}
+            />
+            <text x={36} y={height - 30}>
+              first {pinned} character{pinned === 1 ? '' : 's'} pinned — no edit may happen in here
+            </text>
+          </g>
+        )}
+
+        {/* One gutter label per edit layer, so dropping into the next one reads
+            as an event and not as the walk merely moving. */}
+        {Array.from({ length: grid.maxEdits + 1 }, (_, e) => (
+          <text key={'lay' + e} className="cu-lev-layer" x={8} y={38 + e * LEV_ROW + 4}>
+            {e === 0 ? '0 edits' : `${e} edit${e === 1 ? '' : 's'}`}
+          </text>
+        ))}
+
+        {grid.edges.map((ed, k) => {
+          const p1 = pos.get(ed.from)
+          const p2 = pos.get(ed.to)
+          if (!p1 || !p2) return null
+          const r1 = grid.nodes.find((n) => n.id === ed.from)?.bridge ? LEV_BRIDGE_R : LEV_R
+          const r2 = grid.nodes.find((n) => n.id === ed.to)?.bridge ? LEV_BRIDGE_R : LEV_R
+          const isTaken = takenSet.has(`${ed.from}:${ed.to}:${ed.kind}`)
+          const cls = 'cu-lev-edge ' + ed.kind + (isTaken ? ' taken' : '')
+          // Edit edges are told apart by how they are DRAWN (see the legend);
+          // they only caption themselves at the moment they fire. Labelling all
+          // of them at rest buried the grid under thirty tiny words.
+          const always = ed.kind === 'match'
+          const label = always || isTaken
+            ? (ed.kind === 'match' || ed.kind === 'transpose' ? ed.label : EDGE_LABEL[ed.kind])
+            : null
+
+          if (ed.kind === 'delete') {
+            const t = trim(p1, p2, r1, r2)
+            const c = bow({ x: t.x1, y: t.y1 }, { x: t.x2, y: t.y2 }, 22)
+            return (
+              <g key={k} className={cls}>
+                <path d={`M ${t.x1} ${t.y1} Q ${c.cx} ${c.cy} ${t.x2} ${t.y2}`} fill="none" />
+                {label && <text x={c.cx} y={c.cy + 4}>{label}</text>}
+              </g>
+            )
+          }
+
+          const t = trim(p1, p2, r1, r2)
+          const mx = (t.x1 + t.x2) / 2
+          const my = (t.y1 + t.y2) / 2
+          return (
+            <g key={k} className={cls}>
+              <line x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2} />
+              {label && (
+                <text x={mx + (ed.kind === 'insert' ? 14 : 0)} y={my - 6}>{label}</text>
+              )}
+            </g>
+          )
+        })}
+
+        {grid.nodes.map((n) => {
+          const p = pos.get(n.id)
+          return (
+            <g
+              key={n.id}
+              className={
+                'cu-lev-state' +
+                (n.bridge ? ' bridge' : '') +
+                (n.accept ? ' accept' : '') +
+                (liveSet.has(n.id) ? ' live' : '') +
+                (enteredSet.has(n.id) ? ' entered' : '')
+              }
+            >
+              {n.accept && !n.bridge && (
+                <circle cx={p.x} cy={p.y} r={LEV_R + 4} className="cu-lev-ring" />
+              )}
+              <circle cx={p.x} cy={p.y} r={n.bridge ? LEV_BRIDGE_R : LEV_R} />
+              {!n.bridge && (
+                <text x={p.x} y={p.y + 4} className="cu-lev-tag">
+                  {n.i},{n.e}
+                </text>
+              )}
+            </g>
+          )
+        })}
+      </svg>
+
+      <div className="cu-lev-legend">
+        <span className="cu-lev-key">
+          a state is <b>(characters matched, edits spent)</b> · going <b>right</b> is
+          a character that was right, going <b>down</b> costs an edit
+        </span>
+        <span><i className="dot live" /> alive right now — the walk is in all of them at once</span>
+        <span><i className="dot accept" /> accepting: “{pattern?.literal}” is reachable from here within budget</span>
+        <span className="cu-lev-edges">
+          <i className="edge match" /> the expected character
+          <i className="edge insert" /> an extra one
+          <i className="edge substitute" /> a wrong one
+          <i className="edge delete" /> a missing one
+          {grid.transpositions && <><i className="edge transpose" /> two swapped</>}
+        </span>
+        <span className="cu-lev-size">
+          {grid.nodes.length} states for {grid.maxEdits} edit
+          {grid.maxEdits === 1 ? '' : 's'} on {grid.n} characters
+          {grid.transpositions ? ' · small nodes are transposition bridges' : ''}
         </span>
       </div>
     </div>

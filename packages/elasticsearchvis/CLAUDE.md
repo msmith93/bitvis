@@ -11,10 +11,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run dev` — start the Vite dev server (the primary way to run/verify the app).
 - `npm run build` — production build to `dist/`.
 - `npm run preview` — serve the built `dist/` locally.
+- `npm run check` — assertions over the pure models (`scripts/check-models.mjs`).
 
-There is no test runner, linter, or formatter configured. The deliverable is a
-screen-recordable proof-of-concept (see `SPEC.md`), so "verify" means running
-`npm run dev` and stepping through Index → Refresh → Flush → Merge → Search.
+There is no test runner, linter, or formatter configured, and there should not
+be: the deliverable is a screen-recordable proof-of-concept (see `SPEC.md`), so
+"verify" means running `npm run dev` and stepping through Index → Refresh →
+Flush → Merge → Search. `npm run check` is the narrow exception — it covers only
+the arithmetic a browser will animate confidently and wrongly (edit distance,
+`Fuzziness.AUTO`, and the invariants that keep the zoom levels from drifting).
+Keep it to arithmetic.
 
 ## What this app is
 
@@ -74,19 +79,31 @@ which lets the stepper scrub any operation forwards and backwards.
   `Walkthrough.jsx` renders the spotlight and `ScenarioPicker` is the topbar
   menu. The snapshot both predicates read is documented in
   `src/scenarios/index.js`. Steps that ask the user to press ▶ Play set
-  `highlightPlay: true` and target `[data-tour="stepper-play"]`. The intro tour
+  `highlightPlay: true` and target `[data-tour="stepper-play"]`. Two traps that
+  have already cost bugs: **a step may only ask for ONE click** — the dim layer
+  swallows everything outside the spotlight hole, so "do X then Y" leaves Y
+  unclickable unless both sit inside the same target (or `targetExtra` names the
+  second) — and a step asking for a Search needs a ▶ Play beat in front of it
+  whenever an op is paused mid-walk, because `canStartNew` in `useOpLifecycle`
+  keeps the Search button disabled until the current op reaches its last step. The intro tour
   deliberately ends on the topbar Scenarios button (`[data-tour="scenarios"]`)
   so the menu gets discovered: that step advances on `scenariosOpen` — the real
   click that opens the menu, reported up from `ScenarioPicker` — and never asks
   the user to pick a particular scenario.
 
-- **Wildcards + routing** are first-class query features, not scenario-only
-  props. `src/wildcard.js` is the pure model: `parseQuery` keeps `*`/`?` tokens
-  whole (the analyzer would eat them), and `dictionaryTrace` produces the
-  replayable probe list — a binary-search seek when the pattern has a literal
-  prefix, a full enumeration when it doesn't. `ShardInspector` replays that
+- **Patterns (wildcard + fuzzy) and routing** are first-class query features, not
+  scenario-only props. `src/wildcard.js` is the pure model: `parseQuery` keeps
+  `*`/`?`/`~` tokens whole (the analyzer would eat them), and `dictionaryTrace`
+  produces the replayable probe list — a binary-search seek when the pattern has
+  a literal prefix, a full enumeration when it doesn't. **`seekPrefix` is the one
+  field that decides cost, for every kind**, which is why adding fuzzy needed no
+  change to the traces at all: a fuzzy's `prefix_length` maps straight onto it,
+  and `prefix_length: 0` lands in the same full-enumeration branch a leading
+  wildcard does. `matchTerm` is the single semantic authority on what matches —
+  `src/automaton.js` delegates its per-term verdict to it, which is what keeps
+  the two zoom levels from disagreeing. `ShardInspector` replays that
   trace per segment on the dictionary step (and `localSearchSteps` gives a
-  wildcard query its own step list, which is why the inspector addresses steps
+  pattern query its own step list, which is why the inspector addresses steps
   by `key` rather than index). Routing is
   `docRoute(doc) = routeShard(doc.routing || doc.id)`; a search payload's
   `routing` restricts `computeSearch` to one shard, and every downstream visual
@@ -136,17 +153,57 @@ which lets the stepper scrub any operation forwards and backwards.
 
 - **The on-disk models** (`src/blocktree.js`, `src/automaton.js`) are the deepest
   teaching layer: what a segment's term dictionary really is (an FST in `.tip`
-  over prefix-compressed blocks in `.tim`) and how a wildcard resolves against it
-  (a DFA intersected with the FST). `automaton.js` has **no stage of its own** —
-  it feeds the `dictionary` stage, which serves a plain term and a wildcard with
-  one picture. Posting-list encoding had a model and a zoom; both were removed and
-  `SPEC.md` records why — don't rebuild them. They are
+  over prefix-compressed blocks in `.tim`) and how a pattern resolves against it
+  (a DFA intersected with the FST). `automaton.js` builds **two NFAs** — a glob
+  for `*`/`?`, a Levenshtein `(i, e)` grid for `~` — and that choice is the ONLY
+  thing a pattern's kind decides; determinization, the walk, pruning and floor
+  selection are shared, because to Lucene both are just an `AutomatonQuery`.
+  `automaton.js` has **no stage of its own** — it feeds the `dictionary` stage,
+  which serves a plain term, a wildcard and a fuzzy with one picture. For a fuzzy
+  that picture gains a second panel: `buildLevenshteinNfa` also returns a `grid`
+  drawing model (nodes carrying their own `(i, e)`, edges tagged by which edit
+  they are), and `shared.jsx`'s `AutomatonGrid` renders it, lighting the state
+  SET out of `dfa.states[...].nfaSet`. The view must never reverse-engineer a
+  coordinate from a state id — `npm run check` asserts the two agree. In fuzzy
+  mode the `.tim` block column leaves the split and becomes a full-width strip so
+  the two in-memory structures can sit side by side; that is a property of the
+  QUERY, not of the step, so the no-content-swapping rule still holds. The FST
+  panel is **capped and pans to the cursor** (`.cu-fst` + the scroll effect in
+  `ArcGraph`): the .tip FST is bushy rather than deep, so its height grows with
+  the dictionary and would otherwise set the panel's size. The arc replay is the
+  SAME for every query — green followed, red rejected, subtree dimmed, cursor
+  panning — and only the automaton panel is fuzzy-specific. Don't reintroduce a
+  per-kind variant of the walk; `SPEC.md` records why the glob-only version was
+  wrong. Note also that `CloseUp` takes `held`, which freezes its clock while a
+  read-this tour step is up — and that `held` must be in the clock effect's deps
+  or the already-scheduled dwell still fires once. Two things about the fuzzy
+  grid that are easy to get wrong and are now asserted by `npm run check`: the
+  from-set of a step is the visit's own `dfaFrom` (the walk BACKTRACKS, so the
+  previous visit's `dfaTo` is the wrong state and almost nothing lights up), and
+  the arc walk only consumes block prefixes so it can never reach an accepting
+  state — `termPath` finishes the word on step 4, which is the only view that
+  reaches the grid's right-hand column.
+
+- **`SAMPLE_DOCS` is load-bearing for three scenarios at once**, and its job is
+  partly to be *vocabulary* rather than prose. A fuzzy query can only prune when
+  block prefixes discriminate, which needs ~90+ distinct terms per shard; the
+  original fourteen docs pruned nothing and that is why `prefix_length` briefly
+  existed as a UI control. Docs 15+ exist for that reason and carry two rules in
+  a comment there (never the bare term `search`; nothing else may end in
+  `search`). `npm run check` guards the pruning, the shard-0 4/3/2/1 top-k
+  spread, `*search`'s two matches and `sc*`'s range — read those before editing
+  the dataset.
+
+  Posting-list encoding had a model and a zoom; both were removed and `SPEC.md`
+  records why — don't rebuild them. These models are
   pure and produce **replayable traces**, exactly like `dictionaryTrace` in
   `src/wildcard.js` — the stage folds a trace into a view rather than animating
   imperatively. The `dictionary` stage is a **persistent stage** in the
   `coordMerge` style: the FST (in memory) and the blocks it indexes (on disk) are
   rendered on every step and the step only changes what is highlighted. Do not
-  reintroduce per-step content swapping there — `SPEC.md` explains why. `SPEC.md` has the accuracy guardrails; the short version is that
+  reintroduce per-step content swapping there — `SPEC.md` explains why.
+
+  `SPEC.md` has the accuracy guardrails; the short version is that
   block sizes are toy-scaled (2–4 vs 25–48, 2 vs 128) with a visible badge saying
   so, every rendered number must come from a trace, and `automaton.js`'s matched
   set is kept in agreement with `expandTerms` so the zoom levels can't drift.

@@ -2,6 +2,7 @@ import intro from './intro'
 import wildcard from './wildcard'
 import routing from './routing'
 import ondisk from './ondisk'
+import fuzzy from './fuzzy'
 
 // Guided scenarios. Each one is a self-contained module — like an op module in
 // src/ops/ — declaring `{ id, label, blurb, steps, setup? }`. Adding a scenario
@@ -55,7 +56,12 @@ import ondisk from './ondisk'
 //               advances on it, to leave the user looking at the menu)
 //
 // The actions a step may drive: pause, reset, setQuery, setRouting.
-export const SCENARIOS = [intro, wildcard, routing, ondisk]
+//
+// A note that has already cost two bugs: a step may only ever ask for ONE
+// click. The dim layer swallows everything outside the spotlight hole, so a
+// step whose copy says "do X and then Y" leaves Y unclickable unless both sit
+// inside the same target (or are named by `targetExtra`).
+export const SCENARIOS = [intro, wildcard, routing, ondisk, fuzzy]
 
 export const DEFAULT_SCENARIO = intro.id
 

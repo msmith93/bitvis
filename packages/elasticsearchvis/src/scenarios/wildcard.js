@@ -33,7 +33,7 @@ const STEPS = [
     target: '[data-tour="merge"]',
     placement: 'right',
     title: 'Merge first, so the dictionaries are worth reading',
-    body: 'Click Merge. Each shard’s small segments become one bigger segment — 24 to 43 terms each instead of a dozen. The cost difference you are about to see is only interesting against a dictionary with something in it.',
+    body: 'Click Merge. Each shard’s small segments become one bigger segment, with the shard’s whole vocabulary in a single term dictionary. The cost difference you are about to see is only interesting against a dictionary with something in it.',
     // Merge is disabled while another op's clock runs, and the sample set
     // tombstones a doc so Refresh is live too — an off-script click lands here.
     // Wait for an idle timeline so the ring only lands on a pressable button.

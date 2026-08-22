@@ -40,10 +40,16 @@ The whole point is to make the distinctions that usually get glossed over
 - **What a routing key does** — `hash(_routing)` instead of `hash(_id)`
   co-locates a tenant on one shard, so a query carrying the same key skips the
   others entirely.
+- **How a typo still finds the document** — `serch~` compiles to a Levenshtein
+  automaton, drawn beside the term index and walked against it in lockstep. You
+  watch which `(characters matched, edits spent)` states survive each character,
+  and the moment none of them do, an arrow turns red and a whole branch of the
+  dictionary is skipped unread. Then the same word with one more edit of budget,
+  side by side: triple the states, and nothing prunes at all.
 
 ## Guided scenarios
 
-The **Scenarios** menu (top right) runs three lessons. Each one spotlights the
+The **Scenarios** menu (top right) runs five lessons. Each one spotlights the
 real controls and waits for you to click them:
 
 | Scenario | What you'll see |
@@ -51,10 +57,12 @@ real controls and waits for you to click them:
 | Guided intro tour | Index your first document, refresh it, load a fuller dataset, and run a scatter-gather search to completion — including both 🔍 close-ups. Runs automatically on first load, and is replayable from the menu. |
 | Why leading wildcards are expensive | `sc*` seeks the term dictionary in a handful of probes; `*search` reads 100% of it. The shard close-up replays both, per segment, with a live "examined" counter. |
 | How a routing key works | The same query with and without `routing`: one shard serving versus all three. |
+| Inside a segment's term dictionary | Three zooms down to what an inverted index really is: an FST in `.tip` that picks one block of terms out of `.tim`. |
+| How a typo still finds the document | The term index and a Levenshtein automaton walked side by side, one character at a time, until a branch dies — then what one more edit of budget costs, in states, in arcs and in blocks read. |
 
-Wildcards and routing aren't scenario-only — a `*` in the search box runs a
-wildcard query, the routing field next to it works on any dataset, and the index
-form takes a routing key (watch the predicted target shard change as you type).
+None of this is scenario-only. A `*` or a `~` in the search box runs a wildcard
+or fuzzy query, the routing field works on any dataset, and the index form takes
+a routing key (watch the predicted target shard change as you type).
 
 ## Cluster topology
 
