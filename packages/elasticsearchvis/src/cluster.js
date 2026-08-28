@@ -57,15 +57,49 @@ export function selectServingCopy(shard) {
     : { node: shard.primaryNode, role: 'primary' }
 }
 
+// ---- Lucene documents vs Elasticsearch documents ------------------------
+//
+// A segment does not store Elasticsearch documents; it stores LUCENE documents,
+// addressed by a segment-local ordinal 0..maxDoc-1, and the posting lists hold
+// those ordinals. `_id` is just a stored field. `seg.docIds` is therefore the
+// segment's Lucene docs IN ORDINAL ORDER -- the ordinal IS the array index,
+// which is why a merge renumbers them for free.
+//
+// One Elasticsearch document occupies a contiguous BLOCK of that array, with its
+// root written LAST. A document with no nested field is a block of exactly one
+// Lucene doc whose id is its `_id`, so everything below degenerates to the flat
+// 1:1 model the app had before nested existed.
+
+// The `_id` a Lucene doc belongs to. A root is its own root.
+export const docRootId = (d) => d?.root ?? d?.id ?? null
+
+// Is this Lucene doc the block's root (the Elasticsearch document itself)?
+export const isRootDoc = (d) => (d?.kind ?? 'root') === 'root'
+
+// NOTE on the parent bitset. Lucene resolves a nested match to its document by
+// walking a cached per-segment bitset (BitSetProducer) FORWARD from the matching
+// child to the next set bit -- which is why the root must be written last. This
+// app does not model that walk: `docRootId` above answers the same question
+// directly, and the app has no ordinal arithmetic for a bitset to make cheaper.
+// A `parentBitset` / `nextSetBit` pair and a diagram of them lived here and were
+// REMOVED -- they duplicated the stored _source column (which already lists every
+// Lucene doc, in ordinal order, children before their root, WITH its content),
+// nothing but the test ever called them, and the picture implied postings hold
+// integers while the column beside it rendered ids. The cost that mattered --
+// the bitset is rebuilt per segment and goes cold on every refresh -- is a
+// sentence in the step copy, which is where it belongs. Don't rebuild them
+// without making the model actually walk one.
+
 export function initialCluster() {
   return {
     shards: SHARD_PLACEMENT.map((p) => ({
       ...p,
-      buffer: [], // doc ids in the in-memory indexing buffer (not searchable)
-      translog: [], // doc ids appended to the translog (durability log)
-      segments: [], // { id, docIds, searchable, committed }
+      buffer: [], // Lucene doc ids in the in-memory indexing buffer (not searchable)
+      translog: [], // Lucene doc ids appended to the translog (durability log)
+      segments: [], // { id, docIds, searchable, committed } -- docIds in ordinal order
     })),
-    docs: {}, // docId -> { id, title, body, tokens, deleted, color, shard }
+    // luceneDocId -> { id, root, kind, tokens, deleted, color, shard, ... }
+    docs: {},
   }
 }
 

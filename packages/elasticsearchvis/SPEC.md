@@ -157,6 +157,107 @@ its searchable segments. Show these per shard. A search unions posting lists
 across shards — a term shared by docs on different shards shows up from multiple
 shards in the gathered results. This cross-shard union is the key "aha."
 
+## The document model — `object` vs `nested` (KEEP THIS ACCURATE)
+
+A segment does not store Elasticsearch documents. It stores **Lucene documents**,
+addressed by a **segment-local ordinal** `0..maxDoc-1`, and the posting lists hold
+those ordinals. `_id` is just a stored field. The app models this directly:
+`seg.docIds` is the segment's Lucene docs **in ordinal order**, and the ordinal
+**is the array index** — which is why a merge renumbers them for free, and why
+`src/ops/merge.js` must never sort or regroup that array.
+
+One Elasticsearch document occupies a contiguous **block** of that array, with
+its root written **LAST**:
+
+```
+ordinal  id                 kind    fields
+   0     doc-2.variants#0   child   variants.color: red   variants.size: S
+   1     doc-2.variants#1   child   variants.color: blue  variants.size: XL
+   2     doc-2              root    name: Trail Runner
+```
+
+`src/mapping.js` is the whole difference, and it is one file:
+
+1. **`object` (the default) FLATTENS.** The array of sub-objects disappears and
+   its leaves become multi-valued fields on the parent — `variants.color:
+   [red, blue]`. One Lucene doc. **The pairing is not stored anywhere**, because
+   there is nowhere left to store it, so `color:red AND size:XL` matches a
+   product that has a red S and a blue XL. That false positive is not a bug in
+   the app; it is the thing being taught.
+2. **`nested` writes each sub-object as its own Lucene doc**, root last, as one
+   contiguous block.
+2b. **The flattened fields must be VISIBLE.** An object-mapped document once
+   rendered as nothing but its name, which hid the only thing the mapping does.
+   The shard close-up now draws each multi-valued field as its own list —
+   `variants.color [red] [blue] [black]` over `variants.size [S] [XL] [M]` —
+   stacked and aligned, so the lists are plainly the same length with nothing
+   linking them. That absence is the lesson, so keep them aligned.
+   **Only the INDEXED form is shown.** Real Elasticsearch also stores `_source`
+   as the original JSON, so an object-mapped document still has its sub-objects
+   there, pairing intact, and hands them back on a fetch — which is why the false
+   positive is so hard to spot in practice. Drawing the written form beside the
+   indexed one was built and REMOVED: two representations plus a caption was more
+   than the column could carry. Showing the original document is an open item,
+   and it needs its own space rather than a second block in this column.
+3. **A block is ATOMIC.** Lucene cannot update or delete one child, so a delete
+   tombstones the whole block and an update rewrites all of it. This is where
+   update amplification comes from, and it is why `toggleDelete` in
+   `src/useOpLifecycle.js` flips every doc sharing a root.
+4. **The join.** A nested query matches children, then has to report the
+   DOCUMENTS that own them. Lucene does this by walking a cached per-segment
+   bitset of "which docs are roots" (`BitSetProducer`) forward from each match —
+   which is the reason the root is written last, and a cost paid per segment per
+   query, cold again after every refresh. **The app does not model that walk**:
+   `docRootId` answers the same question directly and there is no ordinal
+   arithmetic here for a bitset to make cheaper. A `parentBitset` / `nextSetBit`
+   pair and a diagram of them existed and were REMOVED — see the simplifications
+   below. The join is SHOWN on the stored `_source` rows, which are the only
+   place a Lucene doc appears with its content, and `npm run check` asserts it
+   against `computeShardSearch`, the function the close-up actually renders.
+5. **Lucene docs vs Elasticsearch documents.** Nested mapping is the gap between
+   them — 12 products become 44 Lucene docs — and it is paid on storage, on every
+   merge and on every query. It is stated in words and in the segment stack's own
+   chips, not as a `maxDoc`/`numDocs` badge: that badge existed and was removed
+   as unexplained Lucene vocabulary.
+
+**A document with no nested field is a block of exactly ONE Lucene doc whose id
+is its `_id`.** That degeneration is a correctness requirement, not a
+convenience: it is what keeps every flat dataset, every other scenario and every
+pre-existing `npm run check` invariant byte-for-byte unchanged. `npm run check`
+guards it.
+
+### Queries: fielded and conjunctive
+`parseQuery` accepts Lucene query-string `field:value` and an UPPERCASE `AND`,
+and nothing else. Both halves are prerequisites, not decoration: the object
+failure is only visible when two clauses that name **fields** must **both** match,
+and a query using neither parses exactly as it always did. Uppercase-only `AND`
+is what stops a document containing the word "and" from being read as an operator.
+
+A conjunctive query scores 0 unless every clause matched **the same Lucene doc**.
+That single rule is the whole lesson: under `object` the whole document is one
+Lucene doc, so clauses agree across sub-objects that were never together; under
+`nested` they must agree within one child. It is deliberately one code path.
+
+### The catalog dataset
+Twelve products, seeded twice (`catalog-object` / `catalog-nested`). Switching
+mapping is a **REINDEX**, because a mapping cannot be changed in place in
+Elasticsearch — so it is two entries in the Load-docs menu, never a toggle.
+Three invariants, all asserted by `npm run check`:
+
+- **No product has a variant that is both red AND XL.** If one did, the trap
+  query would be a true positive and the lesson would evaporate.
+- **Exactly one product (doc-2, Trail Runner) holds red and XL on different
+  variants**, so the false positive is a single pointable document.
+- **doc-2/5/8/11 route to shard 0 with 3/4/3/3 variants**, so shard 0 holds 4
+  Lucene docs under `object` and 17 under `nested`. That 4-vs-17 is what the
+  segment stack shows with no new UI.
+
+The control query is `variants.color:brown AND variants.size:M`, not a red pair:
+brown appears on exactly one variant in the catalog, so no product holds brown
+and M on different variants and the two mappings MUST agree. A red+S control
+would not work — several products carry red and S on different variants, so
+object over-matches there too and the contrast stops being clean.
+
 ## On-disk anatomy (the deepest zoom — KEEP THESE ACCURATE)
 The flat two-column table above is a drawing, not a layout. A fourth zoom level
 (reached by the 🔍 on a segment's column heads, inside the shard close-up) shows
@@ -473,6 +574,9 @@ future view that draws the term list must not imply otherwise.
 - Search is scatter-then-gather, coordinated by one node; two-phase
   query-then-fetch.
 - Updates = new doc + tombstone on old; deletes = tombstone, reclaimed at merge.
+- Posting lists address LUCENE docs (segment-local ordinals), never `_id`s. An
+  Elasticsearch document is a contiguous BLOCK of them with the root LAST, and
+  the block is atomic — never write, delete or reorder part of one.
 - Don't expose analyzer config, shard/replica counts, or merge-policy tuning.
   This is a guided POC, not a configurable simulator. Keep the surface small.
 
@@ -536,6 +640,32 @@ Documented so reviewers can verify the teaching stays honest:
 - Primary + replica are modeled as one logical shard rendered on two nodes (no
   replica lag; replica merges shown in lockstep with the primary).
 - Relevance score is term-frequency, a stand-in for BM25.
+- **A nested block's score SUMS its matching children.** Elasticsearch's nested
+  query defaults to `score_mode: avg`; summing is chosen because it leaves a
+  one-child block's score exactly what it was, which is what keeps the tuned
+  shard-0 4/3/2/1 top-k spread intact. The dictionary and join costs — which is
+  what this lesson is about — are unaffected.
+- **The parent bitset is described, not modelled or drawn.** A `parentBitset` /
+  `nextSetBit` pair in `src/cluster.js` and a "lucene docs · by ordinal" strip in
+  the shard close-up were both removed. The strip duplicated the stored `_source`
+  column — which already lists every Lucene doc, in ordinal order, children
+  before their root, WITH its content and its id — while adding a picture that
+  implied posting lists hold integers when the column beside it renders ids. The
+  model functions had no caller but the test, so the test was asserting a
+  parallel implementation rather than the real path. Don't rebuild either without
+  first making the model genuinely walk a bitset.
+- **A conjunctive query is modelled as clauses agreeing on one Lucene doc**,
+  rather than as Elasticsearch's `bool`/`nested` query DSL. That is what the
+  block join really does, but it means a query mixing a root field with a nested
+  field finds nothing here, where real Elasticsearch would need an explicit
+  `bool` wrapping a `nested` clause to express it at all.
+- **Numeric fields index as a single term.** Real Elasticsearch indexes numerics
+  as points so ranges work; an exact-value term lookup — the part taught here —
+  behaves the same either way.
+- The catalog's variant counts (2–4) are small enough to fit a shard card. Real
+  nested pain starts in the dozens; the copy gives the real numbers (48 variants
+  → 49 docs rewritten per update, `nested_objects.limit` 10 000) rather than
+  faking a dataset that would not render.
 - Replica selection during scatter is deterministic, not adaptive replica
   selection.
 - Coordinator fixed to node-1; single index with 3 shards / 1 replica; no

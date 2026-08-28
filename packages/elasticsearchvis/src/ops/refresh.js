@@ -29,6 +29,9 @@ export default {
     const newSegs = op.payload.newSegments
     for (const shard of c.shards) {
       if (shard.buffer.length === 0) continue
+      // The buffer is copied IN ORDER, which is what keeps each document's block
+      // contiguous and its root last: the ordinal a Lucene doc gets is its index
+      // here. Never sort or regroup this.
       shard.segments.push({
         id: newSegs[shard.id],
         docIds: [...shard.buffer],

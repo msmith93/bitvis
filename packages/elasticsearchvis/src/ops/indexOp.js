@@ -61,12 +61,17 @@ export default {
 
   derive(c, op) {
     const s = op.step
-    const { doc } = op.payload
-    c.docs[doc.id] = doc
+    const { doc, block = [doc] } = op.payload
+    for (const ld of block) c.docs[ld.id] = ld
     if (s >= 3) {
       const shard = c.shards.find((sh) => sh.id === doc.shard)
-      if (!shard.buffer.includes(doc.id)) shard.buffer.push(doc.id)
-      if (!shard.translog.includes(doc.id)) shard.translog.push(doc.id)
+      // The whole block is buffered IN ORDER, children before the root. A block
+      // is written atomically — Lucene has no way to add one child to a document
+      // that is already indexed.
+      for (const ld of block) {
+        if (!shard.buffer.includes(ld.id)) shard.buffer.push(ld.id)
+        if (!shard.translog.includes(ld.id)) shard.translog.push(ld.id)
+      }
     }
   },
 
@@ -87,8 +92,12 @@ export default {
 
   // Content-driven steps only; undefined falls back to the step's static `ms`.
   duration(op) {
-    const { tokens } = op.payload.doc
-    const n = tokens.title.length + tokens.body.length
+    const { block = [op.payload.doc] } = op.payload
+    // Every term the whole block emits — the field set comes from the document.
+    const n = block.reduce(
+      (t, ld) => t + Object.values(ld.tokens).reduce((k, terms) => k + terms.length, 0),
+      0,
+    )
     if (op.step === 2) return INDEX_ANALYSIS_LEAD_MS + flightMs(n) // scan + tokens-in-box + emit flight
     if (op.step === STEPS.length - 1) return flightMs(n) + FLIGHT_PAD_MS // replica flight
     return undefined

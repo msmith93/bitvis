@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { docRootId } from './cluster'
 import { applyOp, deriveCluster, lastStep, opExtra, stepDuration } from './ops'
 
 // The op lifecycle state machine: the committed cluster, the active op, the
@@ -84,12 +85,23 @@ export function useOpLifecycle(makeInitialCluster) {
     const flip = (c) => {
       const d = c.docs[id]
       if (!d) return c
-      // Delete records a tombstone; the doc stays searchable until the next
-      // refresh applies it (sets `purged`). Undo fully restores the doc.
-      const next = d.deleted
-        ? { ...d, deleted: false, purged: false }
-        : { ...d, deleted: true }
-      return { ...c, docs: { ...c.docs, [id]: next } }
+      // A BLOCK IS ATOMIC. Deleting an Elasticsearch document tombstones every
+      // Lucene doc in its block — all the nested children as well as the root —
+      // because Lucene cannot delete part of one. That is where update
+      // amplification comes from: a one-field change to a document with 48
+      // variants tombstones 49 docs and writes 49 more.
+      const root = docRootId(d)
+      const deleted = !d.deleted
+      const docs = { ...c.docs }
+      for (const other of Object.values(c.docs)) {
+        if (docRootId(other) !== root) continue
+        // Delete records a tombstone; the doc stays searchable until the next
+        // refresh applies it (sets `purged`). Undo fully restores the doc.
+        docs[other.id] = deleted
+          ? { ...other, deleted: true }
+          : { ...other, deleted: false, purged: false }
+      }
+      return { ...c, docs }
     }
     // A finished op is still "active" and re-derived every render. For a completed
     // REFRESH that means a fresh tombstone would be applied (purged) immediately on

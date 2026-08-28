@@ -72,7 +72,7 @@ export default function SearchFlight({ op, search, docs }) {
         if (!from || !coord) continue
         const tokens = ws.map((w) => ({
           id: `f-${id}-${w.docId}`,
-          term: truncate(docs[w.docId]?.title),
+          term: truncate(docs[w.docId]?.label),
           color: docs[w.docId]?.color,
         }))
         next.push({ key: `${sig}-${id}`, from, to: coord, tokens, variant: 'doc' })

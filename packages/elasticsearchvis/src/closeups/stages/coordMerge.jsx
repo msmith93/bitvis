@@ -162,7 +162,7 @@ function MergeStage({ step, co, docs }) {
         hit: h,
         rank: rank.get(h.docId),
         showShard: true,
-        body: d ? `${d.title}${d.body ? ` — ${d.body}` : ''}` : '',
+        body: d ? `${d.label}${d.detail ? ` — ${d.detail}` : ''}` : '',
       }
     })
   }

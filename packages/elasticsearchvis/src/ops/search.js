@@ -1,11 +1,14 @@
-import { routeShard, selectServingCopy } from '../cluster'
+import { docRootId, routeShard, selectServingCopy } from '../cluster'
 import { MAX_GATHER_IDS, MAX_FETCH_WINNERS, LOCAL_TOPK } from '../constants'
 import { segmentInvertedIndex } from '../invertedIndex'
 import { flightMs, FLIGHT_PAD_MS } from '../timing'
 import {
+  clauseCoversField,
   dictionaryScan,
+  isConjunctive,
   isPatternQuery,
   matchesAny,
+  matchTerm,
   parseQuery,
   patternLabel,
 } from '../wildcard'
@@ -65,20 +68,81 @@ const STEPS = [
   },
 ]
 
-// Score one doc against the query patterns: how often each MATCHING term occurs
-// in it. `perTerm` is keyed by the real term, not the pattern, so a wildcard
-// shows which terms it actually hit. For a plain term query this is identical to
-// the term-frequency count the app has always used (a stand-in for BM25).
+// Score one LUCENE doc against the query patterns: how often each MATCHING term
+// occurs in it. `perTerm` is keyed by the real term, not the pattern, so a
+// wildcard shows which terms it actually hit. For a plain term query this is
+// identical to the term-frequency count the app has always used (a stand-in for
+// BM25).
+//
+// Two refinements, both inert unless the query uses them:
+//   a field-qualified clause only counts terms from THAT field;
+//   a conjunctive query scores 0 unless EVERY clause matched this one doc.
+//
+// That second rule is the entire object-vs-nested lesson, and it is deliberately
+// one function for both: under `object` the whole document is one Lucene doc, so
+// clauses agree across sub-objects that were never together; under `nested` each
+// child is its own Lucene doc, so they have to agree within one child.
 export function scoreDoc(doc, patterns) {
   const perTerm = {}
   let score = 0
-  for (const field of ['title', 'body'])
-    for (const term of doc.tokens[field])
-      if (matchesAny(term, patterns)) {
+  const clausesHit = new Set()
+  for (const [field, terms] of Object.entries(doc.tokens))
+    for (const term of terms) {
+      let matched = false
+      patterns.forEach((p, i) => {
+        if (clauseCoversField(p, field) && matchTerm(term, p)) {
+          matched = true
+          clausesHit.add(i)
+        }
+      })
+      // Counted once per TERM, not once per matching clause — the frequency the
+      // app has always shown.
+      if (matched) {
         perTerm[term] = (perTerm[term] || 0) + 1
         score += 1
       }
-  return { score, perTerm }
+    }
+  // WHICH clauses this doc satisfied, always reported. A conjunctive query that
+  // finds nothing is the most interesting outcome this app has, and without this
+  // the candidates simply vanish between one step and the next with no account
+  // of why — which is exactly the question the picture exists to answer.
+  const clauses = patterns.map((p, i) => ({
+    label: p.field ? `${p.field}:${p.raw}` : p.raw,
+    hit: clausesHit.has(i),
+  }))
+  if (isConjunctive(patterns) && clausesHit.size < patterns.length)
+    return { score: 0, perTerm: {}, clauses, eliminated: true }
+  return { score, perTerm, clauses, eliminated: false }
+}
+
+// The block join: fold per-Lucene-doc scores up to the Elasticsearch documents
+// that own them. A flat doc is its own root, so this is the identity for every
+// dataset that has no nested field.
+//
+// Scores SUM across a block. Elasticsearch's nested query defaults to
+// `score_mode: avg`; summing is the choice that leaves a one-doc block's score
+// exactly what it was, which is what keeps the existing scenarios intact.
+// The term frequencies of one root, unioned over its whole block. For a flat doc
+// this is just that doc's own perTerm.
+function mergePerTerm(luceneScored, docs, rootId) {
+  const out = {}
+  for (const h of luceneScored) {
+    if (h.score <= 0 || docRootId(docs[h.docId]) !== rootId) continue
+    for (const [term, n] of Object.entries(h.perTerm)) out[term] = (out[term] || 0) + n
+  }
+  return out
+}
+
+function joinToRoots(luceneHits, docs) {
+  const byRoot = new Map()
+  for (const { docId, score } of luceneHits) {
+    if (score <= 0) continue
+    const root = docRootId(docs[docId])
+    const rootDoc = docs[root]
+    if (!rootDoc || rootDoc.purged) continue
+    byRoot.set(root, (byRoot.get(root) || 0) + score)
+  }
+  return [...byRoot].map(([docId, score]) => ({ docId, score }))
 }
 
 // What resolving this query costs in the term dictionaries it has to touch:
@@ -116,6 +180,11 @@ function computeSearch(cluster, op) {
 
   const serving = {} // shardId -> { node, role }   (queried shards only)
   const perShard = {} // shardId -> [{ docId, score }]
+  // What the query actually had to look at: Lucene docs, against the
+  // Elasticsearch documents they add up to. Identical on a flat dataset; on a
+  // nested one the first number is the multiplier, and it is paid on every query.
+  let luceneScanned = 0
+  let rootsScanned = 0
 
   for (const shard of queried) {
     serving[shard.id] = selectServingCopy(shard)
@@ -123,16 +192,25 @@ function computeSearch(cluster, op) {
     const docIds = new Set()
     for (const seg of shard.segments)
       if (seg.searchable) for (const id of seg.docIds) docIds.add(id)
+    for (const id of docIds) {
+      const d = cluster.docs[id]
+      if (!d || d.purged) continue
+      luceneScanned += 1
+      if (docRootId(d) === id) rootsScanned += 1
+    }
 
-    const hits = []
+    const luceneHits = []
     for (const id of docIds) {
       const doc = cluster.docs[id]
       // Tombstoned-but-not-yet-refreshed docs are still searchable (purged is
       // set by a refresh); only purged docs drop out of results.
       if (!doc || doc.purged) continue
       const { score } = scoreDoc(doc, patterns)
-      if (score > 0) hits.push({ docId: id, score })
+      if (score > 0) luceneHits.push({ docId: id, score })
     }
+    // Matches are on LUCENE docs; the client asked about Elasticsearch
+    // documents, so every hit is joined up to the root of its block.
+    const hits = joinToRoots(luceneHits, cluster.docs)
     hits.sort((a, b) => b.score - a.score || a.docId.localeCompare(b.docId))
     perShard[shard.id] = hits
   }
@@ -149,6 +227,9 @@ function computeSearch(cluster, op) {
     routing,
     routedShard,
     skipped: cluster.shards.filter((s) => !(s.id in serving)).map((s) => s.id),
+    conjunctive: isConjunctive(patterns),
+    luceneScanned,
+    rootsScanned,
     cost: dictionaryCost(queried, cluster.docs, patterns),
     serving,
     perShard,
@@ -203,6 +284,19 @@ export default {
         `${s.cost.examined} of ${s.cost.total} dictionary terms examined across ${s.cost.segments} segment${
           s.cost.segments === 1 ? '' : 's'
         } on ${s.cost.shards} shard${s.cost.shards === 1 ? '' : 's'}.`,
+      )
+    // Nested mapping's standing cost, stated where the reader is already looking
+    // at a number: the searched shards hold this many Lucene docs to hold that
+    // many documents, and the gap is paid on every query, not just this one.
+    if (s.luceneScanned > s.rootsScanned)
+      parts.push(
+        `nested: ${s.luceneScanned} Lucene docs searched to cover ${s.rootsScanned} document${
+          s.rootsScanned === 1 ? '' : 's'
+        } (×${(s.luceneScanned / s.rootsScanned).toFixed(1)}). Every matching child then joins up through the parent bitset.`,
+      )
+    if (s.conjunctive)
+      parts.push(
+        'AND: every clause must match the SAME Lucene doc — which under object mapping is the whole document, sub-objects flattened together.',
       )
     // The count above comes from the FLAT model this level uses (see SPEC.md):
     // a fuzzy has no prefix to seek to, so a sorted array has to read all of it.
@@ -316,8 +410,49 @@ function patternLocalSteps(patterns) {
   ]
 }
 
-export function localSearchSteps(patterns) {
-  return isPatternQuery(patterns) ? patternLocalSteps(patterns) : PLAIN_LOCAL_STEPS
+// Two steps that only exist when there is something to show:
+//
+//   `intersect` when the query is conjunctive — otherwise a candidate that fails
+//   the AND just disappears between the postings step and the score step, and
+//   the single most important question the reader has ("why is that one not
+//   here?" / "where did they all go?") is answered by nothing at all.
+//
+//   `join` when the shard holds nested blocks — the moment several Lucene docs
+//   become the one Elasticsearch document the client asked about. It is drawn
+//   even for a flat hit, as a row of one, because it is the same operation with
+//   nothing to gather.
+const INTERSECT_STEP = {
+  key: 'intersect',
+  title: 'Intersect: every clause must hit the SAME Lucene doc',
+  blurb:
+    'The clauses are ANDed, so a candidate only survives if it satisfies ALL of them — and it has to satisfy them on ONE Lucene doc. This is where object and nested part company. Under object mapping the whole document is one Lucene doc, so two clauses can agree on it while matching values that were never on the same sub-object: a false positive no query can detect. Under nested mapping each sub-object is its own Lucene doc, so the clauses must agree WITHIN one child. A candidate that matched only some clauses is struck out here, with the clause it failed.',
+}
+
+const JOIN_STEP = {
+  key: 'join',
+  title: 'Join: Lucene docs → the document you asked about',
+  blurb:
+    'A match is on a Lucene doc; the client asked about an Elasticsearch document. Every surviving match is rolled up to the document that owns it, and several matching variants of one product collapse into that single product — scores gathered as they go. Real Lucene does this by walking a cached per-segment bitset of “which docs are roots” forward from each match, which is why the root is written last and why the join costs something on every query. From here on there are no Lucene docs left: only documents, and only those ever leave the shard.',
+}
+
+export function localSearchSteps(patterns, { blocks = false } = {}) {
+  const base = isPatternQuery(patterns) ? patternLocalSteps(patterns) : PLAIN_LOCAL_STEPS
+  const conjunctive = isConjunctive(patterns)
+  if (!conjunctive && !blocks) return base
+
+  const out = []
+  for (const s of base) {
+    out.push(s)
+    if (s.key === 'postings') {
+      if (conjunctive) out.push(INTERSECT_STEP)
+      if (blocks) out.push(JOIN_STEP)
+    }
+  }
+  // Renumber, since the step titles carry their own ordinal.
+  return out.map((s, i) => ({
+    ...s,
+    title: s.title.replace(/^\d+ · /, ''),
+  })).map((s, i) => ({ ...s, title: `${i + 1} · ${s.title}` }))
 }
 
 // The coordinator close-up walks these steps to show how the coordinator turns
@@ -405,8 +540,40 @@ export function computeShardSearch(shard, patterns, docs, k = LOCAL_TOPK) {
       if (matchesAny(row.term, patterns)) for (const id of row.docIds) candidateSet.add(id)
   const candidates = [...candidateSet].sort((a, b) => a.localeCompare(b))
 
-  const scored = candidates
+  // Scored at the LUCENE doc level -- this is what the postings actually
+  // addressed, and for a nested block it is the CHILDREN that score.
+  const luceneScored = candidates
     .map((docId) => ({ docId, ...scoreDoc(docs[docId], patterns) }))
+    .sort((a, b) => b.score - a.score || a.docId.localeCompare(b.docId))
+
+  // Candidates that failed the conjunction, kept rather than dropped so the view
+  // can SHOW the elimination. `survivors` is what goes on to be joined.
+  const eliminated = luceneScored.filter((h) => h.eliminated)
+  const survivors = luceneScored.filter((h) => h.score > 0)
+
+  // The block join, as a replayable list of hops: each surviving child and the
+  // document it rolls up to. Empty for a flat dataset, where every Lucene doc is
+  // already its own root.
+  const joins = survivors
+    .filter((h) => docRootId(docs[h.docId]) !== h.docId)
+    .map((h) => ({ child: h.docId, root: docRootId(docs[h.docId]), score: h.score }))
+
+  // The join as the view draws it: one row per DOCUMENT, listing the Lucene docs
+  // that collapsed into it. A flat hit is a row of one, which is the honest
+  // picture — it is the same operation, it just has nothing to gather.
+  const joinRows = [...new Set(survivors.map((h) => docRootId(docs[h.docId])))].map((root) => ({
+    root,
+    from: survivors.filter((h) => docRootId(docs[h.docId]) === root).map((h) => h.docId),
+  }))
+
+  // Rolled up to Elasticsearch documents. `perTerm` is re-derived at the root so
+  // the results panel keeps showing which terms a hit actually contained.
+  const scored = joinToRoots(luceneScored, docs)
+    .map(({ docId, score }) => ({
+      docId,
+      score,
+      perTerm: mergePerTerm(luceneScored, docs, docId),
+    }))
     .sort((a, b) => b.score - a.score || a.docId.localeCompare(b.docId))
 
   const topk = scored.slice(0, k).map(({ docId, score }) => ({ docId, score }))
@@ -416,5 +583,19 @@ export function computeShardSearch(shard, patterns, docs, k = LOCAL_TOPK) {
   const examined = segments.reduce((n, s) => n + s.scan.examined, 0)
   const dictTotal = segments.reduce((n, s) => n + s.scan.total, 0)
 
-  return { segments, candidates, scored, topk, k, matchedTerms, examined, dictTotal }
+  return {
+    segments,
+    candidates,
+    luceneScored,
+    eliminated,
+    survivors,
+    joins,
+    joinRows,
+    scored,
+    topk,
+    k,
+    matchedTerms,
+    examined,
+    dictTotal,
+  }
 }

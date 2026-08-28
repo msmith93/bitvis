@@ -66,6 +66,14 @@ export default function DeleteDocOverlay({ open, docs, onToggleDelete, onClose }
                             ? `${d.routing} → shard ${d.shard}`
                             : `→ shard ${d.shard}`}
                         </span>
+                        {d.blockSize > 1 && (
+                          <span
+                            className="doc-block"
+                            title={`nested: this document is ${d.blockSize} Lucene docs, and a delete tombstones all of them`}
+                          >
+                            {d.blockSize} lucene docs
+                          </span>
+                        )}
                         <button className="mini" onClick={() => onToggleDelete(d.id)}>
                           {d.deleted ? 'undo' : 'delete'}
                         </button>

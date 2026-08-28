@@ -6,11 +6,14 @@ import {
   EXAMPLE_QUERIES,
   WILDCARD_QUERIES,
   FUZZY_QUERIES,
+  NESTED_QUERIES,
   DATASETS,
 } from './presets'
+import { buildBlock, makeMapping } from './mapping'
 import {
   docRoute,
   initialCluster,
+  isRootDoc,
   routeShard,
   SHARD_PLACEMENT,
 } from './cluster'
@@ -146,6 +149,11 @@ export default function App() {
       closeUpUnits: closeUps.length ? panelStep.units : -1,
       sampleSet,
       scenariosOpen,
+      docsOpen,
+      // How many LUCENE docs currently carry a tombstone. On a flat dataset this
+      // is the number of documents deleted; on a nested one it is that number
+      // times the block size, which is exactly what update amplification is.
+      tombstoned: Object.values(derived.docs).filter((d) => d.deleted).length,
     },
     { pause, reset: resetCluster, setQuery, setRouting },
   )
@@ -269,18 +277,21 @@ export default function App() {
     const id = `doc-${docNum.current}`
     const color = DOC_COLORS[(docNum.current - 1) % DOC_COLORS.length]
     docNum.current += 1
-    const doc = {
-      id,
-      title: title.trim(),
-      body: body.trim(),
-      tokens: analyzeDoc({ title: title.trim(), body: body.trim() }),
-      deleted: false,
-      color,
-      routing: indexRouting.trim() || undefined,
-      // hash(_routing) when a key was supplied, hash(_id) otherwise.
-      shard: docRoute({ id, routing: indexRouting.trim() }),
-    }
-    start('index', { doc })
+    // The form takes two text fields, so this is always a block of one — but it
+    // goes through the same builder as a nested document, so the write path has
+    // exactly one notion of what indexing a document produces.
+    const block = buildBlock(
+      { title: title.trim(), body: body.trim() },
+      {
+        id,
+        deleted: false,
+        color,
+        routing: indexRouting.trim() || undefined,
+        // hash(_routing) when a key was supplied, hash(_id) otherwise.
+        shard: docRoute({ id, routing: indexRouting.trim() }),
+      },
+    )
+    start('index', { doc: block[block.length - 1], block })
   }
 
   function startRefresh() {
@@ -327,37 +338,41 @@ export default function App() {
   function loadDataset(id) {
     const set = DATASETS.find((d) => d.id === id)
     if (!set) return
-    const { docs: source, tombstoned = null, colorBy } = set
+    const { docs: source, tombstoned = null, colorBy, mapping = [] } = set
+    const m = makeMapping(mapping)
     const c = initialCluster()
+    // Blocks, not ids: each source document expands into its Lucene docs
+    // (children first, root last) and they must stay together and in order.
     const byShard = Object.fromEntries(SHARD_PLACEMENT.map((p) => [p.id, []]))
     source.forEach((d, i) => {
       const id = `doc-${i + 1}`
-      const doc = {
+      // `routing` is request metadata, not a field — it must never be indexed.
+      const { routing, ...fields } = d
+      const block = buildBlock(fields, {
         id,
-        title: d.title,
-        body: d.body,
-        tokens: analyzeDoc({ title: d.title, body: d.body }),
+        mapping: m,
         deleted: id === tombstoned,
         color: DOC_COLORS[colorBy(d, i) % DOC_COLORS.length],
-        routing: d.routing,
-        shard: docRoute({ id, routing: d.routing }),
-      }
-      c.docs[id] = doc
-      byShard[doc.shard].push(id)
+        routing,
+        shard: docRoute({ id, routing }),
+      })
+      for (const ld of block) c.docs[ld.id] = ld
+      byShard[block[0].shard].push(block)
     })
     let seg = 1
     for (const shard of c.shards) {
-      const ids = byShard[shard.id]
+      const blocks = byShard[shard.id]
       // Aim for ~3 segments per shard whatever the dataset's size, so a bigger
-      // set doesn't turn a shard card into a stack of a dozen slivers. The two
-      // shipped sets are unchanged by this (5 docs still give 3 segments, 4
-      // give 2, the routed set's 3 give 2) — it only bounds what a larger set
-      // can do to the cluster view.
-      const per = Math.max(2, Math.ceil(ids.length / 3))
-      for (let j = 0; j < ids.length; j += per)
+      // set doesn't turn a shard card into a stack of a dozen slivers. Counted
+      // in DOCUMENTS rather than Lucene docs, so the nested catalog segments the
+      // same way its object twin does — the difference between them should be
+      // the size of a segment, not the number of them. The shipped text sets are
+      // unchanged by this (their blocks are all length 1).
+      const per = Math.max(2, Math.ceil(blocks.length / 3))
+      for (let j = 0; j < blocks.length; j += per)
         shard.segments.push({
           id: `seg-${seg++}`,
-          docIds: ids.slice(j, j + per),
+          docIds: blocks.slice(j, j + per).flatMap((b) => b.map((ld) => ld.id)),
           searchable: true,
           committed: true,
         })
@@ -391,9 +406,12 @@ export default function App() {
   const currentStep = op ? stepsFor(op.type)[op.step] : null
   // One extra line about this op's payload (routing target, wildcard cost).
   const note = opNote(op, extra)
-  const allDocs = Object.values(derived.docs).sort(
-    (a, b) => docOrder(a.id) - docOrder(b.id),
-  )
+  // The ELASTICSEARCH documents — block roots only. The children are Lucene's
+  // business: you never delete or address one on its own, so the document list
+  // must not offer to.
+  const allDocs = Object.values(derived.docs)
+    .filter(isRootDoc)
+    .sort((a, b) => docOrder(a.id) - docOrder(b.id))
 
   return (
     <div className="app">
@@ -473,6 +491,7 @@ export default function App() {
           />
           <button
             className="btn block"
+            data-tour="delete-doc"
             style={{ marginTop: 8 }}
             onClick={() => setDocsOpen(true)}
             disabled={allDocs.length === 0}
@@ -522,6 +541,19 @@ export default function App() {
                   {q}
                 </button>
               ))}
+              {/* Field-qualified + conjunctive. Only meaningful on a dataset that
+                  HAS those fields, so they only appear once one is loaded. */}
+              {sampleSet?.startsWith('catalog') &&
+                NESTED_QUERIES.map((q) => (
+                  <button
+                    key={q}
+                    className="preset-chip nested"
+                    title="field-qualified clauses, ANDed — every clause must match the same Lucene document"
+                    onClick={() => setQuery(q)}
+                  >
+                    {q}
+                  </button>
+                ))}
             </div>
 
             {/* Optional _routing on the query: hash this instead of scattering. */}

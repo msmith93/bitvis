@@ -171,25 +171,59 @@ export function parsePattern(raw, { prefixLength = 0 } = {}) {
   }
 }
 
+// A field-qualified clause: `variants.color:red`. Everything before the colon is
+// a field PATH (dots included, so a nested child's field works), everything
+// after is the value, parsed exactly as a bare token would be.
+const FIELD_PREFIX = /^([A-Za-z_][A-Za-z0-9_.]*):(.+)$/
+
+// Lucene query-string syntax requires the operator UPPERCASE, which is what
+// keeps a document that merely contains the word "and" from being read as one.
+const AND_TOKEN = /^AND$/
+
 // A query string -> parsed patterns. Pattern tokens (`*`, `?`, `~`) are kept
 // whole; everything else still goes through the standard analyzer, so a plain
 // query behaves exactly as it did before any of this existed.
+//
+// Two additions, both minimal and both prerequisites for teaching object vs
+// nested (which is a claim about two clauses matching the SAME sub-object):
+//   `field:value`  pins a clause to one field -- `p.field`, else null
+//   `AND`          makes the whole query conjunctive -- `p.conjunction`
+// A query with neither is byte-for-byte what it always was.
 //
 // `prefixLength` is the app-level fuzzy prefix_length, applied to every fuzzy
 // token in the query.
 export function parseQuery(raw, opts = {}) {
   const out = []
+  let conjunction = false
   for (const token of String(raw || '').trim().split(/\s+/)) {
     if (!token) continue
-    if (isPatternToken(token)) {
-      const p = parsePattern(token, opts)
-      if (p.literal) out.push(p)
+    if (AND_TOKEN.test(token)) {
+      conjunction = true
+      continue
+    }
+    const m = token.match(FIELD_PREFIX)
+    const field = m ? m[1] : null
+    const value = m ? m[2] : token
+    if (isPatternToken(value)) {
+      const p = parsePattern(value, opts)
+      if (p.literal) out.push(field ? { ...p, field } : p)
     } else {
-      for (const t of analyze(token)) out.push(parsePattern(t))
+      for (const t of analyze(value)) out.push(field ? { ...parsePattern(t), field } : parsePattern(t))
     }
   }
+  // Carried on every clause rather than on the array, so it survives the .map /
+  // .filter the patterns go through downstream.
+  if (conjunction) for (const p of out) p.conjunction = true
   return out
 }
+
+// Must every clause match the same Lucene document? Two clauses ANDed is the
+// only thing that can tell object mapping apart from nested.
+export const isConjunctive = (patterns) => patterns.some((p) => p.conjunction)
+
+// Does this clause apply to `field`? An unqualified clause matches any field,
+// which is the behavior every pre-existing query relies on.
+export const clauseCoversField = (pattern, field) => !pattern.field || pattern.field === field
 
 // The single semantic authority on whether a term matches a pattern. BOTH zoom
 // levels route through here — src/automaton.js delegates its per-term verdict to

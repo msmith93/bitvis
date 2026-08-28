@@ -41,10 +41,18 @@ export async function resolve(spec, ctx, next) {
 register(`data:text/javascript,${encodeURIComponent(hookSrc)}`, pathToFileURL(SRC))
 
 const { analyzeDoc } = await import(SRC + 'analyzer.js')
-const { routeShard } = await import(SRC + 'cluster.js')
-const { SAMPLE_DOCS, FUZZY_QUERIES, WILDCARD_QUERIES } = await import(SRC + 'presets.js')
+const {
+  routeShard,
+  docRootId,
+  isRootDoc,
+} = await import(SRC + 'cluster.js')
+const { SAMPLE_DOCS, FUZZY_QUERIES, WILDCARD_QUERIES, CATALOG_DOCS, NESTED_QUERIES } = await import(
+  SRC + 'presets.js'
+)
 const { buildTermIndex, fstSeek, seekTrace } = await import(SRC + 'blocktree.js')
 const { ANY, compileAutomaton, intersectTrace } = await import(SRC + 'automaton.js')
+const { buildBlock, OBJECT_MAPPING, makeMapping } = await import(SRC + 'mapping.js')
+const { scoreDoc, computeShardSearch, localSearchSteps } = await import(SRC + 'ops/search.js')
 const W = await import(SRC + 'wildcard.js')
 
 let failures = 0
@@ -483,6 +491,271 @@ section('6 · the sample dataset keeps its other jobs')
     return intersectTrace(index, compileAutomaton(W.parsePattern('store~1'), alphabet)).matched
   })
   check('"store~1" still finds "score" — the word nobody asked for', hits.includes('score'), `[${[...new Set(hits)]}]`)
+}
+
+// ---------------------------------------------------------------------------
+section('7 · object vs nested mapping')
+// The whole lesson in one dataset: CATALOG_DOCS indexed twice, once under
+// OBJECT_MAPPING (every sub-object flattened into its parent, one Lucene doc)
+// and once under makeMapping(['variants']) (every variant its own Lucene doc,
+// root last). Same source JSON, same ids, same routing — the mapping is the
+// only variable.
+// ---------------------------------------------------------------------------
+{
+  const NESTED_MAPPING = makeMapping(['variants'])
+
+  // One source doc -> its block, id doc-1..doc-12 in array order, routed
+  // exactly as the cluster routes anything else.
+  function buildCatalog(mapping) {
+    const docs = {} // luceneId -> Lucene doc
+    const blocks = [] // { id, shard, block } in array order
+    CATALOG_DOCS.forEach((source, n) => {
+      const id = `doc-${n + 1}`
+      const block = buildBlock(source, { id, mapping })
+      for (const d of block) docs[d.id] = d
+      blocks.push({ id, shard: routeShard(id), block })
+    })
+    return { docs, blocks }
+  }
+
+  const OBJ = buildCatalog(OBJECT_MAPPING)
+  const NEST = buildCatalog(NESTED_MAPPING)
+
+  // 1. No real red XL exists — the invariant the whole lesson rests on.
+  const realRedXL = CATALOG_DOCS.filter((d) => d.variants.some((v) => v.color === 'red' && v.size === 'XL'))
+  check(
+    'no product has a single variant that is both red and XL',
+    realRedXL.length === 0,
+    realRedXL.map((d) => d.name).join(', '),
+  )
+
+  // 2. Exactly one product holds red and XL on DIFFERENT variants: doc-2.
+  const splitRedXL = CATALOG_DOCS.map((d, n) => ({ id: `doc-${n + 1}`, d }))
+    .filter(
+      ({ d }) => d.variants.some((v) => v.color === 'red') && d.variants.some((v) => v.size === 'XL'),
+    )
+    .map(({ id }) => id)
+  check(
+    'exactly one product holds red and XL on different variants, and it is doc-2',
+    splitRedXL.length === 1 && splitRedXL[0] === 'doc-2',
+    `[${splitRedXL}]`,
+  )
+
+  // 3. The false positive: object mapping loses the pairing between a
+  // variant's fields, so a query for red AND XL matches a Lucene doc that is
+  // neither. Nested keeps each variant its own doc, so no single Lucene doc
+  // ever holds both clauses and the trap matches nothing.
+  {
+    const patterns = W.parseQuery(NESTED_QUERIES[0]) // "variants.color:red AND variants.size:XL"
+    const objHits = Object.values(OBJ.docs).filter((d) => scoreDoc(d, patterns).score > 0)
+    const nestHits = Object.values(NEST.docs).filter((d) => scoreDoc(d, patterns).score > 0)
+    check(
+      'object: the red+XL trap matches exactly one Lucene doc, rooted at doc-2',
+      objHits.length === 1 && docRootId(objHits[0]) === 'doc-2',
+      `hits: [${objHits.map((d) => d.id)}]`,
+    )
+    check(
+      'nested: the red+XL trap matches zero Lucene docs',
+      nestHits.length === 0,
+      `hits: [${nestHits.map((d) => d.id)}]`,
+    )
+  }
+
+  // 4. The control query — a pair that really does live on ONE variant, and
+  // whose two values never appear on different variants of the same product.
+  // Both mappings must return exactly that product, or nested would just be
+  // breaking queries rather than fixing a false positive. Brown is the only
+  // colour rare enough to give that guarantee; red would not, because several
+  // products carry red and S on different variants.
+  {
+    const patterns = W.parseQuery(NESTED_QUERIES[1]) // "variants.color:brown AND variants.size:M"
+    const objHits = Object.values(OBJ.docs).filter((d) => scoreDoc(d, patterns).score > 0)
+    const nestHits = Object.values(NEST.docs).filter((d) => scoreDoc(d, patterns).score > 0)
+    const objRoots = [...new Set(objHits.map(docRootId))].sort()
+    const nestRoots = [...new Set(nestHits.map(docRootId))].sort()
+    check(
+      'the brown+M control is unambiguous: only one variant in the catalog is brown',
+      CATALOG_DOCS.flatMap((p) => p.variants).filter((v) => v.color === 'brown').length === 1,
+    )
+    check(
+      'object: the brown+M control matches exactly doc-11',
+      objRoots.length === 1 && objRoots[0] === 'doc-11',
+      `roots: [${objRoots}]`,
+    )
+    check(
+      'nested: the brown+M control matches the same document, via a CHILD',
+      nestRoots.length === 1 &&
+        nestRoots[0] === 'doc-11' &&
+        nestHits.every((d) => !isRootDoc(d)),
+      `hits: [${nestHits.map((d) => `${d.id}(root=${docRootId(d)})`)}]`,
+    )
+    check(
+      'the two mappings agree on the control — nested did not break the query',
+      objRoots.join() === nestRoots.join(),
+      `object [${objRoots}] vs nested [${nestRoots}]`,
+    )
+  }
+
+  // 5. Block shape. Nested: every block is variants.length+1 docs, the LAST
+  // is the root, every other entry is a child rooted at it. Object: every
+  // block is exactly one doc.
+  {
+    const shapeProblems = []
+    for (const { id, block } of NEST.blocks) {
+      const source = CATALOG_DOCS[Number(id.slice('doc-'.length)) - 1]
+      if (block.length !== source.variants.length + 1)
+        shapeProblems.push(`${id}: block has ${block.length} docs, want ${source.variants.length + 1}`)
+      const root = block[block.length - 1]
+      if (!isRootDoc(root)) shapeProblems.push(`${id}: last entry is not the root`)
+      for (const child of block.slice(0, -1)) {
+        if (isRootDoc(child)) shapeProblems.push(`${id}: a non-last entry is a root`)
+        if (docRootId(child) !== root.id) shapeProblems.push(`${id}: ${child.id}'s root is not ${root.id}`)
+      }
+    }
+    check(
+      'nested: every block is variants.length+1 docs, root last, children pointing at it',
+      shapeProblems.length === 0,
+      shapeProblems.slice(0, 4).join('\n      '),
+    )
+
+    const objProblems = OBJ.blocks
+      .filter(({ block }) => block.length !== 1)
+      .map(({ id, block }) => `${id}: ${block.length} docs`)
+    check('object: every block is exactly 1 Lucene doc', objProblems.length === 0, objProblems.slice(0, 4).join('\n      '))
+  }
+
+  // 6. Segment arithmetic on shard 0: doc-2/5/8/11, one segment per mapping,
+  // blocks concatenated in order. maxDoc counts every Lucene doc; numDocs
+  // counts only live roots, i.e. Elasticsearch documents — that count must
+  // not move when only the mapping changes.
+  {
+    const shard0Ids = ['doc-2', 'doc-5', 'doc-8', 'doc-11']
+    check(
+      'doc-2, doc-5, doc-8, doc-11 really do route to shard 0',
+      shard0Ids.every((id) => routeShard(id) === 0),
+      shard0Ids.map((id) => `${id}->shard${routeShard(id)}`).join(' '),
+    )
+
+    const segFor = ({ blocks }) => ({
+      docIds: shard0Ids.flatMap((id) => blocks.find((b) => b.id === id).block.map((d) => d.id)),
+    })
+    const objSeg = segFor(OBJ)
+    const nestSeg = segFor(NEST)
+
+    const luceneDocs = (seg) => seg.docIds.length
+    const esDocs = (seg, docs) => seg.docIds.filter((id) => isRootDoc(docs[id])).length
+
+    check(
+      'shard-0 segment: 4 Lucene docs under object, 17 under nested',
+      luceneDocs(objSeg) === 4 && luceneDocs(nestSeg) === 17,
+      `object=${luceneDocs(objSeg)}, nested=${luceneDocs(nestSeg)}`,
+    )
+    check(
+      'shard-0 segment: 4 Elasticsearch documents under BOTH — only the Lucene count moves',
+      esDocs(objSeg, OBJ.docs) === 4 && esDocs(nestSeg, NEST.docs) === 4,
+      `object=${esDocs(objSeg, OBJ.docs)}, nested=${esDocs(nestSeg, NEST.docs)}`,
+    )
+    check(
+      'nested shard-0 segment: the last Lucene doc is a root — a block always ends on its root',
+      isRootDoc(NEST.docs[nestSeg.docIds[nestSeg.docIds.length - 1]]),
+    )
+  }
+
+  // 7. The block join, asserted against the code that actually RUNS it —
+  // computeShardSearch, the same function the shard close-up renders. A
+  // parentBitset/nextSetBit pair was asserted here instead and was removed
+  // along with the diagram it backed: nothing in the app called either, so
+  // this was checking a parallel implementation rather than the real path.
+  {
+    const patterns = W.parseQuery(NESTED_QUERIES[1]) // brown + M -> Dune Boot (doc-11, shard 0)
+    const shard0 = {
+      segments: [
+        {
+          id: 'seg-1',
+          searchable: true,
+          docIds: ['doc-2', 'doc-5', 'doc-8', 'doc-11'].flatMap((id) =>
+            NEST.blocks.find((b) => b.id === id).block.map((d) => d.id),
+          ),
+        },
+      ],
+    }
+    const local = computeShardSearch(shard0, patterns, NEST.docs)
+
+    check(
+      'the join runs: the match is on a CHILD, not on the document asked about',
+      local.joins.length === 1 && !isRootDoc(NEST.docs[local.joins[0].child]),
+      `joins: [${local.joins.map((j) => `${j.child}->${j.root}`)}]`,
+    )
+    const badJoin = local.joins.filter((j) => j.root !== docRootId(NEST.docs[j.child]))
+    check(
+      'every join lands on the root of the block the matching child belongs to',
+      badJoin.length === 0,
+      badJoin.map((j) => `${j.child} -> ${j.root}`).join(' '),
+    )
+    check(
+      'the shard reports the DOCUMENT, not the variant that matched',
+      local.scored.length === 1 && local.scored[0].docId === 'doc-11',
+      `scored: [${local.scored.map((x) => x.docId)}]`,
+    )
+    check(
+      'a flat dataset needs no join at all — every Lucene doc is already its own root',
+      OBJ.blocks.every(({ block }) => block.every((d) => docRootId(d) === d.id)),
+    )
+
+    // The join step has to have an N-to-1 collapse to DRAW, or it renders as a
+    // column of 1 -> 1 rows and shows nothing merging. Trail Runner carries two
+    // out-of-stock variants for exactly this reason.
+    const stock = W.parseQuery(NESTED_QUERIES[2]) // variants.stock:0
+    const localStock = computeShardSearch(shard0, stock, NEST.docs)
+    const perRoot = new Map()
+    for (const j of localStock.joinRows) perRoot.set(j.root, j.from.length)
+    check(
+      'variants.stock:0 gives the join a real N-to-1 collapse: doc-2 merges 2 Lucene docs',
+      perRoot.get('doc-2') === 2,
+      `joinRows: ${[...perRoot].map(([r, n]) => `${r}<-${n}`).join(' ')}`,
+    )
+
+    // The nested scenario waits on specific panel step indices before it speaks
+    // (PANEL_INTERSECT / PANEL_JOIN in src/scenarios/nested.js). If the shard
+    // panel's step list ever changes shape, the tour would point at the wrong
+    // thing and nothing else would notice — so pin the indices here.
+    const keys = (q, blocks) =>
+      localSearchSteps(W.parseQuery(q), { blocks }).map((x) => x.key)
+    const nestedKeys = keys(NESTED_QUERIES[1], true)
+    const objectKeys = keys(NESTED_QUERIES[0], false)
+    check(
+      "the tour's panel step indices still hold: intersect at 3, join at 4",
+      nestedKeys[3] === 'intersect' && nestedKeys[4] === 'join' && objectKeys[3] === 'intersect',
+      `nested [${nestedKeys}] object [${objectKeys}]`,
+    )
+    check(
+      'a plain, single-clause query on flat data gains neither step',
+      keys('search', false).join() === 'analyze,lookup,postings,score,topk,return',
+      keys('search', false).join(),
+    )
+  }
+
+  // 8. A single-clause query needs no join distinction: object and nested
+  // both find the same PRODUCTS (doc-2, doc-5), even though nested is scoring
+  // at the child-doc level under the hood.
+  {
+    const patterns = W.parseQuery(NESTED_QUERIES[2]) // "variants.stock:0"
+    const objHits = Object.values(OBJ.docs).filter((d) => scoreDoc(d, patterns).score > 0)
+    const nestHits = Object.values(NEST.docs).filter((d) => scoreDoc(d, patterns).score > 0)
+    check('object: variants.stock:0 matches', objHits.length > 0, `hits: [${objHits.map((d) => d.id)}]`)
+    check('nested: variants.stock:0 matches', nestHits.length > 0, `hits: [${nestHits.map((d) => d.id)}]`)
+    check(
+      'object: variants.stock:0 matches exactly 2 Lucene docs (doc-2, doc-5)',
+      objHits.length === 2 && objHits.every((d) => docRootId(d) === d.id) && objHits.map((d) => d.id).sort().join(',') === 'doc-2,doc-5',
+      `hits: [${objHits.map((d) => d.id)}]`,
+    )
+    const roots = new Set(nestHits.map((d) => docRootId(d)))
+    check(
+      'nested: variants.stock:0 rolls up to exactly 2 distinct roots (doc-2, doc-5)',
+      roots.size === 2 && [...roots].sort().join(',') === 'doc-2,doc-5',
+      `roots: [${[...roots]}]`,
+    )
+  }
 }
 
 console.log()

@@ -401,6 +401,15 @@ textarea:focus {
   padding: 2px 6px;
   border-radius: 5px;
 }
+/* A nested CHILD doc. Smaller, dimmer and inset, so a block reads as one
+   document that cost several Lucene docs rather than as several documents. It
+   keeps its root's colour — that is what ties the block together visually. */
+.doc-chip.child {
+  font-size: 9px;
+  padding: 1px 4px;
+  opacity: 0.6;
+  border-radius: 3px;
+}
 .doc-chip.deleted {
   text-decoration: line-through;
   opacity: 0.55;
@@ -1425,6 +1434,144 @@ table.ii td.term {
   font-size: 11px;
   font-weight: 700;
 }
+/* ---- what `object` mapping flattened a sub-object array into ----
+   Parallel per-field lists, drawn stacked and aligned so the reader can see
+   they are the same length and still can't tell which value went with which.
+   That absence is the lesson, so the lists must line up visually. */
+.anat-bags {
+  flex-basis: 100%;
+  margin: 4px 0 2px 0;
+  padding: 5px 7px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--accent-2);
+  border-radius: 5px;
+  background: var(--bg);
+}
+.anat-bag {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+.anat-bag-name {
+  flex: 0 0 96px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  color: var(--accent-2);
+}
+.anat-bag-vals {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.anat-bag-val {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 5px;
+}
+.anat-bag-note {
+  margin-top: 5px;
+  font-size: 10px;
+  color: var(--warn);
+  line-height: 1.45;
+}
+
+/* ---- the intersect + join steps in the results lane ---- */
+.si-clauses {
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.si-clauses.out {
+  opacity: 0.55;
+}
+.si-clauses.out .doc-chip {
+  text-decoration: line-through;
+}
+.si-clause-row {
+  display: inline-flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.si-clause {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  border-radius: 4px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+}
+.si-clause.yes {
+  color: var(--good);
+  border-color: rgba(84, 179, 153, 0.45);
+}
+.si-clause.no {
+  color: var(--danger);
+  border-color: rgba(248, 107, 99, 0.45);
+}
+.si-out-note {
+  font-size: 10px;
+  color: var(--danger);
+  margin-left: auto;
+  padding-left: 8px;
+}
+.si-joinrow {
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.si-join-from {
+  display: inline-flex;
+  gap: 3px;
+  flex-wrap: wrap;
+}
+.si-join-arrow {
+  color: var(--accent);
+  font-size: 13px;
+}
+.si-join-label {
+  font-size: 10px;
+  color: var(--muted);
+  margin-left: auto;
+  padding-left: 8px;
+}
+.si-lane-foot {
+  margin: 7px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+/* ---- the block join, shown on the stored _source rows ----
+   The join is drawn here rather than as a separate bitset diagram: these rows
+   are the only place a Lucene doc appears with its content, so "this variant
+   matched, that product is the answer" reads directly. A ruler of ordinals
+   duplicated the rows above and taught nothing they did not. */
+.anat-join-note {
+  margin-left: 8px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--good);
+}
+.anat-doc.matched-child {
+  background: rgba(84, 179, 153, 0.12);
+  box-shadow: inset 2px 0 0 var(--good);
+  border-radius: 3px;
+}
+.anat-doc.joined-root {
+  background: rgba(0, 191, 179, 0.12);
+  box-shadow: inset 2px 0 0 var(--accent);
+  border-radius: 3px;
+}
+.anat-join-arrow {
+  margin-left: auto;
+  padding-left: 6px;
+  color: var(--good);
+  font-size: 11px;
+}
+
 .anat-body {
   display: flex;
   gap: 12px;
@@ -1509,6 +1656,10 @@ table.ii td.term {
 .anat-doc {
   display: flex;
   align-items: baseline;
+  /* The two representation blocks below (_source, then indexed) each take a
+     full row rather than splitting this column in half — they are meant to be
+     read one above the other, and half a column is too narrow for either. */
+  flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 5px;
   font-size: 11px;
@@ -2877,6 +3028,24 @@ table.ii td.term {
   font-family: ui-monospace, Menlo, monospace;
   border-style: dotted;
   border-color: rgba(254, 197, 20, 0.5);
+}
+/* A field-qualified, conjunctive query. Solid-bordered because unlike a pattern
+   there is nothing approximate about it — the cost is in WHERE the clauses are
+   allowed to match, not in resolving them. */
+.preset-chip.nested {
+  font-family: ui-monospace, Menlo, monospace;
+  border-color: rgba(54, 162, 239, 0.55);
+  font-size: 11px;
+}
+/* "3 lucene docs" beside a document in the list: what its block actually cost. */
+.doc-row .doc-block {
+  font-size: 10px;
+  font-family: ui-monospace, Menlo, monospace;
+  color: var(--accent-2);
+  border: 1px solid rgba(54, 162, 239, 0.35);
+  border-radius: 4px;
+  padding: 1px 5px;
+  white-space: nowrap;
 }
 /* Fuzzy mode is the one that puts two graphs side by side, and the automaton is
    the wider of the two — it grows with the length of the query term, where the

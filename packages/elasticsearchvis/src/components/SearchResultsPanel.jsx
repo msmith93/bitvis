@@ -85,7 +85,7 @@ export default function SearchResultsPanel({ search, step, docs }) {
                     <span className="score">score {h.score}</span>
                   </div>
                   {step >= 4 && docs[h.docId] && (
-                    <div className="result-body">{docs[h.docId].title}</div>
+                    <div className="result-body">{docs[h.docId].label}</div>
                   )}
                 </li>
               ))}

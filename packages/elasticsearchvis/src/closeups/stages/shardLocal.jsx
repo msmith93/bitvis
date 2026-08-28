@@ -4,6 +4,7 @@ import { motion, AnimatePresence, LayoutGroup } from 'framer-motion'
 import FlyingTokens, { selectorRect } from '../../components/tokenFlight'
 import { localSearchSteps, computeShardSearch } from '../../ops/search'
 import { segmentAnatomy } from '../../invertedIndex'
+import { isRootDoc } from '../../cluster'
 import { matchesAny } from '../../wildcard'
 import {
   flightMs,
@@ -36,7 +37,12 @@ import { useReveal } from '../shared'
 function deriveShardLocal({ shard, search, docs }) {
   const patterns = search.patterns
   const local = computeShardSearch(shard, patterns, docs, LOCAL_TOPK)
-  const steps = localSearchSteps(patterns)
+  // Does this shard actually hold nested blocks? Only then is there a join to
+  // draw — on flat data every Lucene doc is already its own document.
+  const blocks = shard.segments.some(
+    (seg) => seg.searchable && seg.docIds.some((id) => !isRootDoc(docs[id])),
+  )
+  const steps = localSearchSteps(patterns, { blocks })
   return {
     shard,
     search,
@@ -200,12 +206,24 @@ function ShardLocalStage({ step, active, openCloseUp, model, docs, query }) {
   const focus = {
     matches: (term) => matchesAny(term, patterns),
     candidateSet: new Set(local.candidates),
+    // child Lucene doc -> the root the parent bitset walks forward to. Empty
+    // unless the dataset is nested AND a child actually matched.
+    joins: new Map(local.joins.map((j) => [j.child, j.root])),
+    joinHL: at.join != null ? step >= at.join : step >= at.postings,
     dictHL: step > at.lookup || (step === at.lookup && arrived), // term dictionary lookup
     postingsHL: step >= at.postings, // postings walked (source of the candidate flight)
     sourceHL: step >= at.return, // _source read on return/fetch
   }
   // candidate lane items appear once the postings-step flight has landed.
-  const laneRevealed = step >= at.score || (step === at.postings && arrived)
+  // The intersect and join steps sit BETWEEN postings and score, so they have to
+  // be named here explicitly — `step >= at.score` alone would leave them blank.
+  // Both are undefined when the query/dataset doesn't warrant them, and
+  // `step === undefined` is false, so this stays inert for a plain query.
+  const laneRevealed =
+    step >= at.score ||
+    step === at.intersect ||
+    step === at.join ||
+    (step === at.postings && arrived)
 
   const removeFlight = (key) => setFlights((f) => f.filter((x) => x.key !== key))
 
@@ -306,6 +324,10 @@ function ResultsLane({ step, at, local, docs, revealed }) {
   const mode =
     step === at.postings
       ? 'candidates'
+      : step === at.intersect
+      ? 'intersect'
+      : step === at.join
+      ? 'join'
       : step === at.score
       ? 'score'
       : step === at.topk
@@ -313,10 +335,87 @@ function ResultsLane({ step, at, local, docs, revealed }) {
       : 'return'
   const titles = {
     candidates: 'Candidate docs (union of posting lists)',
+    intersect: 'Every clause must hit the same Lucene doc',
+    join: 'Lucene docs → Elasticsearch documents',
     score: 'Score each candidate (term-frequency stand-in)',
     topk: `Top-k priority queue (k = ${local.k}, a min-heap)`,
     return: 'Local top hits → coordinator',
   }
+
+  // The intersect step is the one place a FAILED candidate is worth drawing, so
+  // it renders every candidate with its per-clause verdict rather than only the
+  // survivors. Without it a doc that matched one clause simply vanishes.
+  if (mode === 'intersect')
+    return (
+      <div className="si-block">
+        <p className="section-title">{titles[mode]}</p>
+        <div className="si-lane-chips" data-lane-target>
+          {!revealed ? null : local.luceneScored.length === 0 ? (
+            <div className="ss-none">no candidates</div>
+          ) : (
+            local.luceneScored.map((h) => (
+              <div
+                className={'si-lane-item si-clauses' + (h.eliminated ? ' out' : '')}
+                key={h.docId}
+              >
+                <DocChip id={h.docId} docs={docs} hit={!h.eliminated} />
+                <span className="si-clause-row">
+                  {(h.clauses ?? []).map((c) => (
+                    <span key={c.label} className={'si-clause' + (c.hit ? ' yes' : ' no')}>
+                      {c.hit ? '✓' : '✗'} {c.label}
+                    </span>
+                  ))}
+                </span>
+                {h.eliminated && <span className="si-out-note">dropped — not all clauses</span>}
+              </div>
+            ))
+          )}
+        </div>
+        {revealed && local.survivors.length === 0 && local.luceneScored.length > 0 && (
+          <p className="si-lane-foot">
+            Every candidate matched some clause and none matched them all, so this shard
+            returns nothing. That is the correct answer.
+          </p>
+        )}
+      </div>
+    )
+
+  // The join: one row per DOCUMENT, listing the Lucene docs that collapsed into
+  // it. This is the moment several variants become the one product.
+  if (mode === 'join')
+    return (
+      <div className="si-block">
+        <p className="section-title">{titles[mode]}</p>
+        <div className="si-lane-chips" data-lane-target>
+          {!revealed ? null : local.joinRows.length === 0 ? (
+            <div className="ss-none">nothing survived to join</div>
+          ) : (
+            local.joinRows.map((row) => (
+              <div className="si-lane-item si-joinrow" key={row.root}>
+                <span className="si-join-from">
+                  {row.from.map((id) => (
+                    <DocChip key={id} id={id} docs={docs} hit />
+                  ))}
+                </span>
+                <span className="si-join-arrow">→</span>
+                <DocChip id={row.root} docs={docs} hit />
+                <span className="si-join-label">
+                  {row.from.length === 1 && row.from[0] === row.root
+                    ? 'already a document'
+                    : `${row.from.length} lucene doc${row.from.length === 1 ? '' : 's'} → 1 document`}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+        {revealed && local.joinRows.length > 0 && (
+          <p className="si-lane-foot">
+            Only documents leave the shard from here — the coordinator never sees a Lucene
+            doc, an ordinal or a variant.
+          </p>
+        )}
+      </div>
+    )
 
   let items = []
   let evicted = []
@@ -475,6 +574,23 @@ function AnatomyCard({
       rows.scrollTop += row.top - box.top - box.height / 2 + row.height / 2
   }, [cursor])
 
+  // Which rows of this segment's _source the block join touches: the children
+  // that matched, and the documents they rolled up to. Empty on a flat dataset,
+  // where a match is already the document you asked about.
+  const joined = { children: new Set(), roots: new Set(), note: null }
+  if (focus.joinHL) {
+    for (const d of seg.docs)
+      if (focus.joins.has(d.id)) {
+        joined.children.add(d.id)
+        joined.roots.add(focus.joins.get(d.id))
+      }
+    const n = joined.children.size
+    if (n)
+      joined.note = `${n} match${n === 1 ? '' : 'es'} on a variant · joined up to ${
+        joined.roots.size
+      } document${joined.roots.size === 1 ? '' : 's'}`
+  }
+
   let firstMatchSeen = false
   return (
     <div className="anat-card">
@@ -555,16 +671,57 @@ function AnatomyCard({
           </div>
         </div>
 
-        {/* stored _source */}
+        {/* stored _source — also where the block join is shown, because these
+            rows are the only place a Lucene doc appears WITH ITS CONTENT. A
+            match lands on a variant; the client asked about a product; the two
+            rows light up together and the note says how many rolled up. */}
         <div className={'anat-source' + (sourceHL ? ' active' : '')}>
-          <div className="anat-ii-label">stored _source</div>
+          <div className="anat-ii-label">
+            stored _source
+            {joined.note && <span className="anat-join-note">{joined.note}</span>}
+          </div>
           {seg.docs.map((d) => (
-            <div className="anat-doc" key={d.id}>
+            <div
+              className={
+                'anat-doc' +
+                (joined.children.has(d.id) ? ' matched-child' : '') +
+                (joined.roots.has(d.id) ? ' joined-root' : '')
+              }
+              key={d.id}
+            >
               <DocChip id={d.id} docs={docs} />
               <span className="anat-doc-text">
-                {d.title}
-                {d.body ? ` — ${d.body}` : ''}
+                {d.label}
+                {d.valueBags.length === 0 && d.detail ? ` — ${d.detail}` : ''}
               </span>
+              {joined.children.has(d.id) && (
+                <span className="anat-join-arrow" title="joined up to its document">
+                  ↳
+                </span>
+              )}
+              {/* What `object` mapping produced: each sub-object's values poured
+                  into a per-field list, the lists the same length, and nothing
+                  saying which entry of one belongs with which entry of the next.
+                  That missing link is why a two-clause query answers wrongly. */}
+              {d.valueBags.length > 0 && (
+                <div className="anat-bags">
+                  {d.valueBags.map((f) => (
+                    <div className="anat-bag" key={f.name}>
+                      <span className="anat-bag-name">{f.name}</span>
+                      <span className="anat-bag-vals">
+                        {f.values.map((v, i) => (
+                          <span className="anat-bag-val" key={`${v}-${i}`}>
+                            {v}
+                          </span>
+                        ))}
+                      </span>
+                    </div>
+                  ))}
+                  <div className="anat-bag-note">
+                    one list per field — nothing records which value went with which
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>

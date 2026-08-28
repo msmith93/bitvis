@@ -43,6 +43,37 @@ which lets the stepper scrub any operation forwards and backwards.
   replica each across 3 nodes; coordinator = node-1) via `SHARD_PLACEMENT`.
   `routeShard(docId)` is the deterministic murmur3 stand-in.
 
+- **A Lucene doc is NOT an Elasticsearch doc.** `seg.docIds` is the segment's
+  Lucene documents **in ordinal order** — the ordinal IS the array index, which
+  is why a merge renumbers them for free. One Elasticsearch document occupies a
+  contiguous **block** of that array with its root **LAST**, and
+  `src/mapping.js`'s `buildBlock` is the only thing that makes one. `object`
+  mapping flattens sub-objects into the parent as multi-valued fields (one Lucene
+  doc, pairing lost — that false positive is the lesson); `nested` writes each
+  sub-object as its own Lucene doc. The join up from a matched child is
+  `docRootId`, and it is SHOWN on the stored `_source` rows in the shard
+  close-up. A `parentBitset` / `nextSetBit` pair and an ordinal-ruler diagram of
+  them were removed — `SPEC.md` records why, and there is a note in
+  `src/cluster.js`; don't rebuild them.
+  **Three rules that will silently break the model if ignored:**
+  (1) never sort or regroup `seg.docIds` — `refresh` copies the buffer in order
+  and `merge` concatenates in order, and block contiguity depends on both;
+  (2) a block is ATOMIC — `toggleDelete` flips every doc sharing a root, and
+  anything that deletes or rewrites part of a block is wrong;
+  (3) **a doc with no nested field is a block of exactly one Lucene doc whose id
+  is its `_id`**, so every flat dataset degenerates to the pre-nested model
+  exactly. That degeneration is the correctness constraint of the whole feature:
+  `npm run check` must pass **byte-identically** for sections 1-6 after any
+  change here. `SAMPLE_DOCS` is off-limits — it is tuned for three other
+  scenarios; the nested lesson has its own `CATALOG_DOCS`.
+  Field sets come from the document (`Object.keys(doc.tokens)`), never a
+  hardcoded `['title','body']`; display goes through `label` / `detail`, which a
+  flat `{title, body}` doc derives as exactly title and body.
+  A doc's multi-valued fields (`valueBags` in `segmentAnatomy`) are drawn as
+  aligned per-field lists in the shard close-up — that is the only place `object`
+  flattening is visible, so don't drop it. Only the INDEXED form is kept; the
+  original JSON is not modelled (see `src/mapping.js` and `SPEC.md`).
+
 - **`op`** = `{ type, step, payload }` (held by `useOpLifecycle`). Each op type
   (`index`, `refresh`, `flush`, `merge`, `search`) is one module in `src/ops/`
   declaring `{ type, label, steps, derive?, extra?, duration? }`; each step has
@@ -90,6 +121,18 @@ which lets the stepper scrub any operation forwards and backwards.
   so the menu gets discovered: that step advances on `scenariosOpen` — the real
   click that opens the menu, reported up from `ScenarioPicker` — and never asks
   the user to pick a particular scenario.
+
+- **Fielded + conjunctive queries** are the third first-class query feature.
+  `parseQuery` accepts `field:value` and an UPPERCASE `AND` and nothing else; a
+  clause carries `.field`, every clause of a conjunctive query carries
+  `.conjunction` (put on each clause rather than the array so it survives the
+  `.map`/`.filter` the patterns go through). `scoreDoc` returns 0 unless every
+  clause matched **the same Lucene doc** — that one rule is the entire
+  object-vs-nested lesson, and it is deliberately ONE code path for both
+  mappings: the only difference is whether a Lucene doc is a whole document or a
+  single sub-object. `joinToRoots` then folds Lucene hits up to the documents
+  that own them, which is the identity function on flat data. Uppercase-only
+  `AND` is what keeps a document containing "and" from parsing as an operator.
 
 - **Patterns (wildcard + fuzzy) and routing** are first-class query features, not
   scenario-only props. `src/wildcard.js` is the pure model: `parseQuery` keeps

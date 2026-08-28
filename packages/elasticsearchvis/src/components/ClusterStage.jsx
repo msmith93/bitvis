@@ -228,14 +228,24 @@ function ShardCard({
   )
 }
 
+// One LUCENE doc. A nested child is drawn smaller and dimmer than its root and
+// labelled by its ordinal within the block, so a block reads as "these belong to
+// that one" — and so a segment that has quietly grown 4x says so at a glance.
 function DocChip({ id, docs, hit }) {
   const d = docs[id]
+  const child = d?.kind === 'child'
   return (
     <span
-      className={'doc-chip' + (d?.deleted ? ' deleted' : '') + (hit ? ' hit' : '')}
+      className={
+        'doc-chip' +
+        (child ? ' child' : '') +
+        (d?.deleted ? ' deleted' : '') +
+        (hit ? ' hit' : '')
+      }
       style={{ background: d?.color || '#888' }}
+      title={child ? `${d.root} · ${d.detail}` : undefined}
     >
-      {id}
+      {child ? `#${id.slice(id.lastIndexOf('#') + 1)}` : id}
     </span>
   )
 }

@@ -48,7 +48,7 @@ export default function IndexOverlay({
   function handleIndex() {
     if (!canIndex) return
     const a = analyzeDoc({ title: title.trim(), body: body.trim() })
-    const terms = [...a.title, ...a.body]
+    const terms = Object.values(a).flat()
     setTokens(terms.map((term, i) => ({ id: `${i}-${term}`, term, color: docColor })))
     startRef.current = cardRef.current?.getBoundingClientRect() || null
     // Capture NOW: onIndex() advances docNum, so the targetShard prop will flip

@@ -162,8 +162,123 @@ export const ROUTED_DOCS = [
   { routing: 'tenant-c', title: 'Order 3003 pending', body: 'order 3003 pending payment from the customer.' },
 ]
 
+// Conjunctive, field-qualified queries — the only kind that can tell `object`
+// mapping apart from `nested`, because the whole difference is whether two
+// clauses are allowed to match different sub-objects.
+//
+//   red + XL     the trap. Under `object` this matches Trail Runner, which has a
+//                red S and a blue XL and no red XL at all. Under `nested` it
+//                correctly matches nothing.
+//   brown + M    the control. Brown appears on exactly ONE variant in the whole
+//                catalog (Dune Boot's brown M), so there is no product holding
+//                brown and M on different variants and the two mappings must
+//                agree — proof that nested didn't simply break the query. A
+//                red+S control would NOT do: several products carry red and S on
+//                different variants, so object over-matches there too and the
+//                contrast stops being clean.
+//   stock 0      a single clause, so there is nothing for the clauses to
+//                disagree about: both mappings return the same two products.
+export const NESTED_QUERIES = [
+  'variants.color:red AND variants.size:XL',
+  'variants.color:brown AND variants.size:M',
+  'variants.stock:0',
+]
+
+// A product catalog, indexed twice — once with `variants` left as an `object`
+// and once with it mapped `nested`. Same source JSON, same ids, same routing:
+// the ONLY difference is the mapping, which is the point.
+//
+// Three invariants, all asserted by scripts/check-models.mjs:
+//   1. NO product anywhere has a variant that is both red AND XL. The lesson is
+//      that `object` mapping reports a match that does not exist; if any real
+//      red XL existed the query would be a true positive and teach nothing.
+//   2. Exactly ONE product (doc-2, Trail Runner) holds red and XL on DIFFERENT
+//      variants, so the false positive is a single, pointable document.
+//   3. doc-2/5/8/11 route to shard 0 and carry 3/4/3/3 variants, so shard 0
+//      holds 4 Lucene docs under `object` and 17 under `nested`. That 4-vs-17
+//      is what the segment stack shows without any new UI.
+// Ids are assigned doc-1..doc-N in array order, and routing is by _id.
+export const CATALOG_DOCS = [
+  // doc-1 → shard 2
+  { name: 'Alpine Jacket', variants: [
+    { color: 'olive', size: 'M', stock: 6 },
+    { color: 'black', size: 'L', stock: 2 },
+    { color: 'red', size: 'S', stock: 9 },
+  ] },
+  // doc-2 → shard 0 — THE TRAP: a red S and a blue XL, but never a red XL.
+  { name: 'Trail Runner', variants: [
+    { color: 'red', size: 'S', stock: 4 },
+    { color: 'blue', size: 'XL', stock: 0 },
+    // Trail Runner deliberately has TWO variants out of stock, so
+    // `variants.stock:0` gives the join step a real N-to-1 collapse to draw:
+    // two Lucene docs becoming the one product. With one match per product the
+    // join renders as a row of 1 -> 1 everywhere and shows nothing merging.
+    { color: 'black', size: 'M', stock: 0 },
+  ] },
+  // doc-3 → shard 1
+  { name: 'Summit Pack', variants: [
+    { color: 'sand', size: 'M', stock: 3 },
+    { color: 'olive', size: 'L', stock: 5 },
+  ] },
+  // doc-4 → shard 2
+  { name: 'River Sandal', variants: [
+    { color: 'teal', size: 'S', stock: 8 },
+    { color: 'sand', size: 'M', stock: 1 },
+    { color: 'black', size: 'L', stock: 4 },
+  ] },
+  // doc-5 → shard 0  (4 variants)
+  { name: 'Ridge Fleece', variants: [
+    { color: 'blue', size: 'S', stock: 5 },
+    { color: 'olive', size: 'M', stock: 2 },
+    { color: 'sand', size: 'L', stock: 6 },
+    { color: 'black', size: 'XL', stock: 0 },
+  ] },
+  // doc-6 → shard 1
+  { name: 'Canyon Short', variants: [
+    { color: 'khaki', size: 'M', stock: 4 },
+    { color: 'teal', size: 'L', stock: 3 },
+  ] },
+  // doc-7 → shard 2
+  { name: 'Basin Hoodie', variants: [
+    { color: 'black', size: 'S', stock: 2 },
+    { color: 'blue', size: 'M', stock: 9 },
+    { color: 'olive', size: 'XL', stock: 1 },
+  ] },
+  // doc-8 → shard 0
+  { name: 'Meadow Tee', variants: [
+    { color: 'red', size: 'M', stock: 7 },
+    { color: 'teal', size: 'L', stock: 3 },
+    { color: 'sand', size: 'S', stock: 5 },
+  ] },
+  // doc-9 → shard 1
+  { name: 'Glacier Mitt', variants: [
+    { color: 'black', size: 'M', stock: 6 },
+    { color: 'blue', size: 'L', stock: 2 },
+  ] },
+  // doc-10 → shard 2
+  { name: 'Harbor Cap', variants: [
+    { color: 'sand', size: 'S', stock: 4 },
+    { color: 'red', size: 'L', stock: 8 },
+  ] },
+  // doc-11 → shard 0
+  { name: 'Dune Boot', variants: [
+    { color: 'brown', size: 'M', stock: 3 },
+    { color: 'black', size: 'L', stock: 5 },
+    { color: 'olive', size: 'S', stock: 2 },
+  ] },
+  // doc-12 → shard 1
+  { name: 'Willow Scarf', variants: [
+    { color: 'teal', size: 'M', stock: 6 },
+    { color: 'red', size: 'L', stock: 1 },
+  ] },
+]
+
 // The datasets offered by the "Load docs" menu, in menu order. Adding one is a
 // single entry here — nothing in App.jsx or the menu component needs touching.
+//
+//   mapping   the object paths declared `nested`. Omitted (or empty) means every
+//             sub-object is an `object` and gets flattened into its parent —
+//             which is what every text dataset here already was.
 //
 //   id        also the value of the walkthrough snapshot's `sampleSet`, so a
 //             scenario step advances with `(s) => s.sampleSet === '<id>'`
@@ -189,5 +304,23 @@ export const DATASETS = [
       const tenant = ROUTING_KEYS.indexOf(d.routing)
       return tenant === -1 ? i : tenant
     },
+  },
+  // The same twelve products, twice. Loading one of these is a REINDEX, which is
+  // the honest way to model a mapping change: you cannot change a mapping in
+  // place in Elasticsearch, so there is no toggle to offer.
+  {
+    id: 'catalog-object',
+    label: 'Catalog · object',
+    blurb: '12 products whose variants are a plain object — flattened into the parent, one Lucene doc each.',
+    docs: CATALOG_DOCS,
+    colorBy: (d, i) => i,
+  },
+  {
+    id: 'catalog-nested',
+    label: 'Catalog · nested',
+    blurb: 'The same 12 products with variants mapped nested — every variant becomes its own hidden Lucene doc.',
+    docs: CATALOG_DOCS,
+    mapping: ['variants'],
+    colorBy: (d, i) => i,
   },
 ]

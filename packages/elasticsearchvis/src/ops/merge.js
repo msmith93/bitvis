@@ -33,6 +33,15 @@ export default {
       for (const shard of c.shards) {
         const mergeable = shard.segments.filter((seg) => seg.searchable)
         if (mergeable.length < 2) continue
+        // Segments are concatenated in order and each segment's own order is
+        // preserved, so every block stays contiguous with its root last — and
+        // every Lucene doc gets a NEW ordinal, because an ordinal is just an
+        // index into this array. That renumbering is real: Lucene doc ids are
+        // segment-local and a merge reassigns them.
+        //
+        // A purged doc is dropped, and a block is atomic, so a reclaimed
+        // document takes all of its children with it — which is why merging
+        // after a nested update reclaims v+1 docs rather than one.
         const keep = []
         for (const seg of mergeable)
           for (const id of seg.docIds)
