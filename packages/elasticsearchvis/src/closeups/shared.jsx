@@ -9,14 +9,16 @@ import { blockRange } from '../blocktree'
 
 // Reveal `total` units, one every `ms`, while `on` — the stepped replay every
 // on-disk stage uses (FST arcs, in-block suffix rows, postings walks, DFA
-// verdicts). Jumps straight to the end when off, so scrubbing away and back never
-// leaves a half-played animation, and a nested close-up covering the panel (which
-// clears `active`) parks it at "finished" rather than ticking unseen.
-export function useReveal(on, total, ms) {
-  const [n, setN] = useState(total)
+// verdicts). Jumps straight to `rest` when off (the end, by default), so
+// scrubbing away and back never leaves a half-played animation, and a nested
+// close-up covering the panel (which clears `active`) parks it at "finished"
+// rather than ticking unseen. A replay whose step hasn't ARRIVED yet passes
+// `rest: 0` instead, so it rests unstarted rather than finished.
+export function useReveal(on, total, ms, rest = total) {
+  const [n, setN] = useState(rest)
   useEffect(() => {
     if (!on) {
-      setN(total)
+      setN(rest)
       return
     }
     let i = 0
@@ -27,77 +29,8 @@ export function useReveal(on, total, ms) {
       if (i >= total) clearInterval(id)
     }, ms)
     return () => clearInterval(id)
-  }, [on, total, ms])
+  }, [on, total, ms, rest])
   return n
-}
-
-// Every panel that shrinks a real Lucene constant carries one of these, so the
-// toy scale can never be mistaken for the real thing.
-export function ToyBadge({ here, lucene, what }) {
-  return (
-    <span className="cu-toy" title="This visualization uses a smaller constant so the structure fits on screen. The algorithm is unchanged.">
-      {what} <b>{here}</b> here · <b>{lucene}</b> in Lucene
-    </span>
-  )
-}
-
-// A cost line: the honest number the step is really about.
-export function CostLine({ children, tone }) {
-  return <div className={'cu-cost' + (tone ? ' ' + tone : '')}>{children}</div>
-}
-
-export function SectionLabel({ children, note }) {
-  return (
-    <div className="cu-label">
-      {children}
-      {note && <span className="cu-label-note">{note}</span>}
-    </div>
-  )
-}
-
-// The four hops a lookup makes, as a "you are here" strip pinned above every
-// on-disk stage. Answering a query means following ALL of these in order, and
-// each one answers a different question — the chain is easy to collapse
-// otherwise (".tip points at the document" is the natural wrong guess, because
-// nothing draws the difference between "which docs" and "the text").
-// `shown: false` marks a hop this zoom never opens — it is downstream of what is
-// on screen. Keeping it visible is the point: it is the only thing distinguishing
-// ".doc — which documents" from ".fdt — the text", which is exactly the pair a
-// reader collapses when the chain isn't drawn.
-const CHAIN = [
-  { ext: '.tip', q: 'which block?', where: 'RAM', shown: true },
-  { ext: '.tim', q: 'which term?', where: 'disk', shown: true },
-  { ext: '.doc', q: 'which docs?', where: 'disk', shown: false },
-  { ext: '.fdt', q: 'the text', where: 'disk', shown: false },
-]
-
-export function FileChain({ active }) {
-  return (
-    <div className="cu-chain">
-      <span className="cu-chain-lead">you are here</span>
-      <span className="cu-chain-hops">
-        {CHAIN.map((h, i) => (
-          <span key={h.ext} className="cu-chain-item">
-            {i > 0 && <span className="cu-chain-arrow">→</span>}
-            <span
-              className={
-                'cu-chain-hop' +
-                (h.ext === active ? ' active' : '') +
-                (h.shown ? '' : ' downstream')
-              }
-            >
-              <b>{h.ext}</b>
-              <i>{h.q}</i>
-            </span>
-          </span>
-        ))}
-      </span>
-      <span className="cu-chain-where">
-        <span className="ram">in memory</span>
-        <span className="disk">on disk</span>
-      </span>
-    </div>
-  )
 }
 
 // ---------------------------------------------------------------------------
@@ -111,14 +44,18 @@ export function FileChain({ active }) {
 // `focusFp` marks the single block a term lookup landed on. `loadedFps` is the
 // multi-block equivalent for a pattern, which can reach several — pass one or the
 // other; both dim everything they don't name, which is the cost lesson.
-export function BlockColumn({ index, focusFp, expandedFp, loadedFps, scan, revealed }) {
+// `expandedFps` opens blocks in place on the read step — the ones whose rows got
+// compared — with `scans` (fp → a blockScan-shaped {rows}) driving the per-row
+// reveal, ordered by `revealed` (a GLOBAL counter: rows carry their own `order`
+// when several blocks replay in sequence).
+export function BlockColumn({ index, focusFp, expandedFps, loadedFps, scans, revealed }) {
   const reached = (fp) => (loadedFps ? loadedFps.has(fp) : fp === focusFp)
   const anyReached = !!loadedFps || focusFp != null
   return (
     <div className="cu-bcol">
       {index.blocks.map((b) => {
         const range = blockRange(index, b)
-        const expanded = b.fp === expandedFp
+        const expanded = !!expandedFps?.has(b.fp)
         return (
           <div
             key={b.fp}
@@ -138,7 +75,7 @@ export function BlockColumn({ index, focusFp, expandedFp, loadedFps, scan, revea
             </div>
             {expanded && (
               <div className="cu-bcol-open">
-                <SuffixBlock block={b} scan={scan} revealed={revealed} />
+                <SuffixBlock block={b} scan={scans?.get(b.fp)} revealed={revealed} />
               </div>
             )}
           </div>
@@ -153,9 +90,11 @@ export { hex as hexAddr }
 
 // ONE block opened up: the shared prefix stored once, then a suffix per entry.
 // `scan` is a blockScan() result, so the rows light up in the order the scan
-// actually read them and stop where it stopped.
+// actually read them and stop where it stopped. A row may carry its own `order`
+// (a global position across several blocks replaying in sequence); rows without
+// one are ordered as they come, which is what a single-block scan wants.
 export function SuffixBlock({ block, scan, revealed = Infinity }) {
-  const readIx = new Map((scan?.rows || []).map((r, i) => [r.i, { ...r, order: i }]))
+  const readIx = new Map((scan?.rows || []).map((r, i) => [r.i, { ...r, order: r.order ?? i }]))
   return (
     <div className="cu-suffix-block">
       <div className="cu-suffix-head">
@@ -272,28 +211,24 @@ function fstLayout(fst) {
 // buildFst), which makes this a Moore machine, and Moore puts the output in the
 // bubble. Lucene's own Util.toDot does the same thing with node ADDRESSES.
 //
-// `walk` is an fstSeek() result — its arcs are
-// drawn as the live path, and a missing arc is drawn as the dead end it is.
-// `followed` comes from an automaton intersection instead, and holds ONLY the
-// arcs the pattern accepted: a rejected arc is left at its resting grey rather
-// than drawn in red, so the picture shows the work done and not the work saved.
-//
-// `pruned` opts INTO drawing the rejections, for the one case where they are the
-// lesson rather than the noise: a fuzzy query, where whether an arc can die at
-// all is the whole reason the intersection is cheap. `dimmed` fades the states
-// behind those arcs — the terms nobody read — and `cursor` marks where the walk
-// is standing right now, so the FST and the automaton beside it move together.
+// ONE replay, one set of rules, whatever the query (see SPEC.md): `followed`
+// holds the arcs the walk accepted (green), `pruned` the arcs it refused on
+// sight (red) — every term behind a pruned arc is skipped unread, and `dimmed`
+// fades the states behind them to say so. A plain term drives this exactly like
+// a pattern does: it is the degenerate automaton with one acceptable reading,
+// so one path survives and every sibling arc dies. `cursor` marks where the
+// walk is standing right now, so the FST and the automaton beside it (fuzzy
+// mode) move together, and `focus` is the node the current decision is ABOUT —
+// the pan target.
 export function ArcGraph({
   fst,
   index,
-  walk,
   followed,
   pruned,
   dimmed,
   cursor: cursorState,
   focus: focusState,
   matches,
-  revealed = Infinity,
 }) {
   const { pos, width, height } = fstLayout(fst)
   const box = useRef(null)
@@ -309,20 +244,6 @@ export function ArcGraph({
     const p = pos.get(id)
     if (p) svgWidth = Math.max(svgWidth, p.x + HIT_GAP + hitLabel(terms).length * HIT_CH + 12)
   }
-  const walked = new Set()
-  const walkedArcs = new Set()
-  let cursor = fst.root
-  if (walk) {
-    walked.add(fst.root)
-    walk.arcs.slice(0, revealed).forEach((a) => {
-      if (a.missing) return
-      walkedArcs.add(`${a.from}:${a.label}`)
-      walked.add(a.to)
-      cursor = a.to
-    })
-  }
-  const missing = walk?.arcs.slice(0, revealed).find((a) => a.missing)
-
   // The .tip FST is BUSHY, not deep: fstLayout puts depth on x (a handful of
   // columns) and stacks siblings on y, so a dictionary with a hundred terms is
   // a graph a couple of thousand pixels TALL. Rather than let that set the
@@ -336,7 +257,7 @@ export function ArcGraph({
   // died all over the graph. `focus` is the arc's far end, which is the thing
   // actually changing. Instant rather than smooth: one decision is a 260ms tick,
   // and a smooth scroll would still be travelling when the next one lands.
-  const at = focusState ?? cursorState ?? cursor
+  const at = focusState ?? cursorState ?? fst.root
   const spot = pos.get(at)
   useEffect(() => {
     const el = box.current
@@ -357,13 +278,11 @@ export function ArcGraph({
             const p2 = pos.get(a.to)
             if (!p1 || !p2) return null
             const key = `${s.id}:${a.label}`
-            const cls = walkedArcs.has(key)
-              ? 'walked'
-              : followed?.has(key)
-                ? 'followed'
-                : pruned?.has(key)
-                  ? 'pruned'
-                  : ''
+            const cls = followed?.has(key)
+              ? 'followed'
+              : pruned?.has(key)
+                ? 'pruned'
+                : ''
             return (
               <g key={key} className={'cu-arc ' + cls}>
                 <line x1={p1.x + 15} y1={p1.y} x2={p2.x - 15} y2={p2.y} />
@@ -384,8 +303,6 @@ export function ArcGraph({
               key={s.id}
               className={
                 'cu-state' +
-                (walked.has(s.id) ? ' walked' : '') +
-                (s.id === cursor && walk ? ' cursor' : '') +
                 (s.id === cursorState ? ' cursor' : '') +
                 (dimmed?.has(s.id) ? ' dim' : '') +
                 (hit ? ' matched' : '') +
@@ -410,20 +327,6 @@ export function ArcGraph({
             </g>
           )
         })}
-        {missing && (() => {
-          const p = pos.get(missing.from ?? cursor) || pos.get(cursor)
-          return p ? (
-            <g className="cu-arc dead">
-              <line x1={p.x + 15} y1={p.y} x2={p.x + 62} y2={p.y} />
-              <text x={p.x + 38} y={p.y - 8}>
-                {missing.label}
-              </text>
-              <text x={p.x + 70} y={p.y + 4} className="cu-dead-x">
-                ✗
-              </text>
-            </g>
-          ) : null
-        })()}
       </svg>
       <div className="cu-fst-legend">
         <span className="cu-fst-key">
@@ -431,13 +334,13 @@ export function ArcGraph({
           address inside one means <b>“a block lives here”</b>
         </span>
         <span><i className="dot has-out" /> carries a .tim block pointer</span>
-        <span><i className="dot walked" /> the arrows this query followed · grey was never looked at</span>
+        <span><i className="dot followed" /> the arrows this query followed · grey was never looked at</span>
         {pruned?.size > 0 && (
           <span><i className="dot pruned" /> rejected — everything behind it is skipped unread</span>
         )}
         {matches?.size > 0 && (
           <span>
-            <i className="dot matched" /> its block held a match — the word under it is what was found
+            <i className="dot matched" /> its block held a match — the word beside it is what was found
           </span>
         )}
         <span className="cu-fst-size">
@@ -612,7 +515,14 @@ export function AutomatonGrid({ grid, live, entered, taken, dead, pattern }) {
           a character that was right, going <b>down</b> costs an edit
         </span>
         <span><i className="dot live" /> alive right now — the walk is in all of them at once</span>
-        <span><i className="dot accept" /> accepting: “{pattern?.literal}” is reachable from here within budget</span>
+        {/* Precisely: (i,e) accepts when the query's remaining characters could
+            all be deleted inside the remaining budget, n - i <= maxEdits - e.
+            So it means "if the term ENDED here it would already be a match" —
+            not "the query is reachable from here", which is a weaker claim. */}
+        <span>
+          <i className="dot accept" /> accepting: a term ending here is already within{' '}
+          {grid.maxEdits} edit{grid.maxEdits === 1 ? '' : 's'} of “{pattern?.literal}”
+        </span>
         <span className="cu-lev-edges">
           <i className="edge match" /> the expected character
           <i className="edge insert" /> an extra one

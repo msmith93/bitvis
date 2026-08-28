@@ -96,6 +96,33 @@ const STEPS = [
     advanceOn: (s) => s.zoomShard != null || (s.opDone && !s.playing),
   },
   {
+    // One zoom deeper, on the LEADING run rather than the cheap one: `*search`
+    // prunes exactly zero arcs and reads every block, which is the structural
+    // version of this scenario's whole thesis — and the panel's own contrast
+    // table puts the seekable pattern beside it, so the cheap case is covered
+    // without a second descent. Mirrors the ondisk/fuzzy descent: one click per
+    // step, so getting down two levels is two steps.
+    id: 'dictionary-leading',
+    target: '[data-anat-dict]',
+    placement: 'bottom',
+    title: 'One level deeper — the real structure',
+    waitFor: (s) => s.closeUpKind === 'shard',
+    body: 'The flat table you just watched is a useful lie: underneath, the dictionary is blocks on disk indexed by a small graph in memory. Scroll down to “Segment anatomy” and click the 🔍 on the “term dictionary” column head to see the pattern resolved against the real thing.',
+    advanceOn: (s) => s.closeUpKind === 'dictionary',
+  },
+  {
+    // Spotlighted, not a centered card: a card's backdrop would dim the picture
+    // this step is asking the reader to look at. cta with no advanceOn ⇒ held,
+    // so the walk waits rather than playing out behind the tip.
+    id: 'read-the-no-prune',
+    target: '[data-tour="fst"]',
+    placement: 'right',
+    title: 'Nothing turns red',
+    body: 'Watch the arrows as the walk runs. In a pattern that can be anchored, most of them die red at the root and everything behind them is skipped unread. Here every single arrow goes green — a leading wildcard accepts ANY first character, so there is no arrow the machine is ever entitled to refuse. That is the whole cost story in one picture: nothing pruned, every block off the disk.',
+    waitFor: (s) => s.closeUpKind === 'dictionary',
+    cta: 'Got it',
+  },
+  {
     id: 'resume-leading',
     target: '[data-tour="stepper-play"]',
     placement: 'top',
@@ -112,7 +139,7 @@ const STEPS = [
     body: [
       'A prefix like “sc*” costs a seek plus the matching range. A leading wildcard costs the ENTIRE term dictionary — and that price is paid per segment, per shard, on every node the query touches. The line under “What’s happening” totals it up for the query you just ran.',
       'It is also why the usual fix is to index the data differently rather than query harder: a reverse field, an ngram/wildcard field, or a prefix you can actually seek to.',
-      'This view models the seek as a binary search over a flat sorted array. Real Lucene walks an FST + block-tree, and it compiles the pattern into an automaton rather than testing a regex — both of which you can watch one zoom deeper, via the 🔍 on the “term dictionary” column head (or the “Inside a segment’s term dictionary” scenario).',
+      'The middle view models the seek as a binary search over a flat sorted array; the zoom you just took shows what Lucene really does — an FST in memory picking blocks out of a file on disk, with the pattern compiled to an automaton rather than tested as a regex. Same cost story, one level of honesty deeper. “Inside a segment’s term dictionary” takes an ordinary term down the same path.',
     ],
     waitFor: (s) => s.zoomShard == null && !s.coordZoom,
     cta: 'Done',

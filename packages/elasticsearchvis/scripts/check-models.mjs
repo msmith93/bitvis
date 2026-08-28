@@ -43,7 +43,7 @@ register(`data:text/javascript,${encodeURIComponent(hookSrc)}`, pathToFileURL(SR
 const { analyzeDoc } = await import(SRC + 'analyzer.js')
 const { routeShard } = await import(SRC + 'cluster.js')
 const { SAMPLE_DOCS, FUZZY_QUERIES, WILDCARD_QUERIES } = await import(SRC + 'presets.js')
-const { buildTermIndex } = await import(SRC + 'blocktree.js')
+const { buildTermIndex, fstSeek, seekTrace } = await import(SRC + 'blocktree.js')
 const { ANY, compileAutomaton, intersectTrace } = await import(SRC + 'automaton.js')
 const W = await import(SRC + 'wildcard.js')
 
@@ -315,6 +315,127 @@ section('5 · the intersection trace reports the walk it performed')
     }
   }
   check(`running the automaton over the whole term agrees with matchTerm (${paths} terms)`, wrongVerdict.length === 0, wrongVerdict.join('\n      '))
+
+  // Term mode draws the intersection walk but reports the SEEK's cost, so the
+  // two have to be the same walk over the same word. The follows must spell
+  // exactly the arcs fstSeek took (a `missing` arc has no counterpart: the FST
+  // indexes block prefixes, so the arrows always run out before the word does),
+  // and the block the seek settles on must be one the intersection actually
+  // loaded — otherwise the picture would halo a node the copy never read.
+  //
+  // Explicitly NOT asserted: equal block counts. TermsEnum.intersect loads a
+  // block at every output-carrying state along the descent where seekExact
+  // carries the last output and reads ONE, and that difference is by design —
+  // it is why term mode keeps seekTrace for its numbers.
+  {
+    const mismatched = []
+    let seeks = 0
+    for (const { shard, index } of DICTS) {
+      const alphabet = [...new Set(index.terms.flatMap((t) => [...t]))]
+      for (const term of ['search', 'serch', 'lucene', 'zzz']) {
+        seeks += 1
+        const dfa = compileAutomaton(W.parsePattern(term), alphabet)
+        const hits = intersectTrace(index, dfa)
+        const walked = hits.visits.filter((v) => v.action === 'follow').map((v) => v.label)
+        const sought = fstSeek(index, term).arcs.filter((a) => !a.missing).map((a) => a.label)
+        const where = `shard ${shard} “${term}”`
+        if (walked.join('') !== sought.join(''))
+          mismatched.push(`${where}: walk spelled “${walked.join('')}”, seek spelled “${sought.join('')}”`)
+        const trace = seekTrace(index, term)
+        const loaded = new Set(hits.visits.filter((v) => v.action === 'load').map((v) => v.fp))
+        if (trace.block && !loaded.has(trace.block.fp))
+          mismatched.push(`${where}: the seek's block is not one the walk loaded`)
+      }
+    }
+    check(
+      `a term's drawn walk is the walk its seek performed (${seeks} seeks)`,
+      mismatched.length === 0,
+      mismatched.slice(0, 4).join('\n      '),
+    )
+  }
+
+  // The reason the fuzzy scenario has a step 4 at all. The arc walk consumes
+  // block PREFIXES, so it can never light an accepting state — a reader who
+  // watches only the walk sees the grid stall partway across and concludes the
+  // automaton never gets there. The view that finishes the word (termPath, and
+  // levTermView which draws it) is the one that reaches the accepting column,
+  // so assert BOTH halves: the walk never accepts, and the finishing path does.
+  for (const { shard, index } of DICTS) {
+    const alphabet = [...new Set(index.terms.flatMap((t) => [...t]))]
+    const dfa = compileAutomaton(W.parsePattern('serch~'), alphabet)
+    const hits = intersectTrace(index, dfa)
+    const accepts = (id) =>
+      id != null && dfa.states[id].nfaSet.some((n) => dfa.grid.nodes.find((g) => g.id === n)?.accept)
+    const walkAccepted = hits.visits.filter((v) => v.action === 'follow' && accepts(v.dfaTo)).length
+    const finished = hits.visits.filter((v) => v.action === 'accept' && v.path.accepts && accepts(v.path.end))
+    check(
+      `shard ${shard}: only the finishing path reaches an accepting state`,
+      walkAccepted === 0 && finished.length > 0,
+      `${walkAccepted} walk visits accepted (want 0), ${finished.length} finished paths accepted (want >0)`,
+    )
+  }
+
+  // The guided walk explains every prune with the SAME sentence: "every reading
+  // still alive has already spent its edit, so only the exact character each one
+  // is waiting for could keep it going". That is not a turn of phrase — it is
+  // forced by the machine. A reading with budget left can always buy the next
+  // character as an INSERTION (cost 1, consumes anything), so while any live
+  // reading has budget no arc can die. If that ever stopped holding, the
+  // narration would be confidently wrong about why the dictionary got pruned.
+  {
+    const wrong = []
+    let prunes = 0
+    for (const { shard, index } of DICTS) {
+      const alphabet = [...new Set(index.terms.flatMap((t) => [...t]))]
+      for (const q of ['serch~', 'store~1', 'search~2']) {
+        const pattern = W.parsePattern(q)
+        if (pattern.kind !== 'fuzzy') continue
+        const dfa = compileAutomaton(pattern, alphabet)
+        const grid = dfa.grid
+        const byId = new Map(grid.nodes.map((n) => [n.id, n]))
+        for (const v of intersectTrace(index, dfa).visits) {
+          if (v.action !== 'prune') continue
+          prunes += 1
+          const from = (dfa.states[v.dfaFrom]?.nfaSet ?? [])
+            .map((x) => byId.get(x))
+            .filter((n) => n && !n.bridge)
+          const withBudget = from.filter((n) => n.e < grid.maxEdits)
+          if (withBudget.length && wrong.length < 4)
+            wrong.push(
+              `shard ${shard} “${q}” “${v.prefix}”+${v.label}: ` +
+                `(${withBudget[0].i},${withBudget[0].e}) still had budget yet the arc was pruned`,
+            )
+        }
+      }
+    }
+    check(
+      `a fuzzy arc only dies once every live reading is out of edits (${prunes} prunes)`,
+      wrong.length === 0,
+      wrong.join('\n      '),
+    )
+  }
+
+  // The fuzzy scenario hands the walk to the reader and advances its own steps
+  // on how far they have scrubbed: one tip clears at 3 decisions, the next at
+  // 6. Those numbers are only meaningful if a prune has actually appeared on
+  // screen by then — otherwise the step that says "watch one turn RED" clears
+  // itself before anything has. Both are properties of the DATASET (which arcs
+  // the walk meets first), so they belong here rather than in the scenario.
+  for (const { shard, index } of DICTS) {
+    const alphabet = [...new Set(index.terms.flatMap((t) => [...t]))]
+    const dfa = compileAutomaton(W.parsePattern('serch~'), alphabet)
+    const decisions = intersectTrace(index, dfa).visits.filter(
+      (v) => v.action === 'follow' || v.action === 'prune',
+    )
+    // `revealed = walkVisits.slice(0, sub)`, so a tip clearing at sub === n has
+    // shown decisions 0..n-1.
+    const prunesBy = (n) => decisions.slice(0, n).filter((v) => v.action === 'prune').length
+    check(
+      `shard ${shard}: the fuzzy walk shows a prune within the tour's first 3 steps`,
+      prunesBy(3) >= 1 && prunesBy(6) >= 2,
+      `${prunesBy(3)} prunes in the first 3 decisions (want >=1), ${prunesBy(6)} in the first 6 (want >=2)`,
+    )
+  }
 
   // The scenario's whole payoff is that a DEFAULT fuzzy query visibly prunes.
   // That is a property of the DATASET, not of the algorithm, and it is easy to

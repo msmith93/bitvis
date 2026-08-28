@@ -11,10 +11,16 @@ export default function Stepper({
   onPause,
   dataTour,
   highlightPlay,
+  // A stepper whose owner scrubs SUB-UNITS inside a step (the close-up panels
+  // walking one arc decision at a time) overrides the ends, so Next stays live
+  // while a replay still has units left, and labels where it is.
+  canPrev,
+  canNext,
+  subLabel,
 }) {
   const active = steps.length > 0
-  const atStart = !active || step <= 0
-  const atEnd = !active || step >= steps.length - 1
+  const atStart = !active || (canPrev != null ? !canPrev : step <= 0)
+  const atEnd = !active || (canNext != null ? !canNext : step >= steps.length - 1)
 
   return (
     <div className="stepper" data-tour={dataTour}>
@@ -63,6 +69,7 @@ export default function Stepper({
 
       <div className="step-count">
         {active ? `Step ${step + 1} / ${steps.length}` : '—'}
+        {active && subLabel && <i className="step-sub">{subLabel}</i>}
       </div>
     </div>
   )

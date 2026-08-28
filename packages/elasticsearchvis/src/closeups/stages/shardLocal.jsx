@@ -14,11 +14,12 @@ import {
   QUERY_SCAN_MS,
 } from '../../timing'
 import { LOCAL_TOPK } from '../../constants'
+import { useReveal } from '../shared'
 
 // The close-up for a single serving shard during the local-search phase.
 //
 // A persistent "segment anatomy" diagram (inverted index = term dictionary +
-// postings, stored _source, deletes bitset) stays visible while the shell's
+// postings, stored _source) stays visible while the shell's
 // mini-stepper walks the query-phase steps. Transitions are animated end-to-end:
 // query tokens fly to the segments, matched doc-ids fly up into the candidate
 // lane, and the candidate chips glide into their scored / ranked positions
@@ -97,7 +98,6 @@ function ShardLocalStage({ step, active, openCloseUp, model, docs, query }) {
 
   const [arrived, setArrived] = useState(true) // has the current step's flight landed?
   const [flights, setFlights] = useState([])
-  const [probeIdx, setProbeIdx] = useState(0) // probes replayed on the dictionary step
   const prevStepRef = useRef(0)
 
   // Choreography: on FORWARD entry to a flight step, launch the flight(s) and hold
@@ -127,32 +127,17 @@ function ShardLocalStage({ step, active, openCloseUp, model, docs, query }) {
 
   // Replay the dictionary probes once the query chips have landed. Leaving the
   // step forwards parks the replay at "finished" (so later steps show every
-  // matched term); leaving it backwards rewinds it to nothing. A nested close-up
-  // covering this panel parks it at "finished" too — a replay ticking behind a
-  // child panel would be finished-but-unseen by the time the user came back.
-  useEffect(() => {
-    if (!wildcard) return
-    if (!active) {
-      setProbeIdx(maxProbes)
-      return
-    }
-    if (step !== at.lookup) {
-      setProbeIdx(step > at.lookup ? maxProbes : 0)
-      return
-    }
-    if (!arrived) {
-      setProbeIdx(0)
-      return
-    }
-    let i = 0
-    setProbeIdx(0)
-    const id = setInterval(() => {
-      i += 1
-      setProbeIdx(i)
-      if (i >= maxProbes) clearInterval(id)
-    }, probeMs)
-    return () => clearInterval(id)
-  }, [wildcard, active, step, arrived, at.lookup, maxProbes, probeMs])
+  // matched term); leaving it backwards rewinds it to nothing — which is the
+  // one place this needs `rest` rather than useReveal's default, since a step
+  // not yet reached must rest UNSTARTED. A nested close-up covering this panel
+  // parks it at "finished" too: a replay ticking behind a child panel would be
+  // finished-but-unseen by the time the user came back.
+  const probeIdx = useReveal(
+    wildcard && active && step === at.lookup && arrived,
+    maxProbes,
+    probeMs,
+    !active || step > at.lookup ? maxProbes : 0,
+  )
 
   // query term / pattern chips fly from the query bar down to each segment's
   // inverted index; a segment scrolled below the fold gets a token that exits the
@@ -238,11 +223,6 @@ function ShardLocalStage({ step, active, openCloseUp, model, docs, query }) {
 
         <p className="section-title">
           Segment anatomy — what this shard stores
-          <span className="si-hint">
-            {' '}
-            — this table is a drawing; the 🔍 on a column shows the files it is
-            really made of
-          </span>
         </p>
         <div className="si-anatomy">
           {anatomy.length === 0 ? (
@@ -448,10 +428,10 @@ function probeView(scan, probeIdx) {
   }
 }
 
-// One segment's stored structures: inverted index (term dictionary | postings),
-// stored _source, and the deletes (live-docs) bitset. The same card lights up
-// differently depending on `focus` (which query step we're on) and, for a
-// wildcard, on how far the dictionary probe replay has got.
+// One segment's stored structures: inverted index (term dictionary | postings)
+// and the stored _source. The same card lights up differently depending on
+// `focus` (which query step we're on) and, for a wildcard, on how far the
+// dictionary probe replay has got.
 function AnatomyCard({
   seg,
   focus,
@@ -501,17 +481,6 @@ function AnatomyCard({
       <div className="anat-card-head">
         <span className="anat-seg-id">
           <span className="lock">🔒</span> {seg.id}
-        </span>
-        <span className="anat-bitset" title="live-docs bitset (deletes)">
-          Live-Docs:
-          {seg.docs.map((d) => (
-            <span
-              key={d.id}
-              className={'anat-bit' + (d.deleted || d.purged ? ' dead' : ' live')}
-            >
-              {d.id} {d.deleted || d.purged ? '✗' : '✓'}
-            </span>
-          ))}
         </span>
       </div>
 

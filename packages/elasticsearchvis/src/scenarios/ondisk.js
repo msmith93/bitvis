@@ -80,7 +80,7 @@ const STEPS = [
     title: 'Zoom 2: into the term dictionary',
     // Only while the shard panel is the top of the stack — the 🔍 lives on it.
     waitFor: (s) => s.closeUpKind === 'shard',
-    body: 'Scroll down to “Segment anatomy” and click the 🔍 on the “term dictionary” column head. One picture, four steps: the graph on the left is the index and it is in memory, the blocks on the right are the dictionary and they are on disk. Watch how much of the right-hand side gets read.',
+    body: 'Scroll down to “Segment anatomy” and click the 🔍 on the “term dictionary” column head. One picture, four steps: the graph on top is the index and it is in memory, the blocks beneath it are the dictionary and they are on disk. Watch how few of them get read.',
     advanceOn: (s) => s.closeUpKind === 'dictionary',
   },
   {

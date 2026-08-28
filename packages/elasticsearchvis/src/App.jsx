@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { analyzeDoc } from './analyzer'
 import {
@@ -79,6 +79,26 @@ export default function App() {
   const zoomShard = rootCloseUp?.kind === 'shard' ? rootCloseUp.shard : null
   const coordZoom = rootCloseUp?.kind === 'coordinator'
 
+  // Where the innermost close-up's own mini-stepper has got to, reported up by
+  // CloseUp. A tour step needs this to wait for a beat INSIDE a panel — the
+  // fuzzy walk only reaches an accepting state on the panel's last step, and
+  // without this the tour cannot know when to point at it.
+  // Bumped by a tour tip's own "next step" button; CloseUp watches the counter
+  // and walks the active panel forward one unit per press.
+  const [panelAdvance, setPanelAdvance] = useState(0)
+  const advancePanel = useCallback(() => setPanelAdvance((n) => n + 1), [])
+
+  const [panelStep, setPanelStep] = useState({ step: 0, last: 0, sub: null, units: 1 })
+  const onPanelStep = useCallback(
+    (step, last, sub, units) =>
+      setPanelStep((p) =>
+        p.step === step && p.last === last && p.sub === sub && p.units === units
+          ? p
+          : { step, last, sub, units },
+      ),
+    [],
+  )
+
   const [title, setTitle] = useState(PRESETS[0].title)
   const [body, setBody] = useState(PRESETS[0].body)
   const [indexRouting, setIndexRouting] = useState('') // optional _routing at index time
@@ -117,6 +137,13 @@ export default function App() {
       coordZoom,
       closeUpKind: closeUps.at(-1)?.kind ?? null,
       closeUpDepth: closeUps.length,
+      closeUpStep: closeUps.length ? panelStep.step : -1,
+      closeUpLast: closeUps.length ? panelStep.last : -1,
+      // How far into the current step's own replay the reader has scrubbed
+      // (0 when they have just entered it manually, null while the stage's
+      // clock owns it). -1 when no close-up is open.
+      closeUpSub: closeUps.length ? panelStep.sub ?? -1 : -1,
+      closeUpUnits: closeUps.length ? panelStep.units : -1,
       sampleSet,
       scenariosOpen,
     },
@@ -610,7 +637,18 @@ export default function App() {
         // A tour step that only asks to be READ (a cta, nothing to advance on)
         // freezes the panel's auto-play, so the walk it is describing does not
         // play out behind the tooltip while the user is still reading.
-        held={tour.visible && !!tour.step?.cta && !tour.step?.advanceOn}
+        // `holdPanel` freezes it for a step that DOES advance on something —
+        // the ones that hand the replay to the reader and wait for them to
+        // walk it with Next, where an auto-play clock would race them.
+        held={
+          tour.visible &&
+          (!!tour.step?.holdPanel || (!!tour.step?.cta && !tour.step?.advanceOn))
+        }
+        // Any read-this tip means "stay and look at this" — so the panel must
+        // not simultaneously be inviting the reader to close it.
+        quiet={tour.visible && !!tour.step?.cta}
+        onPanelStep={onPanelStep}
+        advance={panelAdvance}
       />
 
       {/* ---------------- Cookie consent (GDPR regions only) ---------------- */}
@@ -622,7 +660,24 @@ export default function App() {
       )}
 
       {/* ---------------- Overlay: guided scenario ---------------- */}
-      <Walkthrough tour={tour} allowEscape={closeUps.length === 0} />
+      <Walkthrough
+        tour={tour}
+        allowEscape={closeUps.length === 0}
+        onPanelNext={advancePanel}
+        // What the panel is doing at THIS unit of its replay, so a guided step
+        // can say why the walk went the way it did instead of narrating the
+        // walk in general. Derived by the close-up from its own trace.
+        narration={
+          closeUpStack.at(-1)?.narrate?.(panelStep.step, panelStep.sub) ?? null
+        }
+        // "3 / 33" beside the tip's own next button, so the reader can see how
+        // far through the replay they are without looking away from it.
+        panelProgress={
+          closeUps.length && panelStep.units > 1
+            ? `${Math.min(panelStep.sub ?? panelStep.units, panelStep.units)} / ${panelStep.units}`
+            : null
+        }
+      />
 
       {/* ---------------- Overlay: "this is a desktop simulation" ---------------- */}
       <MobileWarning />

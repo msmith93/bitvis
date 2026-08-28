@@ -123,8 +123,13 @@ case:
 3. **The edit budget is the cost story.** One more edit multiplies the states in
    the machine, removes its ability to reject arcs, and pushes the walk into
    blocks it could previously skip — for the same word against the same
-   dictionary. The dictionary zoom's contrast table states it by running BOTH
-   automata; every number in it must be derived, never written into the copy.
+   dictionary. The dictionary zoom carries those numbers in its walk readout —
+   arcs pruned, blocks read, terms examined — and every one must come from a
+   trace, never be written into the copy. (The deep zoom deliberately ends at the
+   `.tim` strip: an earlier build drew per-step cost lines, a term-entry /
+   expansion block and a side-by-side contrast table running BOTH automata below
+   it; all were removed as clutter. The expansion list still shows in the shard
+   zoom and the results panel.)
 4. **Fuzzy matches spelling, not meaning.** `store~1` expands to `score` as well
    as `store` and `stores`. That is not a defect to hide — it is the honest cost,
    and the app must show it.
@@ -192,10 +197,11 @@ Don't rebuild it. The reasons, so the decision isn't re-litigated:
 - **It read as mechanism without purpose** — every step titled after a technique
   rather than a reason, and reached with no narrative bridge.
 
-What survives: the `.tip → .tim → .doc → .fdt` chain (so `.doc` is still visibly
-"which documents", distinct from `.fdt`, "the text"), the dictionary zoom's
-closing line naming the `.doc` pointer, and one clause in the shard inspector
-noting Lucene writes no skip data below 128 documents.
+What survives: `.tim` still visibly points onward to `.doc` — the expanded block
+rows name each term's `.doc` pointer and its `docFreq` — and one clause in the
+shard inspector noting Lucene writes no skip data below 128 documents. (The
+`.tip → .tim → .doc → .fdt` "you are here" strip that used to make the hop to
+`.fdt` explicit was itself removed as clutter.)
 
 ### Patterns — the same picture, driven by a query (`src/automaton.js`)
 A wildcard is **not a separate zoom**. A plain term is the degenerate case of a
@@ -208,6 +214,24 @@ for `*`/`?`, a Levenshtein grid for `~`. Determinization, the FST walk, pruning
 and floor selection are shared, because to Lucene both are just an
 `AutomatonQuery`. Adding a third kind of pattern must not add a third walk.
 
+Checked against Lucene's own source (`IntersectTermsEnum`, `LevenshteinAutomata`)
+rather than from memory, because the guided walk now narrates each decision and a
+wrong mental model would be stated confidently to the reader:
+- Real Lucene runs the automaton over **BYTES** (`ByteRunnable.step`, a
+  `ByteRunAutomaton`) and picks arcs using sorted **transition RANGES**
+  (`currentTransition.min/max`) to skip labels no transition can accept. We test
+  characters arc by arc, which is the same set of follows and prunes said out
+  loud — the toy alphabet is ASCII, so bytes and characters coincide here.
+- `pushFrame` → `frame.load(node)` means a frame IS a block read: an intersect
+  reads the root block and each sub-block it descends into. That is why term
+  mode keeps `seekTrace` for its cost (see above) — the two APIs genuinely read
+  a different number of blocks.
+- Lucene builds the Levenshtein DFA directly from Schulz & Mihov parametric
+  descriptions (max distance 2, optional transpositions). We build the textbook
+  `(i, e)` NFA and determinize it, which is the derivation those precomputed
+  tables encode — and it is the only form in which the grid can be DRAWN, which
+  is the whole point of the panel.
+
 1. The pattern compiles to an NFA, then is **determinized** (Lucene caps this at
    `maxDeterminizedStates` = 10000, which this app enforces).
 2. The automaton is run against the `.tip` arcs in lockstep. An arc it has no live
@@ -219,7 +243,7 @@ and floor selection are shared, because to Lucene both are just an
 4. **A node may be marked with what its BLOCK held, never with a term of its
    own.** Nothing in the picture used to connect the walk to the answer, so a
    state whose `.tim` block turned out to contain a matching term now gets a halo
-   and the matched word(s) hung BELOW the bubble. The distinction is not
+   and the matched word(s) hung BESIDE the bubble. The distinction is not
    cosmetic: a state's bubble is a block ADDRESS, 34 states index 89 terms here,
    one leaf points at a block of seven, and minimization merges states that two
    different prefixes reach — so labelling a node *as* a word would be false.
@@ -244,11 +268,51 @@ matched, edits spent)` states are still alive — a SET, changing every characte
 that nothing in the FST can show. So for a fuzzy pattern, and only for a fuzzy
 pattern, the dictionary zoom draws the automaton beside the term index.
 
-- **The layout changes with the MODE, never with the step.** In fuzzy mode the
-  split holds the two things that are in memory (the term index and the compiled
-  query) and the `.tim` block column becomes a full-width strip beneath them.
-  That is a property of the query, so the one-picture rule above still holds
-  within a mode: a step may still only change what is lit.
+- **The layout changes with the MODE, never with the step.** The split holds
+  what is IN MEMORY and the `.tim` block column is a full-width strip beneath it
+  — in every mode, so the geometry does not move when the query changes. Fuzzy
+  is the only mode with a second thing in memory to put in that split (the
+  compiled query beside the term index); a term or a glob leaves the FST the
+  full width. That is a property of the query, so the one-picture rule above
+  still holds within a mode: a step may still only change what is lit. The
+  strip starts below the fold on a tall dictionary, so the stage scrolls each
+  step's subject into view the same way `ArcGraph` pans to its cursor —
+  instantly, and only when the step changes, so it never fights the reader.
+- **The intersection is walked BY THE READER, not past them.** Auto-play spends
+  260ms per decision, which is fine for "watch it go" and useless for "see how
+  it works" — a walk is 30-odd decisions and the interesting ones are the
+  prunes. So the panel's Prev/Next scrub one decision at a time, and the fuzzy
+  scenario freezes the panel (`holdPanel`) and hands it over: press Next, one
+  arc of the index and one character of the machine, both panels moving
+  together, until a red arrow lands and the grid goes empty. The steps clear on
+  the reader's own progress (`closeUpSub`), and `npm run check` asserts a prune
+  is actually on screen by the decision each step clears at — otherwise the tip
+  that says "watch one turn RED" would clear before one had.
+- **Each step says WHY, from the trace** (`ctx.narrate` + `liveNarration`). The
+  reader is told which character the index offered, which readings were waiting
+  for it (free) and which had to spend an edit, or — for a prune — that every
+  live reading is out of edits and what each was waiting for instead. It is
+  folded out of `explainDecision` in `src/automaton.js`, so no sentence asserts
+  anything the machine did not do. Two facts it leans on:
+  - **An arc can only die once every live reading has spent its last edit.** A
+    reading with budget can always buy the next character as an INSERTION (cost
+    1, consumes anything), so pruning cannot begin above the depth where the
+    budget runs out. `npm run check` asserts it over every prune.
+  - **The walk is DEPTH-FIRST and backtracks**, so the live set jumps back to an
+    ancestor's when a subtree finishes. Unsaid, that reads as the machine losing
+    progress; the narration calls it out whenever the visit's prefix is not
+    where the previous one left off.
+- **Those steps do NOT dim the app** (`noDim`), and they carry their own step
+  button (`panelNext`). Both follow from what the step is for. The spotlight's
+  usual job is to make one control the only thing worth looking at; here the
+  lesson is two structures moving together with a readout underneath tying them
+  to each other, so darkening everything outside one panel would hide most of
+  what the reader was just told to watch. The dim rects stay in the DOM (the
+  ring and the layout maths are unchanged) but go transparent and
+  click-through, and the tip goes translucent and sits in the margin BESIDE the
+  close-up — never over the FST panel, which is the other half of the picture.
+  Because nothing is blocked any more, every such step needs an `advanceOn`
+  that survives the reader wandering off, or closing the panel strands the tour.
 - **The picture's coordinates come from the model.** `buildLevenshteinNfa`
   returns a `grid` of nodes carrying their own `(i, e)`; a view may never
   reverse-engineer a position out of a state id, and the states it lights come
@@ -284,6 +348,25 @@ pattern, the dictionary zoom draws the automaton beside the term index.
   the subtree behind a rejection dimmed, a cursor that pans — and the only thing
   a query's kind still decides is whether the automaton panel appears beside the
   index, because a glob has no `(i, e)` grid to draw.
+  **A plain term runs that same replay**, because it is the degenerate pattern:
+  its automaton has one acceptable reading, so one arc survives at each node and
+  every sibling dies. Term mode used to have a visual language of its own (green
+  node FILLS, and a dashed red stub with a ✗ for the arc it ran out of) which
+  put two opposite meanings on red in one picture — the stub fires on SUCCESSFUL
+  lookups, since `.tip` arcs are block prefixes and the arrows always run out
+  before the word does. The stub is gone and the fact lives in the copy and the
+  walk readout instead. What term mode does NOT share is its COST model: it
+  keeps `seekTrace`, because `TermsEnum.intersect` loads a block at every
+  output-carrying state on the way down (three for `search` here) where
+  `seekExact` carries the last output and reads exactly ONE — and one read is
+  the number this zoom exists to teach. The intersection drives the picture;
+  the seek drives the numbers.
+- **The walk readout is one strip for every mode.** Where the cursor is, what
+  the query can still accept, and the verdict on the character just consumed —
+  fuzzy fills its "what the machine can be" cell with the live `(i, e)` set, a
+  glob with what its start state accepts, a term with the block address it is
+  carrying. Once the walk is over the strip totals up instead of leaving a
+  stale per-character verdict standing above a good result.
 - **The pinned prefix is shown as missing edges, not as a caption.** Inside
   `prefix_length` the model emits no edit edges at all; the band names what the
   reader can already see is absent. Nothing in the UI can currently set a
@@ -311,19 +394,20 @@ read as a slide deck about an inverted index rather than a picture of one
 working. These are requirements, not polish:
 
 - **The dictionary zoom is about the FST, and it is ONE PICTURE.** The term index
-  on the left under "in memory", the blocks it indexes on the right under "on
-  disk", both on screen for **every** step. A step may only change what is lit up
+  on top under "in memory", the blocks it indexes beneath under "on disk", both
+  on screen for **every** step. A step may only change what is lit up
   — the walk, then the single block that gets read. Never swap the content area
   per step; that is what made it a slideshow. `stages/coordMerge.jsx` is the
   in-repo precedent for a persistent stage.
 - **The lesson is the memory footprint**, and the layout carries it: a small graph
   that stays resident, a dictionary that does not, and exactly one block crossing
   between them. Blocks not read must be visibly dimmed rather than absent.
-- **State the memory claim with its caveat.** The FST indexes BLOCKS, not terms —
-  that is what holds at any scale. But our toy blocks hold 4 entries, so the
-  on-screen ratio (~2×) badly understates Lucene's ~30× at 25–48 terms per block.
-  Show the derived counts, name the real block size, and say the demo understates
-  it. Never quote the toy ratio as the saving.
+- **State the memory claim honestly.** The FST indexes BLOCKS, not terms — that
+  is what holds at any scale, and the step blurb makes that point. But our toy
+  blocks hold 2–4 entries, so the on-screen ratio (~2×) badly understates
+  Lucene's ~30× at 25–48 terms per block. The deep zoom no longer spells this out
+  in a cost line — it is kept uncluttered — so nothing in it may quote an
+  on-screen count as the saving.
 - **Draw the FST by the convention: characters on the ARCS, the output inside
   the state's bubble, and no other label on a state.** Never a raw id —
   minimization renumbers by post-order DFS, so the start state gets the HIGHEST
@@ -338,17 +422,23 @@ working. These are requirements, not polish:
   agrees closely enough to settle it: nodes get their binary offset (an
   ADDRESS), or no label at all when `labelStates` is off. A state that carries
   nothing is drawn as an empty circle, which is the honest majority case.
-  The prefix is not lost — `SpellOut` prints `at “sc”` per row and `PatternWalk`
-  prints its `✓ “sc”` chips, both directly under the graph.
-- **Keep the four-hop chain on screen.** `.tip` (which block) → `.tim` (which
-  term) → `.doc` (which documents) → `.fdt` (the text). Collapsing the first and
-  last hop — reading `.tip` as "points at the document" — is the natural mistake
-  when the chain isn't drawn, and it was the first thing a reader got wrong.
+  The prefix is not lost — the walk readout under the graph prints the candidate
+  prefix, the character just consumed, and (for a term) the block address the
+  walk is carrying, which is what `SpellOut` and `PatternWalk` used to say in
+  two mode-specific panels of their own.
+- **The four-hop chain** is `.tip` (which block) → `.tim` (which term) → `.doc`
+  (which documents) → `.fdt` (the text). Collapsing the first and last hop —
+  reading `.tip` as "points at the document" — is the natural mistake, and it was
+  the first thing a reader got wrong. A "you are here" strip listing all four
+  used to sit pinned above the zoom to head that off; it was removed as clutter.
+  The `.tip → .tim → .doc` hops are still visible where they do work: the split's
+  "in memory · .tip" / "on disk · .tim" headers, and the expanded block rows
+  naming each term's `.doc` pointer.
 - **Depth that isn't the lesson belongs elsewhere.** The block tree, prefix
   compression and the terms→blocks mapping are all true and all modelled, but as
-  steps they buried the FST. The tree survives only in the automaton zoom
-  (`BlockTree`, for its "never read" step); blocks appear in the dictionary zoom
-  only as the compact column being pointed at.
+  steps they buried the FST. Blocks appear in the dictionary zoom only as the
+  compact strip being pointed at, opened in place on the read step to show the
+  rows that were actually compared.
 
 Still true of the model even though the dictionary zoom no longer draws it:
 **blocks are NOT contiguous slices of the sorted term list.** An inner block holds
@@ -415,11 +505,12 @@ Documented so reviewers can verify the teaching stays honest:
 - Routing is a deterministic string hash standing in for murmur3 `_routing`.
 - **Toy constants in the on-disk zooms.** The real algorithms run, but scaled so
   the structure fits on one screen: `.tim` blocks hold 2–4 entries instead of
-  Lucene's 25–48. Every panel that shrinks a constant renders a badge naming both
-  values, and the memory claim must say the toy ratio understates the real one.
-  This is the ONLY simplification at that level — the FST, the block tree, floor
-  blocks, prefix compression and the DFA intersection — glob and Levenshtein
-  alike — are all modeled for real.
+  Lucene's 25–48. This is documented here rather than surfaced in the zoom: the
+  deep panel is kept free of cost lines and badges, so no on-screen number in it
+  may be read as a saving ratio (the ~2× on screen badly understates Lucene's
+  ~30×). This is the ONLY simplification at that level — the FST, the block tree,
+  floor blocks, prefix compression and the DFA intersection — glob and
+  Levenshtein alike — are all modeled for real.
 - **Fuzzy expansion is not blended.** Elasticsearch's default rewrite blends the
   document frequencies of the expanded terms and boosts by edit distance; here
   each matched term is scored on its own frequencies, so a close match and a

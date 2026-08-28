@@ -164,26 +164,76 @@ which lets the stepper scrub any operation forwards and backwards.
   drawing model (nodes carrying their own `(i, e)`, edges tagged by which edit
   they are), and `shared.jsx`'s `AutomatonGrid` renders it, lighting the state
   SET out of `dfa.states[...].nfaSet`. The view must never reverse-engineer a
-  coordinate from a state id — `npm run check` asserts the two agree. In fuzzy
-  mode the `.tim` block column leaves the split and becomes a full-width strip so
-  the two in-memory structures can sit side by side; that is a property of the
-  QUERY, not of the step, so the no-content-swapping rule still holds. The FST
+  coordinate from a state id — `npm run check` asserts the two agree. The
+  geometry is ONE stack in every mode: the split holds what is in memory (only
+  fuzzy has a second thing to put beside the FST) and the `.tim` block column is
+  a full-width strip beneath it; that is a property of the QUERY, not of the
+  step, so the no-content-swapping rule still holds. The FST
   panel is **capped and pans to the cursor** (`.cu-fst` + the scroll effect in
   `ArcGraph`): the .tip FST is bushy rather than deep, so its height grows with
-  the dictionary and would otherwise set the panel's size. The arc replay is the
+  the dictionary and would otherwise set the panel's size. The strip therefore
+  starts below the fold, so the stage scrolls each step's subject into view on a
+  step change (same rule, same instant behaviour). The arc replay is the
   SAME for every query — green followed, red rejected, subtree dimmed, cursor
   panning — and only the automaton panel is fuzzy-specific. Don't reintroduce a
   per-kind variant of the walk; `SPEC.md` records why the glob-only version was
-  wrong. Note also that `CloseUp` takes `held`, which freezes its clock while a
+  wrong. **A plain term runs that same intersection** (it is the degenerate
+  pattern), but it keeps `seekTrace` for its COST numbers, and that split is
+  load-bearing: `intersectTrace` loads a block at every output-carrying state on
+  the way down — three for `search` — where `seekExact` carries the last output
+  and reads exactly ONE, which is the number the whole zoom exists to teach.
+  Never let `hits.blocksLoaded` / `hits.termsRead` reach term-mode copy;
+  `npm run check` asserts the two walks agree while deliberately NOT asserting
+  equal block counts. Term mode also used to draw a dashed red ✗ stub for the
+  arc it ran out of; that fires on SUCCESSFUL lookups (arcs are block prefixes,
+  so the arrows always run out first) and put two opposite meanings on red, so
+  it is gone — the fact lives in the copy and the walk readout.
+  Note also that `CloseUp` takes `held`, which freezes its clock while a
   read-this tour step is up — and that `held` must be in the clock effect's deps
-  or the already-scheduled dwell still fires once. Two things about the fuzzy
+  or the already-scheduled dwell still fires once. `CloseUp` also owns `sub`,
+  the manual scrub position inside a step's replay: a ctx may declare
+  `units(step)` (like `dwell`, a fresh closure per re-derive — never put it in a
+  dep array) and Prev/Next then walk one arc decision / row / character at a
+  time before rolling to the neighbouring step. Manual mode MUST be expressed as
+  `sub` non-null (which turns each `useReveal`'s `on` false, parking it at the
+  end) and never by clearing `active`, which stages read to park their own
+  timers. That scrubbing is what the fuzzy scenario is built around: it reports
+  its position up as `closeUpSub`, and a scenario step may set `holdPanel` to
+  freeze the panel's clock while it waits for the reader to walk the replay with
+  Next (pair it with `targetExtra: '[data-tour="cu-stepper"]'`, or the dim layer
+  swallows the very clicks being asked for — and never set it on a step asking
+  for ▶ Play, which `held` makes inert). Those steps also set `noDim` (the dim
+  rects go transparent and click-through, so nothing on screen is hidden or
+  disabled while the reader watches two panels move together) and `panelNext`
+  (a step button in the tip itself, so they never look away to find the
+  mini-stepper). A `noDim` step blocks nothing, so its `advanceOn` must survive
+  the reader closing the panel or the tour strands; and its tip belongs BESIDE
+  the close-up, since `placement: 'left'` off the automaton lands squarely on
+  the FST panel. The guided walk also NARRATES each decision (`ctx.narrate` +
+  a step's `liveNarration`), folded out of `explainDecision` in `automaton.js`:
+  which readings were waiting for the character, which paid an edit, or — for a
+  prune — that every live reading is out of edits. Two facts that narration
+  depends on, both checked against Lucene's own source: an arc can only die once
+  every live reading has spent its budget (a reading with budget always buys the
+  character as an insertion — `npm run check` asserts it), and the walk is
+  depth-first so it BACKTRACKS, which the narration must call out or the live
+  set appears to lose progress. Two things about the fuzzy
   grid that are easy to get wrong and are now asserted by `npm run check`: the
   from-set of a step is the visit's own `dfaFrom` (the walk BACKTRACKS, so the
   previous visit's `dfaTo` is the wrong state and almost nothing lights up), and
   the arc walk only consumes block prefixes so it can never reach an accepting
   state — `termPath` finishes the word on step 4, which is the only view that
-  reaches the grid's right-hand column. `ArcGraph`'s `matches` prop marks the
-  states whose block held a matching term (halo + the word below the bubble, from
+  reaches the grid's right-hand column. That is why the fuzzy scenario has a
+  step pointing at it (`the-payoff`, gated on the `closeUpStep` snapshot field)
+  and why the panel's "click ✕ to exit" hint is suppressed while any read-this
+  tip is up: the payoff lands on the panel's LAST step, which is exactly where
+  the hint used to invite the reader to leave. The read step in between shows
+  the union of states that earned the block reads (`levBlockView`), not the
+  walk's leftover cursor — that lit a meaningless near-start set for a full
+  three seconds. `npm run check` now asserts both halves: no `follow` visit
+  reaches an accepting state, and at least one finishing path does.
+  `ArcGraph`'s `matches` prop marks the
+  states whose block held a matching term (halo + the word beside the bubble, from
   the read step on) — that is the only thing allowed to put a word near a node,
   and `SPEC.md` explains why it hangs outside the bubble rather than in it.
 
@@ -207,9 +257,13 @@ which lets the stepper scrub any operation forwards and backwards.
   reintroduce per-step content swapping there — `SPEC.md` explains why.
 
   `SPEC.md` has the accuracy guardrails; the short version is that
-  block sizes are toy-scaled (2–4 vs 25–48, 2 vs 128) with a visible badge saying
-  so, every rendered number must come from a trace, and `automaton.js`'s matched
-  set is kept in agreement with `expandTerms` so the zoom levels can't drift.
+  block sizes are toy-scaled (2–4 vs Lucene's 25–48), documented in `SPEC.md`
+  rather than badged in the zoom. The deep panel ends at the `.tim` strip: the
+  per-step cost lines, the toy-size badge, the term-entry / expansion block and
+  the two-automaton contrast table that used to sit below it were all removed as
+  clutter (the expansion list still shows in the shard zoom and results panel).
+  Every rendered number must come from a trace, and `automaton.js`'s matched set
+  is kept in agreement with `expandTerms` so the zoom levels can't drift.
 
 - **Components** (`src/components/`) are presentational, driven by the derived
   cluster + `opExtra`: `ClusterStage` (nodes/shards/segments),

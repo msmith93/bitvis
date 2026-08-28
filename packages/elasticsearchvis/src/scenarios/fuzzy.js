@@ -104,8 +104,118 @@ const STEPS = [
     target: '[data-tour="fst"]',
     placement: 'right',
     title: 'And what to watch for over here',
-    body: 'Dismiss this and the two panels will walk in lockstep. Most arrows will light green, but some will turn RED and grey out everything behind them — prefixes the machine refused, with every term underneath skipped unread. That is a stronger claim than “it did not match”: given this prefix there is NO continuation it could still accept inside its budget, so the index never has to look. Watch where it does NOT happen, too — at the root, where the edit is unspent and any first character is acceptable. That is why a fuzzy still reads a good half of the dictionary.',
+    body: 'In a moment you will drive these two panels yourself, one decision at a time. Most arrows will light green, but some will turn RED and grey out everything behind them — prefixes the machine refused, with every term underneath skipped unread. That is a stronger claim than “it did not match”: given this prefix there is NO continuation it could still accept inside its budget, so the index never has to look. Watch where it does NOT happen, too — at the root, where the edit is unspent and any first character is acceptable. That is why a fuzzy still reads a good half of the dictionary.',
     waitFor: (s) => s.closeUpKind === 'dictionary',
+    cta: 'Got it',
+  },
+  {
+    // The heart of the scenario, and the thing it was missing: the reader
+    // DRIVES the intersection instead of watching it go past at 260ms a
+    // decision. `holdPanel` freezes the panel's auto-play clock (App turns it
+    // into `held`), so nothing moves until they press Next — and because the
+    // panel is parked on its first step, the first press lands them on the walk
+    // step at sub 0, where every further press is exactly one arc decision.
+    //
+    // `noDim` + `panelNext` are the whole point of these three: the reader is
+    // being asked to WATCH two structures move together, so nothing may be
+    // darkened, and the button that moves them lives in the tip itself rather
+    // than making them look away to find the panel's mini-stepper.
+    //
+    // Each carries an escape for a reader who leaves the panel — with the dim
+    // layer click-through, closing it is now one stray click away, and a step
+    // whose waitFor can no longer come true would strand the tour.
+    id: 'walk-it-yourself',
+    target: '[data-tour="automaton"]',
+    // 'right' puts the tip in the empty margin beside the close-up. 'left' would
+    // land it squarely on the FST panel — the other half of the picture the
+    // step is asking the reader to watch.
+    placement: 'right',
+    noDim: true,
+    panelNext: true,
+    panelNextLabel: 'Take one step ›',
+    liveNarration: true,
+    title: 'Now walk it yourself',
+    body: 'Nothing moves until you move it. Each press advances the intersection one step — one arrow of the term index, and the same character fed to the machine. The note below says what just happened and why.',
+    waitFor: (s) => s.closeUpKind === 'dictionary',
+    // Panel steps are index:0, walk:1, read:2, found:3. Three decisions is
+    // enough for every shard to have shown at least one prune (the first falls
+    // at decision 1 or 2 depending on the shard) — npm run check asserts it.
+    advanceOn: (s) =>
+      s.closeUpKind !== 'dictionary' ||
+      s.closeUpStep > 1 ||
+      (s.closeUpStep === 1 && s.closeUpSub >= 3),
+    holdPanel: true,
+  },
+  {
+    id: 'watch-one-die',
+    target: '[data-tour="automaton"]',
+    // 'right' puts the tip in the empty margin beside the close-up. 'left' would
+    // land it squarely on the FST panel — the other half of the picture the
+    // step is asking the reader to watch.
+    placement: 'right',
+    noDim: true,
+    panelNext: true,
+    panelNextLabel: 'Take one step ›',
+    liveNarration: true,
+    title: 'Keep going — and watch one die',
+    body: 'Keep stepping until an arrow turns RED and the grid empties to ∅. The note below will tell you exactly which readings were left and what each of them was waiting for.',
+    waitFor: (s) => s.closeUpKind === 'dictionary',
+    // Six decisions puts at least two prunes on screen on every shard.
+    advanceOn: (s) =>
+      s.closeUpKind !== 'dictionary' ||
+      s.closeUpStep > 1 ||
+      (s.closeUpStep === 1 && s.closeUpSub >= 6),
+    holdPanel: true,
+  },
+  {
+    // Deliberately NOT holdPanel: this step offers the clock back, and `held`
+    // would make the panel's ▶ Play a dead button. Manual stepping already
+    // cleared `playing`, so nothing runs until the reader asks it to.
+    id: 'let-it-finish',
+    target: '[data-tour="automaton"]',
+    // 'right' puts the tip in the empty margin beside the close-up. 'left' would
+    // land it squarely on the FST panel — the other half of the picture the
+    // step is asking the reader to watch.
+    placement: 'right',
+    noDim: true,
+    panelNext: true,
+    panelNextLabel: 'Take one step ›',
+    liveNarration: true,
+    title: 'Let the rest of it run',
+    body: 'Same move, thirty-odd more times, and then the blocks that survived get read. Keep stepping to read the running commentary, or press ▶ Play in the panel to let it finish on its own.',
+    waitFor: (s) => s.closeUpKind === 'dictionary',
+    advanceOn: (s) => s.closeUpKind !== 'dictionary' || s.closeUpStep >= s.closeUpLast,
+  },
+  {
+    // THE payoff, and the step this scenario was missing. The arc walk consumes
+    // block PREFIXES — one to three characters — so the grid can never reach its
+    // right-hand column while it runs: it tops out around "3 of 5 matched" and
+    // looks stuck, which is exactly what a reader reports as "it never gets
+    // to (5,1)". The word is finished on the panel's LAST step, when the block
+    // is read and its terms are completed one at a time, and that is the only
+    // view that lands on an accepting state.
+    //
+    // Waits for the panel's own stepper to arrive there (closeUpStep), because
+    // pointing at the grid before the spell-out starts describes an empty
+    // right-hand column. Deliberately NOT held: App computes `held` as
+    // `cta && !advanceOn`, and the panel has already parked itself (its clock
+    // stops at the last step) while the spell-out reveal is gated on `active`
+    // rather than the clock — so the word finishes under the tip, which is the
+    // thing being pointed at. The advanceOn is the escape hatch for a reader
+    // who closes the panel instead.
+    id: 'the-payoff',
+    target: '[data-tour="automaton"]',
+    // Beside the close-up rather than on top of the FST panel — the grid is the
+    // subject here, but the index is still worth seeing next to it. Undimmed and
+    // narrated like the stepping tips before it: this is the last beat of the
+    // same walk, not a separate lesson.
+    placement: 'right',
+    noDim: true,
+    liveNarration: true,
+    title: 'Watch it finish the word',
+    body: 'The walk above only ever ate block PREFIXES — a character or three — which is why the grid never got near its right-hand edge and looked stuck partway across. The rest of the word is spelled out now, here on the last step, as the block is read and its terms are completed one at a time. Follow the lit states rightwards: “search” lands on an ACCEPTING state, five characters matched for one edit spent, and that is where the verdict actually comes from.',
+    waitFor: (s) => s.closeUpKind === 'dictionary' && s.closeUpStep >= s.closeUpLast,
+    advanceOn: (s) => s.closeUpDepth === 0,
     cta: 'Got it',
   },
   {
@@ -149,7 +259,7 @@ const STEPS = [
     target: null,
     title: 'Using it without regretting it',
     body: [
-      'Fuzziness.AUTO is the sane default: no edits below 3 characters, one up to 5, two beyond. A fixed ~2 on a short word matches almost everything in the dictionary — and the contrast table showed what that second edit costs in states, in arcs that can no longer be rejected, and in blocks that have to leave the disk.',
+      'Fuzziness.AUTO is the sane default: no edits below 3 characters, one up to 5, two beyond. A fixed ~2 on a short word matches almost everything in the dictionary — and you watched what that second edit costs: more states in the machine, arcs the walk can no longer reject, and blocks that have to leave the disk.',
       'The pruning you watched is what keeps this affordable at all, and it only begins once the budget has been spent. Worth remembering the next time a fuzzy query is slow: the fix is usually to ask for less slack, not for more hardware.',
       'And remember what the machine you just watched cannot do. It is not stemming and not a synonym list: “search~2” finds “searched” by an accident of spelling, not because it knows the two are related — which is exactly why it also finds “score” when you wanted “store”.',
     ],

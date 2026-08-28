@@ -96,7 +96,15 @@ function tipPos(rect, placement) {
 // real control receive its click, plus an accent ring and an instruction
 // tooltip. Sits at z-index 70: above the index overlay (50/51) and inspector
 // (60), below the cookie banner (10000).
-export default function Walkthrough({ tour, allowEscape = true }) {
+export default function Walkthrough({
+  tour,
+  allowEscape = true,
+  // A step that drives an open close-up's replay from its own tooltip (see
+  // `panelNext` in src/scenarios/index.js) calls this to advance it one unit.
+  onPanelNext,
+  panelProgress,
+  narration,
+}) {
   const { status, step, visible, stepIndex, stepCount, next, skip, finish } = tour
   const running = status === 'running'
   const spotlight = running && visible && step?.target ? step : null
@@ -171,16 +179,22 @@ export default function Walkthrough({ tour, allowEscape = true }) {
     bottom: rect.top + rect.height + PAD,
   }
   const tip = tipPos(rect, step.placement)
+  // A step that is asking the reader to WATCH something happen must not dim the
+  // rest of the picture: the two panels of the intersection only mean anything
+  // side by side, and the walk readout under them is part of the same thought.
+  // `noDim` keeps the four rects for layout but makes them invisible and
+  // click-through, so the step guides without hiding or disabling anything.
+  const dimCls = 'tour-dim' + (step.noDim ? ' clear' : '')
 
   return (
     <div className="tour-layer">
       <div
-        className="tour-dim"
+        className={dimCls}
         style={{ left: 0, top: 0, right: 0, height: Math.max(0, hole.top) }}
       />
-      <div className="tour-dim" style={{ left: 0, top: hole.bottom, right: 0, bottom: 0 }} />
+      <div className={dimCls} style={{ left: 0, top: hole.bottom, right: 0, bottom: 0 }} />
       <div
-        className="tour-dim"
+        className={dimCls}
         style={{
           left: 0,
           top: hole.top,
@@ -189,7 +203,7 @@ export default function Walkthrough({ tour, allowEscape = true }) {
         }}
       />
       <div
-        className="tour-dim"
+        className={dimCls}
         style={{ left: hole.right, top: hole.top, right: 0, height: hole.bottom - hole.top }}
       />
       <motion.div
@@ -205,7 +219,9 @@ export default function Walkthrough({ tour, allowEscape = true }) {
       />
       <motion.div
         key={step.id}
-        className="tour-tip"
+        // Translucent alongside `noDim`, for the same reason: the tip has to sit
+        // over the picture it is narrating without blanking the part behind it.
+        className={'tour-tip' + (step.noDim ? ' translucent' : '')}
         style={tip}
         initial={{ opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
@@ -213,6 +229,20 @@ export default function Walkthrough({ tour, allowEscape = true }) {
       >
         <h3>{step.title}</h3>
         <p>{step.body}</p>
+        {/* What the panel is doing at this exact unit of its replay. The static
+            body above frames the step; this says why THIS decision went the way
+            it did, and it changes on every press. */}
+        {step.liveNarration && narration && (
+          <div className={'tour-say ' + narration.kind}>{narration.text}</div>
+        )}
+        {/* The step drives the panel's replay from here, so the reader walks the
+            intersection without leaving the thing they are reading. */}
+        {step.panelNext && (
+          <button className="btn primary tour-panel-next" onClick={onPanelNext}>
+            <span>{step.panelNextLabel ?? 'Next step ›'}</span>
+            {panelProgress && <i>{panelProgress}</i>}
+          </button>
+        )}
         <div className="tour-tip-foot">
           <span className="tour-step-count">
             {stepIndex + 1} of {stepCount}

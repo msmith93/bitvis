@@ -46,6 +46,5 @@ export const DICT_SCAN_MS = 130
 // how much work it actually represents, and the step's dwell is computed from
 // (units × ms) the same way the probe replay above budgets for its probes.
 export const CU_DWELL_MS = 3000 // a step with nothing to replay
-export const FST_ARC_MS = 520 // one arc of the .tip walk (deliberately slow)
 export const BLOCK_READ_MS = 300 // one entry of an in-block suffix scan
-export const AUTOMATON_STEP_MS = 260 // one follow / prune / term test
+export const AUTOMATON_STEP_MS = 260 // one arc decision (follow / prune) or term test — every mode

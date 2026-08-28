@@ -283,6 +283,69 @@ export function dfaStep(dfa, stateId, label) {
   return next != null && !dfa.states[next].dead ? next : null
 }
 
+// WHY one decision of the walk went the way it did, as structured facts a view
+// can put into words. Everything here is read off the compiled machine and the
+// visit — nothing is inferred from the query string or written into copy.
+//
+// The load-bearing fact, and the reason a fuzzy query can prune at all: a
+// reading that still has budget can ALWAYS buy the next character (an insertion
+// costs one edit and consumes anything), so an arc can only die once every live
+// reading has spent its last edit. `allSpent` is therefore true for every prune
+// — `npm run check` asserts it — and the pruning that makes the walk cheap can
+// only begin below the depth where the budget runs out.
+//
+// A transposition bridge sits between layers and has already committed its
+// edit: it has one transition, on the FIRST of the two swapped characters, so
+// its expected character is term[i-1] rather than term[i].
+export function explainDecision(dfa, visit) {
+  const grid = dfa.grid
+  if (!grid || !visit) return null
+  const byId = new Map(grid.nodes.map((n) => [n.id, n]))
+  const setOf = (id) =>
+    (id == null ? [] : dfa.states[id]?.nfaSet ?? []).map((x) => byId.get(x)).filter(Boolean)
+
+  const expected = (n) => (n.bridge ? grid.term[n.i - 1] : n.i < grid.n ? grid.term[n.i] : null)
+  const hasBudget = (n) => !n.bridge && n.e < grid.maxEdits
+
+  const from = setOf(visit.dfaFrom)
+  const to = setOf(visit.dfaTo)
+  const label = visit.label ?? visit.ch ?? null
+  const real = from.filter((n) => !n.bridge)
+
+  return {
+    label,
+    from,
+    to,
+    // Readings for which this character was the one expected: they advance a
+    // column and pay nothing.
+    matched: from.filter((n) => expected(n) === label),
+    // Readings that could still buy it with an edit (substitute or insert).
+    payers: from.filter(hasBudget),
+    expecting: [...new Set(from.map(expected).filter(Boolean))],
+    allSpent: real.length > 0 && real.every((n) => !hasBudget(n)),
+    accepted: to.length > 0,
+    accepting: to.some((n) => n.accept),
+  }
+}
+
+// Which drawn grid edges could have carried the walk from `fromSet` into `toSet`
+// on `ch`. A deletion is an epsilon, so it fires INSIDE the new set rather than
+// out of the old one — which is exactly how it is drawn. This is a statement
+// about the grid model, shared by every view that lights edges; note that
+// scripts/check-models.mjs keeps its own independent copy on purpose, so the
+// assertion there is not checking this function against itself.
+export function gridEdgesCarrying(grid, fromSet, toSet, ch) {
+  const taken = new Set()
+  for (const ed of grid.edges) {
+    const ok =
+      ed.kind === 'delete'
+        ? toSet.has(ed.from) && toSet.has(ed.to)
+        : fromSet.has(ed.from) && toSet.has(ed.to) && (ed.label === ch || ed.label === ANY)
+    if (ok) taken.add(`${ed.from}:${ed.to}:${ed.kind}`)
+  }
+  return taken
+}
+
 // ---------------------------------------------------------------------------
 // Intersecting the DFA with the term index
 // ---------------------------------------------------------------------------
