@@ -122,6 +122,14 @@ which lets the stepper scrub any operation forwards and backwards.
   click that opens the menu, reported up from `ScenarioPicker` — and never asks
   the user to pick a particular scenario.
 
+- **Sub-objects and their mapping are chosen in the index form**, not by loading
+  a dataset: `IndexOverlay`'s collapsed Advanced section edits `variants` (in
+  App state) plus a `nested` flag, and shows a live "writes N Lucene docs" line
+  built from the SAME `buildBlock` call `startIndex` makes — keep those two on
+  one builder or the preview will drift from the write. A scenario prefills it
+  through the `setIndexDoc` action and still asks the reader to press Index,
+  which is what keeps the one-click-per-step rule.
+
 - **Fielded + conjunctive queries** are the third first-class query feature.
   `parseQuery` accepts `field:value` and an UPPERCASE `AND` and nothing else; a
   clause carries `.field`, every clause of a conjunctive query carries

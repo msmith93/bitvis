@@ -238,6 +238,21 @@ That single rule is the whole lesson: under `object` the whole document is one
 Lucene doc, so clauses agree across sub-objects that were never together; under
 `nested` they must agree within one child. It is deliberately one code path.
 
+### Choosing the mapping at index time
+The index form carries a collapsed **Advanced** section: an array of sub-objects
+under `variants`, and a radio for whether that path is `object` or `nested`. It
+exists so the mapping decision is made by the reader and **priced before it is
+committed** — a live line reads "writes 1 Lucene doc" or "writes 4 Lucene docs"
+off the same `buildBlock` the write path uses, so the preview can never disagree
+with what lands in the buffer. This is a first-class feature, not scenario
+scaffolding: any document can carry sub-objects, either way.
+
+The nested scenario's first two acts index ONE product by hand, once each way,
+because one product is enough to produce the false positive and much clearer
+than a dataset that arrives fully formed. Between the two runs it CLEARS the
+index — a mapping cannot be changed in place, and pretending one index holds
+both mappings would be a lie the rest of the app doesn't tell.
+
 ### The catalog dataset
 Twelve products, seeded twice (`catalog-object` / `catalog-nested`). Switching
 mapping is a **REINDEX**, because a mapping cannot be changed in place in

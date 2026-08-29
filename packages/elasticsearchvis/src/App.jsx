@@ -105,6 +105,12 @@ export default function App() {
   const [title, setTitle] = useState(PRESETS[0].title)
   const [body, setBody] = useState(PRESETS[0].body)
   const [indexRouting, setIndexRouting] = useState('') // optional _routing at index time
+  // The "advanced" half of the index form: an array of sub-objects under the
+  // `variants` path, and whether that path is mapped `nested` or left as the
+  // default `object`. Empty means an ordinary two-field document, which is what
+  // the form has always produced.
+  const [variants, setVariants] = useState([])
+  const [nestedPath, setNestedPath] = useState(false)
   const [query, setQuery] = useState(EXAMPLE_QUERIES[0])
   const [routing, setRouting] = useState('') // optional _routing on the search
 
@@ -122,6 +128,15 @@ export default function App() {
 
   const docNum = useRef(1)
   const segNum = useRef(1)
+
+  // The source document the index form currently describes. Shared by the form's
+  // live preview and by startIndex, so the "writes N Lucene docs" readout can
+  // never disagree with what actually gets written.
+  const indexSource = (t, b, vs) => ({
+    title: t.trim(),
+    body: b.trim(),
+    ...(vs.length ? { variants: vs.map((v) => ({ ...v })) } : {}),
+  })
 
   // Guided scenarios (the intro tour runs on load; the rest are picked from the
   // topbar menu). A scenario only observes this snapshot to decide which step to
@@ -150,12 +165,31 @@ export default function App() {
       sampleSet,
       scenariosOpen,
       docsOpen,
+      // What the index form is currently set up to write: how many sub-objects,
+      // and whether their path is mapped nested. A scenario step waits on these
+      // to know the reader indexed the document it prefilled.
+      indexVariants: variants.length,
+      indexNested: nestedPath,
       // How many LUCENE docs currently carry a tombstone. On a flat dataset this
       // is the number of documents deleted; on a nested one it is that number
       // times the block size, which is exactly what update amplification is.
       tombstoned: Object.values(derived.docs).filter((d) => d.deleted).length,
     },
-    { pause, reset: resetCluster, setQuery, setRouting },
+    {
+      pause,
+      reset: resetCluster,
+      setQuery,
+      setRouting,
+      // Prefill the index form — including the advanced sub-objects and the
+      // mapping. A scenario step may set this up but must still ask the reader
+      // to press Index themselves.
+      setIndexDoc: ({ title: t, body: b, variants: vs = [], nested = false }) => {
+        setTitle(t)
+        setBody(b)
+        setVariants(vs)
+        setNestedPath(nested)
+      },
+    },
   )
 
   // Each magnifying glass only lives on the op/step its close-up explains. When
@@ -277,13 +311,14 @@ export default function App() {
     const id = `doc-${docNum.current}`
     const color = DOC_COLORS[(docNum.current - 1) % DOC_COLORS.length]
     docNum.current += 1
-    // The form takes two text fields, so this is always a block of one — but it
-    // goes through the same builder as a nested document, so the write path has
-    // exactly one notion of what indexing a document produces.
+    // Whatever the form describes: two text fields, plus any sub-objects the
+    // advanced section added, under the mapping it chose. One builder for every
+    // shape, so the write path has exactly one notion of what indexing produces.
     const block = buildBlock(
-      { title: title.trim(), body: body.trim() },
+      indexSource(title, body, variants),
       {
         id,
+        mapping: makeMapping(nestedPath ? ['variants'] : []),
         deleted: false,
         color,
         routing: indexRouting.trim() || undefined,
@@ -639,6 +674,11 @@ export default function App() {
         setBody={setBody}
         routing={indexRouting}
         setRouting={setIndexRouting}
+        variants={variants}
+        setVariants={setVariants}
+        nestedPath={nestedPath}
+        setNestedPath={setNestedPath}
+        source={indexSource(title, body, variants)}
         canIndex={canIndex}
         targetShard={nextShard}
         docColor={nextColor}

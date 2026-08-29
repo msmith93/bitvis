@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { analyzeDoc } from '../analyzer'
+import { buildBlock, makeMapping } from '../mapping'
 import { lastStep } from '../ops'
 import { INDEX_SCAN_MS, INDEX_ANALYSIS_LEAD_MS } from '../timing'
 import FlyingTokens, { selectorRect } from './tokenFlight'
@@ -31,6 +31,11 @@ export default function IndexOverlay({
   playing,
   phase,
   setPhase,
+  variants,
+  setVariants,
+  nestedPath,
+  setNestedPath,
+  source,
 }) {
   const [tokens, setTokens] = useState([])
   const [flight, setFlight] = useState(null) // { from, to } — analysis → primary
@@ -42,13 +47,22 @@ export default function IndexOverlay({
   const cardRef = useRef(null) // the editing form card
   const flyRef = useRef(null) // the floating doc card
   const startRef = useRef(null) // editing-card rect captured at submit
+  // Exactly what pressing Index would write, through the SAME builder the write
+  // path uses — so the "writes N Lucene docs" line and the analyzed tokens can
+  // never disagree with what lands in the buffer.
+  const previewBlock = buildBlock(source, {
+    id: 'preview',
+    mapping: makeMapping(nestedPath ? ['variants'] : []),
+  })
+
   const shardRef = useRef(targetShard) // routed shard of the doc being indexed
   const handledStep = useRef(-1)
 
   function handleIndex() {
     if (!canIndex) return
-    const a = analyzeDoc({ title: title.trim(), body: body.trim() })
-    const terms = Object.values(a).flat()
+    // Every term the whole BLOCK emits — a nested document analyzes its children
+    // too, and the flight should show what actually gets indexed.
+    const terms = previewBlock.flatMap((d) => Object.values(d.tokens).flat())
     setTokens(terms.map((term, i) => ({ id: `${i}-${term}`, term, color: docColor })))
     startRef.current = cardRef.current?.getBoundingClientRect() || null
     // Capture NOW: onIndex() advances docNum, so the targetShard prop will flip
@@ -247,6 +261,78 @@ export default function IndexOverlay({
                   placeholder="optional — hashed instead of the _id"
                 />
               </label>
+              {/* ---- advanced: sub-objects, and how they are mapped ----
+                  Collapsed by default: an ordinary document needs none of it.
+                  Open it and the form can describe an ARRAY OF SUB-OBJECTS, which
+                  is the only shape where `object` and `nested` differ at all. */}
+              <details className="adv" open={variants.length > 0}>
+                <summary>Advanced — sub-objects &amp; mapping</summary>
+
+                <div className="adv-map">
+                  <span className="adv-label">variants mapped as</span>
+                  {[
+                    ['object', false, 'flattened into this document'],
+                    ['nested', true, 'one hidden Lucene doc each'],
+                  ].map(([name, on, hint]) => (
+                    <label key={name} className={'adv-radio' + (nestedPath === on ? ' on' : '')}>
+                      <input
+                        type="radio"
+                        name="mapping"
+                        checked={nestedPath === on}
+                        onChange={() => setNestedPath(on)}
+                      />
+                      <b>{name}</b>
+                      <span>{hint}</span>
+                    </label>
+                  ))}
+                </div>
+
+                {variants.map((v, i) => (
+                  <div className="adv-row" key={i}>
+                    <span className="adv-idx">variants[{i}]</span>
+                    {['color', 'size'].map((f) => (
+                      <input
+                        key={f}
+                        type="text"
+                        placeholder={f}
+                        value={v[f] ?? ''}
+                        onChange={(e) =>
+                          setVariants(
+                            variants.map((x, n) =>
+                              n === i ? { ...x, [f]: e.target.value } : x,
+                            ),
+                          )
+                        }
+                      />
+                    ))}
+                    <button
+                      className="mini"
+                      title="remove this sub-object"
+                      onClick={() => setVariants(variants.filter((_, n) => n !== i))}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+
+                <button
+                  className="btn block adv-add"
+                  onClick={() => setVariants([...variants, { color: '', size: '' }])}
+                >
+                  ＋ add a variant
+                </button>
+
+                {/* The mapping decision, priced before it is made. */}
+                <p className={'adv-cost' + (previewBlock.length > 1 ? ' many' : '')}>
+                  writes <b>{previewBlock.length}</b> Lucene doc
+                  {previewBlock.length === 1 ? '' : 's'}
+                  {variants.length > 0 &&
+                    (nestedPath
+                      ? ` — one per variant, plus the document itself, written as one block`
+                      : ` — the variants flatten into it, so their pairing is not stored`)}
+                </p>
+              </details>
+
               <button
                 className="btn primary block"
                 onClick={handleIndex}

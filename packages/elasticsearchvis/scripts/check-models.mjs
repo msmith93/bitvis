@@ -733,6 +733,7 @@ section('7 · object vs nested mapping')
       keys('search', false).join() === 'analyze,lookup,postings,score,topk,return',
       keys('search', false).join(),
     )
+
   }
 
   // 8. A single-clause query needs no join distinction: object and nested

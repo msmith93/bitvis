@@ -5,6 +5,19 @@
 // shape twice, `sc*` then `*search`, and sends the user into the 🔍 close-up
 // both times, because the difference is only visible inside a segment: a seek
 // that touches a handful of rows versus an enumeration of every single one.
+// The dictionary panel's own step list is index · walk · read · found, so the
+// arc walk — the thing both "read the arcs" steps below describe — happens at
+// index 1. Speaking before the panel gets there shows a tip about a walk that
+// has not started; and because those steps are cta-with-no-advanceOn, they FREEZE
+// the panel (App's `held`), so it would never get there afterwards either.
+// Unlike the shard panel's step list (a pure function, so check-models pins its
+// indices), these steps live in a .jsx stage the model check cannot import — so
+// this index is documented rather than asserted. Passing when the panel is
+// closed keeps it safe either way: a wrong index degrades to "the tip appears
+// once the reader exits", never to a hang.
+const PANEL_WALK = 1
+const atDictWalk = (s) => s.closeUpKind !== 'dictionary' || s.closeUpStep >= PANEL_WALK
+
 const STEPS = [
   {
     id: 'welcome',
@@ -65,6 +78,33 @@ const STEPS = [
     advanceOn: (s) => s.zoomShard != null || (s.opDone && !s.playing),
   },
   {
+    // The seekable run gets its own descent. This used to be skipped, on the
+    // grounds that the deep panel's own contrast table showed the cheap case
+    // beside the expensive one — but that table was removed as clutter (SPEC.md
+    // records why), so without this the reader only ever sees the structure for
+    // the pattern that CAN'T use it, and never watches an arc actually die.
+    id: 'dictionary-prefix',
+    target: '[data-anat-dict]',
+    placement: 'bottom',
+    title: 'That binary search was a simplification',
+    waitFor: (s) => s.closeUpKind === 'shard',
+    body: 'The probe you just watched treats the dictionary as a flat sorted array and bisects it. That is a useful lie — it gets the cost story right and it is easy to see. What Lucene actually keeps is blocks of terms on disk, indexed by a small automaton held in memory, and it does not bisect anything. Scroll to “Segment anatomy” and click the 🔍 on the “term dictionary” column head to watch “sc*” resolved against the real thing.',
+    advanceOn: (s) => s.closeUpKind === 'dictionary',
+  },
+  {
+    // Spotlighted rather than a centered card, for the same reason as
+    // read-the-no-prune below: a card's backdrop would dim the picture being
+    // described. No numbers in this copy — the panel's readout owns them
+    // (SPEC.md: every rendered number comes from a trace).
+    id: 'read-the-prune',
+    target: '[data-tour="fst"]',
+    placement: 'right',
+    title: 'Watch an arrow die',
+    body: 'Follow the walk. “sc*” can only ever accept a term beginning s-c, so at the very first character the machine refuses every other arrow: it turns red, and the whole branch of the dictionary behind it is skipped without being read. The readout counts what that bought — arcs pruned, blocks off the disk, terms examined. Hold this picture. You are about to run a pattern that cannot refuse anything.',
+    waitFor: atDictWalk,
+    cta: 'Got it',
+  },
+  {
     id: 'resume-prefix',
     target: '[data-tour="stepper-play"]',
     placement: 'top',
@@ -96,12 +136,12 @@ const STEPS = [
     advanceOn: (s) => s.zoomShard != null || (s.opDone && !s.playing),
   },
   {
-    // One zoom deeper, on the LEADING run rather than the cheap one: `*search`
-    // prunes exactly zero arcs and reads every block, which is the structural
-    // version of this scenario's whole thesis — and the panel's own contrast
-    // table puts the seekable pattern beside it, so the cheap case is covered
-    // without a second descent. Mirrors the ondisk/fuzzy descent: one click per
-    // step, so getting down two levels is two steps.
+    // The second descent, on the LEADING run: `*search` prunes exactly zero arcs
+    // and reads every block, which is the structural version of this scenario's
+    // whole thesis. It only lands because the reader watched arcs actually die
+    // on the `sc*` run a few steps back — the two pictures are the contrast.
+    // Mirrors the ondisk/fuzzy descent: one click per step, so getting down two
+    // levels is two steps.
     id: 'dictionary-leading',
     target: '[data-anat-dict]',
     placement: 'bottom',
@@ -119,7 +159,7 @@ const STEPS = [
     placement: 'right',
     title: 'Nothing turns red',
     body: 'Watch the arrows as the walk runs. In a pattern that can be anchored, most of them die red at the root and everything behind them is skipped unread. Here every single arrow goes green — a leading wildcard accepts ANY first character, so there is no arrow the machine is ever entitled to refuse. That is the whole cost story in one picture: nothing pruned, every block off the disk.',
-    waitFor: (s) => s.closeUpKind === 'dictionary',
+    waitFor: atDictWalk,
     cta: 'Got it',
   },
   {
@@ -139,7 +179,7 @@ const STEPS = [
     body: [
       'A prefix like “sc*” costs a seek plus the matching range. A leading wildcard costs the ENTIRE term dictionary — and that price is paid per segment, per shard, on every node the query touches. The line under “What’s happening” totals it up for the query you just ran.',
       'It is also why the usual fix is to index the data differently rather than query harder: a reverse field, an ngram/wildcard field, or a prefix you can actually seek to.',
-      'The middle view models the seek as a binary search over a flat sorted array; the zoom you just took shows what Lucene really does — an FST in memory picking blocks out of a file on disk, with the pattern compiled to an automaton rather than tested as a regex. Same cost story, one level of honesty deeper. “Inside a segment’s term dictionary” takes an ordinary term down the same path.',
+      'The middle view models the seek as a binary search over a flat sorted array. The two zooms you took show what Lucene really does — an FST in memory picking blocks out of a file on disk, with the pattern compiled to an automaton rather than tested as a regex — and they are the same picture twice: arcs dying at the root for the pattern that can be anchored, not one arrow refused for the pattern that cannot. Same cost story, one level of honesty deeper. “Inside a segment’s term dictionary” takes an ordinary term down the same path.',
     ],
     waitFor: (s) => s.zoomShard == null && !s.coordZoom,
     cta: 'Done',

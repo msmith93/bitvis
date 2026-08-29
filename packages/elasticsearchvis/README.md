@@ -64,11 +64,11 @@ real controls and waits for you to click them:
 | Scenario | What you'll see |
 |---|---|
 | Guided intro tour | Index your first document, refresh it, load a fuller dataset, and run a scatter-gather search to completion — including both 🔍 close-ups. Runs automatically on first load, and is replayable from the menu. |
-| Why leading wildcards are expensive | `sc*` seeks the term dictionary in a handful of probes; `*search` reads 100% of it. The shard close-up replays both, per segment, with a live "examined" counter. |
+| Why leading wildcards are expensive | `sc*` seeks the term dictionary in a handful of probes; `*search` reads 100% of it. The shard close-up replays both, per segment, with a live "examined" counter — then both descend into the real FST, where `sc*` kills whole branches red and `*search` cannot refuse a single arrow. |
 | How a routing key works | The same query with and without `routing`: one shard serving versus all three. |
 | Inside a segment's term dictionary | Three zooms down to what an inverted index really is: an FST in `.tip` that picks one block of terms out of `.tim`. |
 | How a typo still finds the document | The term index and a Levenshtein automaton walked side by side, one character at a time, until a branch dies — then what one more edit of budget costs, in states, in arcs and in blocks read. |
-| object vs nested, and what nested costs | The same catalog under both mappings. `object` answers "red AND XL" with a product that has neither pairing; `nested` answers correctly — for a Lucene doc per variant, a parent-bitset join on every query, and a whole-block rewrite on every update. |
+| object vs nested, and what nested costs | Index one product by hand under each mapping, watching the index form price the choice before you commit it. `object` answers "red AND XL" with a product that has no red XL; `nested` answers correctly — for a Lucene doc per variant, a join on every query, and a whole-block rewrite on every update. |
 
 None of this is scenario-only. A `*` or a `~` in the search box runs a wildcard
 or fuzzy query, the routing field works on any dataset, and the index form takes

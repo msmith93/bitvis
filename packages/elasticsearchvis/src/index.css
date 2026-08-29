@@ -1480,6 +1480,129 @@ table.ii td.term {
   line-height: 1.45;
 }
 
+/* ---- index form: the advanced sub-object / mapping section ----
+   Collapsed by default, because an ordinary document has no use for it. Its job
+   is to let the mapping decision be made and PRICED before it is committed. */
+.adv {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 7px 9px;
+  margin-bottom: 10px;
+  background: var(--bg);
+}
+.adv > summary {
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--muted);
+  list-style: none;
+}
+.adv > summary::marker,
+.adv > summary::-webkit-details-marker {
+  display: none;
+}
+.adv > summary::before {
+  content: '▸ ';
+  color: var(--accent-2);
+}
+.adv[open] > summary::before {
+  content: '▾ ';
+}
+.adv > summary:hover {
+  color: var(--text);
+}
+.adv-map {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+.adv-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent-2);
+}
+.adv-radio {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--muted);
+}
+.adv-radio.on {
+  border-color: var(--accent);
+  color: var(--text);
+  background: var(--panel-2);
+}
+.adv-radio input {
+  accent-color: var(--accent);
+  margin: 0;
+}
+.adv-radio b {
+  font-family: ui-monospace, Menlo, monospace;
+}
+.adv-radio span {
+  font-size: 10px;
+  color: var(--muted);
+}
+.adv-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+}
+.adv-idx {
+  flex: 0 0 78px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  color: var(--accent-2);
+}
+.adv-row input {
+  flex: 1;
+  min-width: 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  font-size: 11px;
+  padding: 3px 7px;
+}
+.adv-row .mini {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 5px;
+  font-size: 11px;
+  padding: 2px 7px;
+  cursor: pointer;
+}
+.adv-row .mini:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.adv-add {
+  font-size: 11px;
+  padding: 4px;
+  margin-top: 2px;
+}
+.adv-cost {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.adv-cost b {
+  color: var(--text);
+}
+.adv-cost.many b {
+  color: var(--warn);
+}
+
 /* ---- the intersect + join steps in the results lane ---- */
 .si-clauses {
   gap: 8px;
