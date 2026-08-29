@@ -15,6 +15,8 @@
 // this index is documented rather than asserted. Passing when the panel is
 // closed keeps it safe either way: a wrong index degrades to "the tip appears
 // once the reader exits", never to a hang.
+import { reviewResults } from './shared'
+
 const PANEL_WALK = 1
 const atDictWalk = (s) => s.closeUpKind !== 'dictionary' || s.closeUpStep >= PANEL_WALK
 
@@ -115,6 +117,7 @@ const STEPS = [
     highlightPlay: true,
     advanceOn: (s) => s.opType === 'search' && s.opDone && !s.playing,
   },
+  reviewResults('review-prefix'),
   {
     id: 'run-leading',
     target: '[data-tour="search-area"]',
@@ -172,6 +175,7 @@ const STEPS = [
     highlightPlay: true,
     advanceOn: (s) => s.opType === 'search' && s.opDone && !s.playing,
   },
+  reviewResults('review-leading'),
   {
     id: 'finish',
     target: null,
@@ -188,7 +192,7 @@ const STEPS = [
 
 export default {
   id: 'wildcard',
-  label: 'Why leading wildcards are expensive',
+  label: 'leading wildcards',
   blurb: 'Watch a segment seek “sc*” — then read every term for “*search”.',
   steps: STEPS,
   setup: (actions) => actions.reset(),

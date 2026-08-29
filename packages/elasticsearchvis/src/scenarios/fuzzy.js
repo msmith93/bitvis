@@ -19,6 +19,8 @@
 // Every step spotlights ONE control. The tour's dim layer swallows clicks
 // outside its hole, so a step that asks for two clicks in two places leaves the
 // second one unclickable; that is why descending two zoom levels is two steps.
+import { reviewResults } from './shared'
+
 const STEPS = [
   {
     id: 'welcome',
@@ -234,6 +236,7 @@ const STEPS = [
     highlightPlay: true,
     advanceOn: (s) => s.opType === 'search' && s.opDone && !s.playing,
   },
+  reviewResults('review-fuzzy'),
   {
     id: 'false-positive',
     target: '[data-tour="search-area"]',
@@ -270,7 +273,7 @@ const STEPS = [
 
 export default {
   id: 'fuzzy',
-  label: 'How a typo still finds the document',
+  label: 'fuzzy search',
   blurb: 'Watch a Levenshtein automaton and the term index get walked in lockstep.',
   steps: STEPS,
   setup: (actions) => actions.reset(),

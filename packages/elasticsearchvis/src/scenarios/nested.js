@@ -10,6 +10,7 @@
 // means a REINDEX. This scenario clears the index between the two runs rather
 // than pretending one index can hold both.
 import { NESTED_QUERIES } from '../presets'
+import { reviewResults } from './shared'
 
 const TRAP = NESTED_QUERIES[0] // variants.color:red AND variants.size:XL
 const CONTROL = NESTED_QUERIES[1] // variants.color:brown AND variants.size:M
@@ -125,6 +126,7 @@ const STEPS = [
     highlightPlay: true,
     advanceOn: (s) => s.opType === 'search' && s.opDone && !s.playing,
   },
+  reviewResults('review-object'),
   {
     id: 'result-object',
     target: '[data-tour="cluster"]',
@@ -227,6 +229,7 @@ const STEPS = [
     highlightPlay: true,
     advanceOn: (s) => s.opType === 'search' && s.opDone && !s.playing,
   },
+  reviewResults('review-nested'),
   {
     id: 'result-nested',
     target: '[data-tour="cluster"]',
@@ -298,6 +301,7 @@ const STEPS = [
     highlightPlay: true,
     advanceOn: (s) => s.opType === 'search' && s.opDone && !s.playing,
   },
+  reviewResults('review-control'),
   {
     id: 'open-docs',
     target: '[data-tour="delete-doc"]',
@@ -340,7 +344,7 @@ const STEPS = [
 
 export default {
   id: 'nested',
-  label: 'object vs nested, and what nested costs',
+  label: 'object vs nested',
   blurb:
     'Index one product under each mapping and watch a two-clause query answer wrongly, then correctly — for a document per variant, a join per query and a block rewrite per update.',
   steps: STEPS,

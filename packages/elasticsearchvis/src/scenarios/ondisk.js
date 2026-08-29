@@ -100,7 +100,7 @@ const STEPS = [
 
 export default {
   id: 'ondisk',
-  label: 'Inside a segment’s term dictionary',
+  label: 'a segment’s term dictionary',
   blurb: 'Three zooms down to what an inverted index really is: an FST in .tip that picks one block of terms out of .tim.',
   steps: STEPS,
   setup: (actions) => actions.reset(),

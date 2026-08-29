@@ -7,15 +7,17 @@
 //
 // Predicates read the snapshot App builds — see src/scenarios/index.js for the
 // full shape.
+import { reviewResults } from './shared'
+
 const STEPS = [
   {
     id: 'welcome',
     target: null,
     title: 'Welcome to the Elasticsearch Cluster Visualizer',
     body: [
-      'This app shows how Elasticsearch (and Lucene under the hood) indexes documents and searches them across a distributed cluster — all simulated right here in your browser.',
-      'One tip before you start: wherever you see the 🔍 magnifying glass, you can click it to zoom into a much more granular view of what a shard — or the coordinator — is doing.',
-      'Take the one-minute tour? You will index your first document and run your first search.',
+      'This app shows how Elasticsearch (and Lucene under the hood) indexes documents and searches them across a distributed cluster.',
+      'Wherever you see the 🔍 magnifying glass, you can click it to zoom in for more detail.',
+      'Take the one-minute tour and index a document and run a search.',
     ],
     cta: 'Start the tour',
     secondary: 'Skip for now',
@@ -24,7 +26,7 @@ const STEPS = [
     id: 'open-index',
     target: '[data-tour="index-doc"]',
     placement: 'right',
-    title: 'Index your first document',
+    title: 'Index a document',
     body: 'Everything starts with a document. Click to open the editor.',
     advanceOn: (s) => s.indexPhase === 'editing',
   },
@@ -33,7 +35,7 @@ const STEPS = [
     target: '[data-tour="index-card"]',
     placement: 'right',
     title: 'Write (or pick) a document',
-    body: 'Grab a preset or write your own title and body, then click “Index document”. Watch it route to the coordinator, hash to a shard, get analyzed into terms, and replicate to a second node.',
+    body: 'Grab a preset or write your own title and body, then click “Index document”.',
     waitFor: (s) => s.indexPhase === 'editing',
     advanceOn: (s) => s.opType === 'index',
   },
@@ -54,7 +56,7 @@ const STEPS = [
     dataset: 'sample',
     placement: 'right',
     title: 'Load a richer dataset',
-    body: 'A single document makes for a lonely search. Open “Load docs” and pick “Sample docs” to seed a realistic cluster — about thirty documents routed and replicated across all three shards — so the search you run next has something interesting to rank.',
+    body: 'A single document makes for a lonely search. Open “Load docs” and pick “Sample docs” to seed more data.',
     waitFor: (s) => s.opType === 'refresh' && s.opDone && !s.playing,
     // `dataset` above is what the menu offers here, but either set satisfies
     // "now there is something to search" — so a load that happened earlier,
@@ -66,7 +68,7 @@ const STEPS = [
     target: '[data-tour="search-area"]',
     placement: 'right',
     title: 'Now search across them',
-    body: 'Keep the suggested query, pick a chip, or type your own words — then hit “Search” to watch the coordinator scatter the query to every shard and gather a ranked response.',
+    body: 'Keep the suggested query, pick a chip, or type your own words. Then hit “Search” to watch the coordinator scatter the query to every shard and gather a ranked response.',
     waitFor: (s) => s.sampleSet != null && !s.playing,
     advanceOn: (s) => s.opType === 'search',
   },
@@ -80,7 +82,7 @@ const STEPS = [
     // presses ▶ Play instead of clicking the magnifier.
     waitFor: (s) => s.opType === 'search' && s.opStep === 2,
     onShow: (s, actions) => actions.pause(),
-    body: 'The search is paused mid-flight: each serving shard is running its own local search right now. Click the highlighted 🔍 — that shard holds several of the matching documents — for a granular, step-by-step view inside it.',
+    body: 'Click the highlighted 🔍 to zoom into one of the shards the search is running on.',
     advanceOn: (s) => s.zoomShard != null || (s.opDone && !s.playing),
   },
   {
@@ -88,7 +90,7 @@ const STEPS = [
     target: '[data-tour="stepper-play"]',
     placement: 'top',
     title: 'Resume the search',
-    body: 'The search is still paused mid-flight. Press ▶ Play right here to resume it — watch every shard’s hits (ids + scores, not documents) fly back to the coordinator.',
+    body: 'The search is still paused mid-flight. Press ▶ Play to resume it.',
     // Spotlights the footer ▶ Play button directly so the tooltip sits right next
     // to it. Hidden while the shard inspector is open so it never covers the
     // close-up. The opStep escape hatch covers a user who scrubs forward with
@@ -107,7 +109,7 @@ const STEPS = [
     // who presses ▶ Play instead of clicking it.
     waitFor: (s) => s.opType === 'search' && s.opStep === 3 && s.zoomShard == null,
     onShow: (s, actions) => actions.pause(),
-    body: 'Every shard has now reported its top hits — ids and scores only. Click the 🔍 on the coordinator to watch it merge the lists, rank them globally, and decide which full documents to fetch from which shards.',
+    body: 'Every shard has now reported its top hits — ids and scores only. Click the 🔍 to zoom in to the coordinator.',
     advanceOn: (s) => s.coordZoom || (s.opDone && !s.playing),
   },
   {
@@ -123,14 +125,14 @@ const STEPS = [
     waitFor: (s) => s.zoomShard == null && !s.coordZoom,
     advanceOn: (s) => s.opType === 'search' && s.opDone && !s.playing,
   },
+  reviewResults('review-results'),
   {
     id: 'finish',
     target: null,
     title: 'That’s the loop!',
     body: [
       'You indexed a document, made it searchable with a refresh, loaded a fuller sample dataset, and ran a scatter-gather search to completion — and you can replay any operation from the footer.',
-      'Remember the two 🔍 magnifiers: one on each serving shard during the local search, and one on the coordinator while it gathers and fetches — click either any time for the granular view. Try Flush, Merge, and deleting documents next.',
-      'One last thing to show you: this tour is not the only lesson here.',
+      'Remember you can click the 🔍 icon for a more detialed view at many places in these scenarios.',
     ],
     // Belt-and-suspenders: never surface the end card until the search animation
     // has fully completed (and both inspectors are closed).
@@ -143,7 +145,7 @@ const STEPS = [
     target: '[data-tour="scenarios"]',
     placement: 'left',
     title: 'More lessons live here',
-    body: 'Open the Scenarios menu to see the rest — why a leading wildcard is expensive, what a routing key really does, what a term dictionary looks like on disk, and how a typo still finds the document. Click it to take a look; you do not have to start one.',
+    body: 'Open the Scenarios menu to see more detailed lessons about ElasticSearch.',
     // The tour ends the moment the menu opens: the point is that the user
     // discovers the menu exists, not that they commit to a particular lesson.
     // Anything they pick from the open menu starts that scenario as usual.

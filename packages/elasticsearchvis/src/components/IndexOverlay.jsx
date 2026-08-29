@@ -250,23 +250,24 @@ export default function IndexOverlay({
                 <span>body</span>
                 <textarea value={body} onChange={(e) => setBody(e.target.value)} />
               </label>
-              {/* Optional _routing. Leave it empty and the shard comes from the
-                  _id; fill it in and the target below changes as you type. */}
-              <label className="field">
-                <span>routing key</span>
-                <input
-                  type="text"
-                  value={routing}
-                  onChange={(e) => setRouting(e.target.value)}
-                  placeholder="optional — hashed instead of the _id"
-                />
-              </label>
-              {/* ---- advanced: sub-objects, and how they are mapped ----
+              {/* ---- advanced: routing, sub-objects, and how they are mapped ----
                   Collapsed by default: an ordinary document needs none of it.
                   Open it and the form can describe an ARRAY OF SUB-OBJECTS, which
                   is the only shape where `object` and `nested` differ at all. */}
-              <details className="adv" open={variants.length > 0}>
-                <summary>Advanced — sub-objects &amp; mapping</summary>
+              <details className="adv" open={variants.length > 0 || !!routing.trim()}>
+                <summary>Advanced — routing &amp; mapping</summary>
+
+                {/* Optional _routing. Leave it empty and the shard comes from the
+                    _id; fill it in and the target below changes as you type. */}
+                <label className="field">
+                  <span>routing key</span>
+                  <input
+                    type="text"
+                    value={routing}
+                    onChange={(e) => setRouting(e.target.value)}
+                    placeholder="optional — hashed instead of the _id"
+                  />
+                </label>
 
                 <div className="adv-map">
                   <span className="adv-label">variants mapped as</span>
@@ -340,13 +341,6 @@ export default function IndexOverlay({
               >
                 Index document
               </button>
-              <p className="overlay-hint">
-                The document routes to a coordinator, then to shard {targetShard}'s
-                primary, where it's analyzed into terms and buffered.
-                {routing.trim()
-                  ? ` That shard comes from hash("${routing.trim()}") — the routing key, not the _id.`
-                  : ''}
-              </p>
             </motion.div>
           </div>
         )}

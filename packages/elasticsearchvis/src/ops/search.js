@@ -344,7 +344,7 @@ const PLAIN_LOCAL_STEPS = [
     key: 'postings',
     title: '3 · Walk the posting lists',
     blurb:
-      'Each matched term’s posting list names the docs that contain it — ids only, not the documents themselves. Their union (across terms and segments) is the candidate set; tombstoned / un-refreshed docs are skipped. Long lists also carry skip data so a walk can jump ahead, though Lucene writes none below 128 docs, so a segment this small has none.',
+      'Each matched term’s posting list names the docs that contain it — ids only, not the documents themselves. Their union (across terms and segments) is the candidate set; tombstoned / un-refreshed docs are skipped.',
   },
   {
     key: 'score',
@@ -362,7 +362,7 @@ const PLAIN_LOCAL_STEPS = [
     key: 'return',
     title: '6 · Return ids + scores',
     blurb:
-      'The shard returns only doc ids + scores to the coordinator — not the documents. The coordinator merges these with the other shards’ hits before fetching full sources.',
+      'The shard returns only doc ids + scores to the coordinator — not the documents.',
   },
 ]
 

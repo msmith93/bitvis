@@ -10,7 +10,7 @@ const STEPS = [
     ms: 1200,
     title: '1 · Coordinator receives the request',
     blurb:
-      'The client sends an index request to a coordinator node (here, Node 1). Any node can coordinate. Nothing has been routed or stored yet.',
+      'The client sends an index request to a coordinator node (here, Node 1). Any node can coordinate.',
   },
   {
     key: 'route',

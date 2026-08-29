@@ -95,6 +95,11 @@ import nested from './nested'
 //   sampleSet   which dataset is loaded: 'sample' | 'routed' | null
 //   scenariosOpen the topbar Scenarios menu is open (the intro tour's last step
 //               advances on it, to leave the user looking at the menu)
+//   resultsOpen the search-results dialog (the full JSON response) is open. It
+//               auto-opens the instant a search reaches opDone && !playing, so
+//               every scenario that lets a search finish inserts `reviewResults`
+//               (see ./shared.js) right after — closing it is a real click, not
+//               something a step may do on the reader's behalf.
 //
 // The actions a step may drive: pause, reset, setQuery, setRouting.
 //

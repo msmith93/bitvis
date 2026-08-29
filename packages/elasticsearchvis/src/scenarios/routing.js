@@ -5,6 +5,8 @@
 // light up. The dataset is loaded with explicit routing keys, which is the part
 // that makes it possible: a search can skip shards only because indexing already
 // guaranteed the data cannot be on them.
+import { reviewResults } from './shared'
+
 const STEPS = [
   {
     id: 'welcome',
@@ -83,6 +85,7 @@ const STEPS = [
     highlightPlay: true,
     advanceOn: (s) => s.opType === 'search' && s.opDone && !s.playing,
   },
+  reviewResults('review-routed'),
   {
     id: 'run-unrouted',
     target: '[data-tour="search-area"]',
@@ -133,6 +136,7 @@ const STEPS = [
     highlightPlay: true,
     advanceOn: (s) => s.opType === 'search' && s.opDone && !s.playing,
   },
+  reviewResults('review-unrouted'),
   {
     id: 'finish',
     target: null,
@@ -149,7 +153,7 @@ const STEPS = [
 
 export default {
   id: 'routing',
-  label: 'How a routing key works',
+  label: 'routing keys',
   blurb:
     'The same query with and without a routing key: one shard versus all three, and one list to merge versus three.',
   steps: STEPS,

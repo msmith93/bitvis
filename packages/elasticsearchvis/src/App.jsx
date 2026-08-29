@@ -17,13 +17,14 @@ import {
   routeShard,
   SHARD_PLACEMENT,
 } from './cluster'
-import { OP_LABELS, opNote, stepsFor } from './ops'
+import { lastStep, OP_LABELS, opNote, stepsFor } from './ops'
 import { useOpLifecycle } from './useOpLifecycle'
 import ClusterStage from './components/ClusterStage'
 import IndexOverlay from './components/IndexOverlay'
 import InvertedIndexTable from './components/InvertedIndexTable'
 import SearchFlight from './components/SearchFlight'
 import SearchResultsPanel from './components/SearchResultsPanel'
+import SearchResultsOverlay from './components/SearchResultsOverlay'
 import { CloseUp, buildCloseUp, closeUpAnchor, closeUpStillValid } from './closeups'
 import DeleteDocOverlay from './components/DeleteDocOverlay'
 import Stepper from './components/Stepper'
@@ -71,6 +72,11 @@ export default function App() {
 
   const [indexPhase, setIndexPhase] = useState('closed') // overlay choreography phase
   const [docsOpen, setDocsOpen] = useState(false) // document list / delete overlay
+  // The full-response dialog: 'idle' (nothing pending), 'pending' (a search is
+  // running and will pop it open the moment it completes), 'open' (showing).
+  // Closing sets 'idle' rather than back to 'pending', so parking on the last
+  // step (or revisiting it) never reopens it — only a NEW search does.
+  const [resultsPhase, setResultsPhase] = useState('idle')
   // Open close-ups, innermost last. Nesting is what lets a zoom open a zoom (a
   // shard's local search → one segment's on-disk term dictionary); the shell in
   // src/closeups renders the whole stack and only the top one is interactive.
@@ -165,6 +171,7 @@ export default function App() {
       sampleSet,
       scenariosOpen,
       docsOpen,
+      resultsOpen: resultsPhase === 'open',
       // What the index form is currently set up to write: how many sub-objects,
       // and whether their path is mapped nested. A scenario step waits on these
       // to know the reader indexed the document it prefilled.
@@ -200,6 +207,22 @@ export default function App() {
   useEffect(() => {
     if (!rootValid) setCloseUps([])
   }, [rootValid])
+
+  // Pop the full-response dialog the instant a search reaches the same
+  // "actually finished" moment the footer stepper's own dwell logic uses —
+  // last step, auto-play stopped. Gated on 'pending' (set by startSearch) so
+  // parking on that step, or scrubbing back to it, never reopens a dialog the
+  // reader already closed.
+  useEffect(() => {
+    if (
+      resultsPhase === 'pending' &&
+      op?.type === 'search' &&
+      op.step >= lastStep('search') &&
+      !playing
+    ) {
+      setResultsPhase('open')
+    }
+  }, [resultsPhase, op, playing])
 
   // Initialize analytics with GDPR compliance. In GDPR regions we wait for
   // consent (cookie banner); elsewhere we load GA4 immediately. Analytics is
@@ -355,6 +378,7 @@ export default function App() {
 
   function startSearch() {
     if (!canSearch) return
+    setResultsPhase('pending')
     start('search', { query: query.trim(), routing: routing.trim() || null })
   }
 
@@ -416,6 +440,7 @@ export default function App() {
     setIndexPhase('closed')
     setCloseUps([])
     setDocsOpen(false)
+    setResultsPhase('idle')
     setSampleSet(id)
     docNum.current = source.length + 1
     segNum.current = seg
@@ -428,6 +453,7 @@ export default function App() {
     setIndexPhase('closed')
     setCloseUps([])
     setDocsOpen(false)
+    setResultsPhase('idle')
     setSampleSet(null)
     docNum.current = 1
     segNum.current = 1
@@ -699,6 +725,15 @@ export default function App() {
 
       {/* ---------------- Overlay: search scatter-gather flights ---------------- */}
       <SearchFlight op={op} search={extra.search} docs={derived.docs} />
+
+      {/* ---------------- Overlay: the full response, once a search completes ---------------- */}
+      <SearchResultsOverlay
+        open={resultsPhase === 'open'}
+        query={op?.type === 'search' ? op.payload.query : ''}
+        search={extra.search}
+        docs={derived.docs}
+        onClose={() => setResultsPhase('idle')}
+      />
 
       {/* ---------------- Overlay: the close-up stack (shard, coordinator, on-disk) ---------------- */}
       <CloseUp
