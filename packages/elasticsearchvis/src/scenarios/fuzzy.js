@@ -28,8 +28,7 @@ const STEPS = [
     title: 'How does a typo still find the document?',
     body: [
       'Search for “serch” and an exact lookup finds nothing at all. The dictionary is sorted, the word simply is not in it, and being one letter away counts for exactly nothing.',
-      'A fuzzy query asks a different question — not “where is this term” but “which terms are within N edits of it”. That question has a beautiful answer: compile it into a small machine, and walk that machine against the term index in lockstep.',
-      'You are going to watch those two things move together, character by character, and see the moment a whole branch of the dictionary dies.',
+      'A fuzzy query asks a different question — not “where is this term” but “which terms are within N edits of it”.',
     ],
     cta: 'Show me',
     secondary: 'Skip for now',
@@ -94,7 +93,7 @@ const STEPS = [
     target: '[data-tour="automaton"]',
     placement: 'left',
     title: 'What the grid is telling you',
-    body: 'Every state is (characters matched, edits spent). Going right is a character that was right and cost nothing; going down is an edit spent to accept a wrong, extra or missing one. When the walk runs, several will be lit at once — the machine cannot yet tell which reading of the word will pay off, so it keeps them all and lets the next character settle it. The panel is holding while you read this.',
+    body: 'Every state is (characters matched, edits spent). Going right is a character that was right and cost nothing; going down is an edit spent to accept a wrong, extra or missing one. When the walk runs, several will be lit at once — the machine cannot yet tell which reading of the word will pay off, so it keeps them all and lets the next character settle it.',
     waitFor: (s) => s.closeUpKind === 'dictionary',
     cta: 'Got it',
   },

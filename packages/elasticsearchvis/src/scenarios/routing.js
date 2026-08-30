@@ -15,7 +15,6 @@ const STEPS = [
     body: [
       'By default a document’s shard comes from hash(_id), so a tenant’s documents get sprayed across every shard — and every search has to ask all of them.',
       'Give the document a routing key and the shard comes from hash(routing) instead. Everything sharing a key lands on one shard, so a search that supplies the same key can go straight there.',
-      'You will run one query twice — with the key and without — and watch how much of the cluster wakes up each time, and how much work the coordinator is left holding at the end.',
     ],
     cta: 'Show me',
     secondary: 'Skip for now',
@@ -27,7 +26,7 @@ const STEPS = [
     dataset: 'routed',
     placement: 'right',
     title: 'Load data that was indexed with routing',
-    body: 'Open “Load docs” and pick “Routed docs”. Nine orders for three tenants, each indexed with its tenant as the routing key. Every tenant gets its own colour on the stage — notice that one colour never appears on more than one shard, no matter what the _ids are.',
+    body: 'Open “Load docs” and pick “Routed docs”. Nine orders for three tenants, each indexed with its tenant as the routing key.',
     advanceOn: (s) => s.sampleSet === 'routed',
   },
   {
@@ -123,7 +122,7 @@ const STEPS = [
     title: 'Three lists to merge',
     waitFor: (s) => !s.opRouting && s.opStep === 3 && s.zoomShard == null,
     onShow: (s, actions) => actions.pause(),
-    body: 'Open the coordinator’s 🔍 once more. This time hits arrive from all three shards, and the coordinator has to interleave them into one global ranking before it can decide what to fetch. Compare the arrivals with the routed run: same query, same winners, three times the lists — and the response can only be as fast as the slowest shard.',
+    body: 'Open the coordinator’s 🔍 once more. This time hits arrive from all three shards, and the coordinator has to interleave them into one global ranking before it can decide what to fetch.',
     advanceOn: (s) => s.coordZoom || (s.opDone && !s.playing),
   },
   {
