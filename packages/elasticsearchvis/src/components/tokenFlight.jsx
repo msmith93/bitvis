@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { flightMs, FLIGHT_STAGGER_MS, FLIGHT_TOKEN_TRAVEL_S } from '../timing'
 
@@ -19,16 +19,44 @@ export function selectorRect(selector) {
 // A fixed, click-through layer that flies a batch of token chips from a source
 // point to a target point with a small stagger, then calls onComplete. Shared by
 // the index overlay (form → shard buffer) and refresh (segment → inverted index).
-export default function FlyingTokens({ tokens, from, to, onComplete, spread = 18, variant }) {
+export default function FlyingTokens({
+  tokens,
+  from,
+  to,
+  onComplete,
+  spread = 18,
+  variant,
+  delayMs = 0, // holds the whole batch off, so it can visibly follow another flight (a request, then its response)
+}) {
   const start = rectCenter(from)
   const end = rectCenter(to)
+
+  // Randomized ONCE per token and held stable across re-renders. This
+  // component's parent (SearchFlight et al.) re-renders for reasons that have
+  // nothing to do with this flight, and recomputing jx/jy inline on every
+  // render fed Framer Motion a new `animate` target each time — which reads
+  // as "retarget", so the chip kept restarting its move toward a slightly
+  // different point instead of ever completing the trip. The longer a flight
+  // waits before it starts (a delayed fetch-phase response, say), the more
+  // renders it survives to be retargeted by, so this was invisible on short
+  // flights and glaring on delayed ones — the chip would fade in and out
+  // near its start point without visibly travelling anywhere.
+  const jitter = useMemo(
+    () =>
+      tokens.map(() => ({
+        jx: (Math.random() - 0.5) * spread,
+        jy: (Math.random() - 0.5) * spread,
+      })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tokens],
+  )
 
   useEffect(() => {
     if (!start || !end || tokens.length === 0) {
       onComplete?.()
       return
     }
-    const id = setTimeout(() => onComplete?.(), flightMs(tokens.length))
+    const id = setTimeout(() => onComplete?.(), delayMs + flightMs(tokens.length))
     return () => clearTimeout(id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -39,13 +67,12 @@ export default function FlyingTokens({ tokens, from, to, onComplete, spread = 18
     <div className="token-flight-layer">
       <AnimatePresence>
         {tokens.map((t, i) => {
-          const jx = (Math.random() - 0.5) * spread
-          const jy = (Math.random() - 0.5) * spread
+          const { jx, jy } = jitter[i]
           return (
             <motion.span
               key={t.id}
               className={'flying-token' + (variant ? ' flying-token--' + variant : '')}
-              style={{ background: t.color || 'var(--accent)' }}
+              style={variant === 'request' ? undefined : { background: t.color || 'var(--accent)' }}
               initial={{ x: start.x + jx, y: start.y + jy, opacity: 0, scale: 0.7 }}
               animate={{
                 x: [start.x + jx, end.x + jx],
@@ -55,7 +82,7 @@ export default function FlyingTokens({ tokens, from, to, onComplete, spread = 18
               }}
               transition={{
                 duration: FLIGHT_TOKEN_TRAVEL_S,
-                delay: i * (FLIGHT_STAGGER_MS / 1000),
+                delay: delayMs / 1000 + i * (FLIGHT_STAGGER_MS / 1000),
                 ease: 'easeInOut',
                 times: [0, 0.15, 0.8, 1],
               }}

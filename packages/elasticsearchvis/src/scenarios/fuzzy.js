@@ -83,6 +83,7 @@ const STEPS = [
     placement: 'bottom',
     title: 'And one level deeper — this is the one',
     waitFor: (s) => s.closeUpKind === 'shard',
+    holdPanel: true,
     body: 'Click the 🔍 on a segment’s “term dictionary” column. Two structures come up side by side, and both live in memory: the term index on the left, and “within one edit of serch” compiled into states on the right.',
     advanceOn: (s) => s.closeUpKind === 'dictionary',
   },
@@ -136,7 +137,7 @@ const STEPS = [
     panelNextLabel: 'Take one step ›',
     liveNarration: true,
     title: 'Now walk it yourself',
-    body: 'Nothing moves until you move it. Each press advances the intersection one step — one arrow of the term index, and the same character fed to the machine. The note below says what just happened and why.',
+    body: 'Each press advances the walk one arc — the same character fed to the machine. The note below explains why.',
     waitFor: (s) => s.closeUpKind === 'dictionary',
     // Panel steps are index:0, walk:1, read:2, found:3. Three decisions is
     // enough for every shard to have shown at least one prune (the first falls

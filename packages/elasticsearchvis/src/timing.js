@@ -15,6 +15,11 @@ export const FLIGHT_STAGGER_MS = 90
 export const FLIGHT_TOKEN_TRAVEL_S = 0.85
 export const flightMs = (n) => 750 + FLIGHT_STAGGER_MS * n
 
+// The fetch-phase request (coordinator → shard, "GET _source") is always a
+// single-chip flight; the response batch waits this long before it launches,
+// so a shard visibly answers a request rather than just handing over a doc.
+export const FETCH_REQUEST_MS = flightMs(1)
+
 // Padding added on top of a content-driven flight so the chips visibly land
 // before the step advances.
 export const FLIGHT_PAD_MS = 400

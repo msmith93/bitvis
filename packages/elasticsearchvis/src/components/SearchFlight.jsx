@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { MAX_GATHER_IDS, MAX_FETCH_WINNERS } from '../constants'
 import FlyingTokens, { selectorRect } from './tokenFlight'
+import { FETCH_REQUEST_MS } from '../timing'
 
 const truncate = (s, n = 24) => (s && s.length > n ? s.slice(0, n - 1) + '…' : s || '—')
 
@@ -11,7 +12,8 @@ const truncate = (s, n = 24) => (s && s.length > n ? s.slice(0, n - 1) + '…' :
 //   step 1 scatter      : query fans out coordinator → one serving copy per shard
 //   step 2 local search : scan sweeps the serving shards (handled in ClusterStage)
 //   step 3 gather       : matched doc-id chips fly shard → coordinator
-//   step 4 fetch        : full documents (titles) fly winners' shards → coordinator
+//   step 4 fetch        : GET _source flies coordinator → each winner's shard,
+//                         then (once it lands) the full documents fly back
 export default function SearchFlight({ op, search, docs }) {
   const [flights, setFlights] = useState([]) // [{ key, from, to, tokens, variant }]
   const firedRef = useRef(null)
@@ -70,16 +72,40 @@ export default function SearchFlight({ op, search, docs }) {
       for (const [id, ws] of Object.entries(byShard)) {
         const from = servingRect(id)
         if (!from || !coord) continue
+        // The request lands first — GET _source, coordinator → shard — and only
+        // once it has arrives does the shard's response (the full documents)
+        // fly back. `delayMs` on the response batch is what stages the two.
+        next.push({
+          key: `${sig}-${id}-req`,
+          from: coord,
+          to: from,
+          tokens: [{ id: `req-${id}`, term: 'GET _source' }],
+          variant: 'request',
+        })
         const tokens = ws.map((w) => ({
           id: `f-${id}-${w.docId}`,
           term: truncate(docs[w.docId]?.label),
           color: docs[w.docId]?.color,
         }))
-        next.push({ key: `${sig}-${id}`, from, to: coord, tokens, variant: 'doc' })
+        next.push({
+          key: `${sig}-${id}`,
+          from,
+          to: coord,
+          tokens,
+          variant: 'doc',
+          delayMs: FETCH_REQUEST_MS,
+        })
       }
     }
 
-    setFlights(next)
+    // ADD this step's flights rather than replacing the array: the fetch
+    // phase's response batch carries a `delayMs` (see step 4 below) and is
+    // still mid-delay, not yet even visible, when auto-play's own duration
+    // budget runs out and the op advances to 'return' — a step with no flight
+    // of its own. Replacing here would yank that response out from under
+    // itself before it ever got to fly. Each flight already removes only
+    // itself (by key) once its own animation completes, so nothing leaks.
+    if (next.length) setFlights((prev) => [...prev, ...next])
   }, [op, search, docs])
 
   function removeFlight(key) {
@@ -93,6 +119,7 @@ export default function SearchFlight({ op, search, docs }) {
       from={f.from}
       to={f.to}
       variant={f.variant}
+      delayMs={f.delayMs}
       onComplete={() => removeFlight(f.key)}
     />
   ))

@@ -231,9 +231,14 @@ export default function Walkthrough({
         <p>{step.body}</p>
         {/* What the panel is doing at this exact unit of its replay. The static
             body above frames the step; this says why THIS decision went the way
-            it did, and it changes on every press. */}
-        {step.liveNarration && narration && (
-          <div className={'tour-say ' + narration.kind}>{narration.text}</div>
+            it did, and it changes on every press. Rendered (empty, before the
+            first press) as soon as the step declares liveNarration — never
+            conditionally mounted — so the tip's height is fixed from the start
+            and the panelNext button beneath it never shifts. */}
+        {step.liveNarration && (
+          <div className={'tour-say' + (narration ? ' ' + narration.kind : '')}>
+            {narration ? narration.text : ' '}
+          </div>
         )}
         {/* The step drives the panel's replay from here, so the reader walks the
             intersection without leaving the thing they are reading. */}

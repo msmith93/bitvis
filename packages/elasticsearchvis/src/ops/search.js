@@ -1,7 +1,7 @@
 import { docRootId, routeShard, selectServingCopy } from '../cluster'
 import { MAX_GATHER_IDS, MAX_FETCH_WINNERS, LOCAL_TOPK } from '../constants'
 import { segmentInvertedIndex } from '../invertedIndex'
-import { flightMs, FLIGHT_PAD_MS } from '../timing'
+import { FETCH_REQUEST_MS, flightMs, FLIGHT_PAD_MS } from '../timing'
 import {
   clauseCoversField,
   dictionaryScan,
@@ -54,10 +54,10 @@ const STEPS = [
   },
   {
     key: 'fetch',
-    ms: 1600, // overridden by duration() (document flights)
+    ms: 1600, // overridden by duration() (request + document flights)
     title: '5 · Fetch phase',
     blurb:
-      'For the winning doc ids, the coordinator asks the relevant shards for the full _source. This two-phase query-then-fetch avoids shipping full documents for non-matching hits.',
+      'For the winning doc ids, the coordinator sends a GET _source request to each shard holding one, and gets the full document back. This two-phase query-then-fetch avoids shipping full documents for non-matching hits.',
   },
   {
     key: 'return',
@@ -315,7 +315,11 @@ export default {
   duration(op, extra) {
     if (!extra.search) return undefined
     const n = searchFlightSize(extra.search, op.step)
-    return n != null ? flightMs(n) + FLIGHT_PAD_MS : undefined
+    if (n == null) return undefined
+    // Step 4 (fetch) runs two flights back to back — the GET _source request,
+    // then (once it lands) the response — so its budget has to cover both.
+    const requestPad = op.step === 4 ? FETCH_REQUEST_MS : 0
+    return requestPad + flightMs(n) + FLIGHT_PAD_MS
   },
 }
 

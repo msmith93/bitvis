@@ -15,8 +15,8 @@ const STEPS = [
     target: null,
     title: 'What is a term dictionary actually made of?',
     body: [
-      'Every other view in this app draws a segment’s dictionary as a flat sorted table. That is a useful lie. Underneath, it is two structures in two different files, and only one of them is ever in memory.',
-      'The terms themselves live on disk in .tim, packed into blocks. What indexes them is a small graph called an FST in .tip, and its only job is to tell you which single block to read. You are about to take one apart.',
+      'Every other view in this app draws a segment’s dictionary as a flat sorted table. That is a useful simplification. Underneath, it is two structures in two different files, and only one of them is ever in memory.',
+      'The terms themselves live on disk in .tim, packed into blocks. What indexes them is a small graph called an FST in .tip, and its only job is to tell you which single block to read.',
     ],
     cta: 'Take me down',
     secondary: 'Skip for now',
@@ -80,6 +80,10 @@ const STEPS = [
     title: 'Zoom 2: into the term dictionary',
     // Only while the shard panel is the top of the stack — the 🔍 lives on it.
     waitFor: (s) => s.closeUpKind === 'shard',
+    // Freezes the shard panel's clock while this tip is up, so the reader isn't
+    // being told to "watch how few blocks get read" over a background that has
+    // already moved on to scoring candidates.
+    holdPanel: true,
     body: 'Scroll down to “Segment anatomy” and click the 🔍 on the “term dictionary” column head. One picture, four steps: the graph on top is the index and it is in memory, the blocks beneath it are the dictionary and they are on disk. Watch how few of them get read.',
     advanceOn: (s) => s.closeUpKind === 'dictionary',
   },

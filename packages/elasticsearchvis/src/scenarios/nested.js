@@ -48,8 +48,7 @@ const STEPS = [
     title: 'object or nested?',
     body: [
       'A document with an array of sub-objects — a product with its variants, an order with its line items — can be mapped two ways, and the default is the one that quietly gives wrong answers.',
-      'You are going to index the same product twice, once each way, choosing the mapping yourself and seeing what it costs before you commit to it. Then you will ask both a question that neither should be able to answer wrongly.',
-      'The short version: nested is not a feature you turn on, it is a bill you agree to pay.',
+      'You are going to index the same product twice, once each way, choosing the mapping yourself and seeing how the query behaves in each situation.',
     ],
     cta: 'Show me',
     secondary: 'Skip for now',
@@ -113,8 +112,8 @@ const STEPS = [
     holdPanel: true,
     title: 'The pairing is gone',
     waitFor: atPanelStep(PANEL_INTERSECT),
-    body: 'It survives: ✓ red, ✓ XL. Now look at what it actually stored, in the stored-fields column. `variants.color` is one list holding red, blue and black; `variants.size` is another holding S, XL and M. Three variants went in and flat lists came out, with nothing linking a colour to the size it arrived with. So the query finds red, finds XL, and both are in this one document. It matches. There is no red XL, and no query can tell.',
-    cta: 'Ouch',
+    body: 'read AND XL gets a response (which isn\'t what we wanted). Now look at what it actually stored in the stored-fields column. `variants.color` is one list holding red, blue and black; `variants.size` is another holding S, XL and M. Three variants went in and flat lists came out, with nothing linking a colour to the size it arrived with. So the query finds red, finds XL, and both are in this one document. It matches. There is no red XL, and no query can tell.',
+    cta: 'Continue',
   },
   {
     id: 'resume-object',
@@ -132,7 +131,7 @@ const STEPS = [
     target: '[data-tour="cluster"]',
     placement: 'left',
     title: 'One result, and it is wrong',
-    body: 'The shoe came back. It is a real document, it really does contain the term “red” and the term “xl”, and it is not a red XL. This is the failure mode people ship: not an error, not an empty page — a plausible answer.',
+    body: 'The shoe came back. It is a real document, it really does contain the term “red” and the term “xl”, and it is not a red XL. This is the failure mode you can run into if you don\'t understand how object types work.',
     cta: 'Now fix it',
   },
 
@@ -141,7 +140,7 @@ const STEPS = [
     id: 'open-form-nested',
     target: '[data-tour="index-doc"]',
     placement: 'right',
-    title: 'Reindex it as nested',
+    title: 'Index a nested type instead',
     // Clearing the index is SETUP, not the thing being asked for: a mapping
     // cannot be changed in place, so there is no honest way to hold both
     // mappings at once. The body says so, rather than letting it look arbitrary.
@@ -149,7 +148,7 @@ const STEPS = [
       actions.reset()
       actions.setIndexDoc({ ...TRAIL_RUNNER, nested: true })
     },
-    body: 'We have cleared the index — you cannot change a mapping in place, so changing your mind here means reindexing everything, which is exactly why getting it wrong hurts. Open the form again; the same product is waiting, with `variants` now mapped `nested`.',
+    body: 'We have cleared the index. Open the form again; the same product is waiting, with `variants` now mapped as `nested`.',
     advanceOn: (s) => s.indexPhase === 'editing',
   },
   {
@@ -167,7 +166,7 @@ const STEPS = [
     title: 'Four chips, one product',
     waitFor: (s) => s.opType === 'index' && s.opStep >= 3,
     onShow: (s, actions) => actions.pause(),
-    body: 'Watch the buffer. Four Lucene documents went in where one used to — the small dim ones are the variants, and the last is the product itself. You still have one document as far as you are concerned. Elasticsearch has four.',
+    body: 'Watch the buffer. Four Lucene documents got created out of the one document we indexed. The small dim ones are the variants, and the last is the product itself. You still have one ElasticSearch document, but there are four total Lucene documents.',
     cta: 'Got it',
   },
   {
@@ -202,10 +201,10 @@ const STEPS = [
     id: 'magnify-nested',
     target: '[data-tour="magnify"]',
     placement: 'bottom',
-    title: 'Find out why it found nothing',
+    title: 'Zoom in to the shard',
     waitFor: (s) => s.opQuery === TRAP && s.opStep === 2,
     onShow: (s, actions) => actions.pause(),
-    body: 'An empty result is only convincing if you can see the reasoning. Click the highlighted 🔍 to open the shard holding your four Lucene docs.',
+    body: 'Click the highlighted 🔍 to open the shard holding your four Lucene docs.',
     advanceOn: (s) => s.zoomShard != null || (s.opDone && !s.playing),
   },
   {
@@ -216,7 +215,7 @@ const STEPS = [
     holdPanel: true,
     title: 'Two candidates, each failing a different clause',
     waitFor: atPanelStep(PANEL_INTERSECT),
-    body: 'Both clauses still have to agree on one Lucene doc — but now a Lucene doc IS a variant. Two of them made the candidate list, and look at why each one dies: the red variant is an S, so it fails size; the XL variant is blue, so it fails colour. The black M matched neither term and was never a candidate at all. No single variant satisfies both clauses, so the walk never reaches the product they belong to. Same query, same product, opposite answer — and this is the picture the flattened version could not show you, because it had already thrown the pairing away.',
+    body: 'Both clauses still have to agree on one Lucene doc — but now a Lucene doc IS a variant. Two of them made the candidate list, and look at why each one dies: the red variant is an S, so it fails size; the XL variant is blue, so it fails colour. The black M matched neither term and was never a candidate at all. No single variant satisfies both clauses, so the walk never reaches the product they belong to.',
     cta: 'Got it',
   },
   {
@@ -288,7 +287,7 @@ const STEPS = [
     holdPanel: true,
     title: 'The block join — the tax on every query',
     waitFor: atPanelStep(PANEL_JOIN),
-    body: 'This step is the hop. What matched is a VARIANT — brown, M — and it is rolled up to Dune Boot, the product you actually asked about; the stored fields below highlight both rows. Every nested match makes this trip, and where several variants of one product match they collapse into it together. Lucene does it through a bitset of “which docs are products”, built by scanning the whole segment even when one child matches, and cached per segment — so it goes cold again after every refresh. Object mapping pays none of it: the doc that matched was already the answer. From here on the shard has only documents; the coordinator never sees a variant.',
+    body: 'This step is the hop. What matched is a VARIANT — brown, M — and it is rolled up to Dune Boot, the product you actually asked about; the stored fields below highlight both rows. Every nested match makes this trip, and where several variants of one product match they collapse into it together. Lucene does it through a bitset of “which docs are products”, built by scanning the whole segment even when one child matches, and cached per segment — so it goes cold again after every refresh.',
     cta: 'And the writes?',
   },
   {
@@ -307,7 +306,7 @@ const STEPS = [
     target: '[data-tour="delete-doc"]',
     placement: 'right',
     title: 'Now change one variant',
-    body: 'Open the document list. Every product carries a badge saying how many Lucene docs it really is — that number is about to be the whole point.',
+    body: 'Open the document list. Every product carries a badge saying how many Lucene docs it really is.',
     waitFor: (s) => s.zoomShard == null && !s.coordZoom,
     advanceOn: (s) => s.docsOpen,
   },
@@ -336,7 +335,6 @@ const STEPS = [
       '`object` is cheap and silently wrong for arrays of sub-objects: it flattens them together and answers questions about pairs that never existed.',
       '`nested` is correct, and costs you a document per sub-object, a cached bitset and a join on every query, and a whole-block rewrite on every update.',
       'If you only ever query ONE field of the sub-object, you do not need nested at all — the flattening cannot hurt you, because there is no pair to get wrong. Nested earns its cost only when two clauses have to agree on the same sub-object.',
-      'None of this was scenario-only: the Advanced section of the index form takes sub-objects on any document, either way, and prices the choice before you make it.',
     ],
     cta: 'Done',
   },

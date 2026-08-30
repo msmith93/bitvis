@@ -99,6 +99,10 @@ const STEPS = [
     placement: 'bottom',
     title: 'That binary search was a simplification',
     waitFor: pastLookup,
+    // Freezes the shard panel's own clock the instant this tip appears, so the
+    // background stays parked on the seek it just finished rather than racing
+    // on to "score" / "top hits" while the reader is being told about it.
+    holdPanel: true,
     body: 'The probe you just watched treats the dictionary as a flat sorted array and bisects it. That is a useful simplification. What Lucene actually keeps is blocks of terms on disk, indexed by a small automaton held in memory. Click the 🔍 icon to watch “sc*” resolved against the real FST.',
     advanceOn: (s) => s.closeUpKind === 'dictionary',
   },
@@ -159,6 +163,7 @@ const STEPS = [
     placement: 'bottom',
     title: 'One level deeper — the real structure',
     waitFor: pastLookup,
+    holdPanel: true,
     body: 'The flat table you just watched is a useful simplification. Click the 🔍 to see the pattern resolved against the real FST.',
     advanceOn: (s) => s.closeUpKind === 'dictionary',
   },

@@ -132,7 +132,7 @@ const STEPS = [
     title: 'That’s the loop!',
     body: [
       'You indexed a document, made it searchable with a refresh, loaded a fuller sample dataset, and ran a scatter-gather search to completion — and you can replay any operation from the footer.',
-      'Remember you can click the 🔍 icon for a more detialed view at many places in these scenarios.',
+      'Remember you can click the 🔍 icon for a more detailed view at many places in these scenarios.',
     ],
     // Belt-and-suspenders: never surface the end card until the search animation
     // has fully completed (and both inspectors are closed).

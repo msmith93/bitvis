@@ -11,7 +11,7 @@ export const reviewResults = (id) => ({
   target: '[data-tour="results-card"]',
   placement: 'right',
   title: 'The response, in full',
-  body: 'This is the JSON the client actually receives — hit ids and scores with the shard each came from, plus every matched document’s indexed fields. Click a bracket to collapse or expand a section, then close it when you are done.',
+  body: 'This is the JSON the client actually receives — hit ids and scores with the shard each came from, plus every matched document’s indexed fields.',
   waitFor: (s) => s.resultsOpen,
   advanceOn: (s) => !s.resultsOpen,
 })

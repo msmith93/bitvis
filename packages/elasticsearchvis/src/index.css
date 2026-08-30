@@ -932,6 +932,13 @@ table.ii td.term {
   text-overflow: ellipsis;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
 }
+/* the GET _source request, coordinator → shard, that precedes the doc above */
+.flying-token--request {
+  background: var(--panel-2);
+  border: 1px solid var(--accent-2);
+  color: var(--accent-2);
+  box-shadow: 0 2px 10px rgba(54, 162, 239, 0.35);
+}
 
 /* ================= Shard inspector (zoom into local search) ================= */
 .magnify-btn {
@@ -1892,6 +1899,11 @@ table.ii td.term {
 /* The live "what just happened" block. Its accent matches what the picture is
    doing at that moment — green for an arc the walk took, red for one it
    refused — so the words and the graph agree at a glance. */
+/* Fixed height (not just a cap): this box's content changes on every press
+   (arc followed, edit spent, branch pruned — all different lengths), and a
+   height that tracked the content made the panelNext button below it bounce
+   up and down as the reader clicked through. Overflow scrolls internally
+   instead. */
 .tour-say {
   font-size: 12px;
   line-height: 1.55;
@@ -1901,7 +1913,7 @@ table.ii td.term {
   border-radius: 0 7px 7px 0;
   padding: 8px 10px;
   margin: 0 0 10px;
-  max-height: 240px;
+  height: 130px;
   overflow-y: auto;
 }
 .tour-say.follow {
