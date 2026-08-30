@@ -184,9 +184,10 @@ export const NESTED_QUERIES = [
   'variants.stock:0',
 ]
 
-// A product catalog, indexed twice — once with `variants` left as an `object`
-// and once with it mapped `nested`. Same source JSON, same ids, same routing:
-// the ONLY difference is the mapping, which is the point.
+// A product catalog whose `variants` are mapped `nested`. scripts/check-models.mjs
+// also builds the `object` mapping of the same source JSON to contrast the two;
+// the app only loads the nested form in bulk (the object form is walked one doc
+// at a time in the index form).
 //
 // Three invariants, all asserted by scripts/check-models.mjs:
 //   1. NO product anywhere has a variant that is both red AND XL. The lesson is
@@ -305,16 +306,10 @@ export const DATASETS = [
       return tenant === -1 ? i : tenant
     },
   },
-  // The same twelve products, twice. Loading one of these is a REINDEX, which is
-  // the honest way to model a mapping change: you cannot change a mapping in
-  // place in Elasticsearch, so there is no toggle to offer.
-  {
-    id: 'catalog-object',
-    label: 'Catalog · object',
-    blurb: '12 products whose variants are a plain object — flattened into the parent, one Lucene doc each.',
-    docs: CATALOG_DOCS,
-    colorBy: (d, i) => i,
-  },
+  // The nested lesson walks the `object` mapping one document at a time in the
+  // index form; the loader only offers the bulk `nested` catalog, which is where
+  // the costs show up. Loading it is a REINDEX, the honest way to model a
+  // mapping change: you cannot change a mapping in place in Elasticsearch.
   {
     id: 'catalog-nested',
     label: 'Catalog · nested',
