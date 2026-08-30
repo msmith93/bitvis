@@ -81,10 +81,13 @@ const STEPS = [
     id: 'dictionary',
     target: '[data-anat-dict]',
     placement: 'bottom',
+    // The zoom icon now sits by the segment id, a small target the tip's own
+    // top-left corner would land on — nudge the tip clear so the 🔍 stays clickable.
+    offset: { x: 40 },
     title: 'And one level deeper — this is the one',
     waitFor: (s) => s.closeUpKind === 'shard',
     holdPanel: true,
-    body: 'Click the 🔍 on a segment’s “term dictionary” column. Two structures come up side by side, and both live in memory: the term index on the left, and “within one edit of serch” compiled into states on the right.',
+    body: 'Click the 🔍 next to the segment’s name. Two structures come up side by side, and both live in memory: the term index on the left, and “within one edit of serch” compiled into states on the right.',
     advanceOn: (s) => s.closeUpKind === 'dictionary',
   },
   {

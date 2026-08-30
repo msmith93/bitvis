@@ -57,7 +57,13 @@ function useTargetRect(selector, enabled) {
   return rect
 }
 
-function tipPos(rect, placement) {
+// A step may carry `offset: { x, y }` (px) to shove the tooltip clear of
+// something the default placement would overlap — e.g. a small icon target the
+// tip's own corner would otherwise sit on. Applied before viewport clamping, so
+// the tip still can't leave the screen.
+function tipPos(rect, placement, offset) {
+  const dx = offset?.x || 0
+  const dy = offset?.y || 0
   const vw = window.innerWidth
   const vh = window.innerHeight
   if (placement === 'top') {
@@ -66,9 +72,9 @@ function tipPos(rect, placement) {
     return {
       left: Math.max(
         12,
-        Math.min(rect.left + rect.width / 2 - TIP_W / 2, vw - TIP_W - 12),
+        Math.min(rect.left + rect.width / 2 - TIP_W / 2 + dx, vw - TIP_W - 12),
       ),
-      bottom: vh - rect.top + PAD + TIP_GAP,
+      bottom: vh - rect.top + PAD + TIP_GAP - dy,
     }
   }
   let left
@@ -85,8 +91,8 @@ function tipPos(rect, placement) {
     top = rect.top
   }
   return {
-    left: Math.max(12, Math.min(left, vw - TIP_W - 12)),
-    top: Math.max(12, Math.min(top, vh - 220)),
+    left: Math.max(12, Math.min(left + dx, vw - TIP_W - 12)),
+    top: Math.max(12, Math.min(top + dy, vh - 220)),
   }
 }
 
@@ -178,7 +184,7 @@ export default function Walkthrough({
     right: rect.left + rect.width + PAD,
     bottom: rect.top + rect.height + PAD,
   }
-  const tip = tipPos(rect, step.placement)
+  const tip = tipPos(rect, step.placement, step.offset)
   // A step that is asking the reader to WATCH something happen must not dim the
   // rest of the picture: the two panels of the intersection only mean anything
   // side by side, and the walk readout under them is part of the same thought.

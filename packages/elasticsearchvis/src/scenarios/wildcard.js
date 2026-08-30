@@ -97,6 +97,9 @@ const STEPS = [
     id: 'dictionary-prefix',
     target: '[data-anat-dict]',
     placement: 'bottom',
+    // The zoom icon now sits by the segment id, a small target the tip's own
+    // top-left corner would land on — nudge the tip clear so the 🔍 stays clickable.
+    offset: { x: 40 },
     title: 'That binary search was a simplification',
     waitFor: pastLookup,
     // Freezes the shard panel's own clock the instant this tip appears, so the
@@ -161,6 +164,9 @@ const STEPS = [
     id: 'dictionary-leading',
     target: '[data-anat-dict]',
     placement: 'bottom',
+    // The zoom icon now sits by the segment id, a small target the tip's own
+    // top-left corner would land on — nudge the tip clear so the 🔍 stays clickable.
+    offset: { x: 40 },
     title: 'One level deeper — the real structure',
     waitFor: pastLookup,
     holdPanel: true,
@@ -174,8 +180,8 @@ const STEPS = [
     id: 'read-the-no-prune',
     target: '[data-tour="fst"]',
     placement: 'right',
-    title: 'Nothing turns red',
-    body: 'Watch the arrows as the walk runs. In a pattern that can be anchored, most of them die red at the root and everything behind them is skipped unread. Here every single arrow goes green — a leading wildcard accepts ANY first character, so there is no arrow the machine is ever entitled to refuse. That is the whole cost story in one picture: nothing pruned, every block off the disk.',
+    title: 'No paths skipped',
+    body: 'Watch the arrows as the walk runs. In a pattern that can be anchored, most of them die red at the root and everything behind them is skipped. Here every single arrow path has to be searched. A leading wildcard accepts ANY first character, so there is no path the machine is ever entitled to refuse. That is the performance cost of leading wildcards. Every block off the disk must be checked.',
     waitFor: atDictWalk,
     cta: 'Got it',
   },
@@ -195,9 +201,9 @@ const STEPS = [
     target: null,
     title: 'That is the whole story',
     body: [
-      'A prefix like “sc*” costs a seek plus the matching range. A leading wildcard costs the ENTIRE term dictionary — and that price is paid per segment, per shard, on every node the query touches. The line under “What’s happening” totals it up for the query you just ran.',
+      'A prefix like “sc*” costs a seek plus the matching range. A leading wildcard costs the ENTIRE term dictionary — and that price is paid per segment, per shard, on every node the query touches.',
       'It is also why the usual fix is to index the data differently rather than query harder: a reverse field, an ngram/wildcard field, or a prefix you can actually seek to.',
-      'The middle view models the seek as a binary search over a flat sorted array. The two zooms you took show what Lucene really does — an FST in memory picking blocks out of a file on disk, with the pattern compiled to an automaton rather than tested as a regex — and they are the same picture twice: arcs dying at the root for the pattern that can be anchored, not one arrow refused for the pattern that cannot. Same cost story, one level of honesty deeper. “Inside a segment’s term dictionary” takes an ordinary term down the same path.',
+      'The middle view models the seek as a binary search over a flat sorted array. The two zooms you took show what Lucene really does — an FST in memory picking blocks out of a file on disk, with the pattern compiled to an automaton rather than tested as a regex — and they are the same picture twice: arcs dying at the root for the pattern that can be anchored, not one arrow refused for the pattern that cannot.',
     ],
     waitFor: (s) => s.zoomShard == null && !s.coordZoom,
     cta: 'Done',

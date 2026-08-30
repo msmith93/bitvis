@@ -597,6 +597,16 @@ function AnatomyCard({
       <div className="anat-card-head">
         <span className="anat-seg-id">
           <span className="lock">🔒</span> {seg.id}
+          {openCloseUp && (
+            <button
+              className="magnify-btn inline"
+              data-anat-dict={seg.id}
+              title="What the term dictionary really is on disk: .tip (an FST) + .tim (blocks)"
+              onClick={() => openCloseUp({ kind: 'dictionary', shard: shardId, seg: seg.id })}
+            >
+              🔍
+            </button>
+          )}
         </span>
       </div>
 
@@ -613,19 +623,7 @@ function AnatomyCard({
             )}
           </div>
           <div className="anat-ii-cols">
-            <div className="anat-col-head">
-              term dictionary
-              {openCloseUp && (
-                <button
-                  className="magnify-btn inline"
-                  data-anat-dict={seg.id}
-                  title="What the term dictionary really is on disk: .tip (an FST) + .tim (blocks)"
-                  onClick={() => openCloseUp({ kind: 'dictionary', shard: shardId, seg: seg.id })}
-                >
-                  🔍
-                </button>
-              )}
-            </div>
+            <div className="anat-col-head">term dictionary</div>
             {/* No 🔍 here: a posting list's on-disk encoding was its own zoom and
                 was removed. What it stores — which documents contain the term —
                 is what this column already shows, and the encoding detail is not

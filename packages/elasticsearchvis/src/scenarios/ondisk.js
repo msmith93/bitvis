@@ -77,6 +77,9 @@ const STEPS = [
     id: 'zoom-dictionary',
     target: '[data-anat-dict]',
     placement: 'bottom',
+    // The zoom icon now sits by the segment id, a small target the tip's own
+    // top-left corner would land on — nudge the tip clear so the 🔍 stays clickable.
+    offset: { x: 40 },
     title: 'Zoom 2: into the term dictionary',
     // Only while the shard panel is the top of the stack — the 🔍 lives on it.
     waitFor: (s) => s.closeUpKind === 'shard',
@@ -84,7 +87,7 @@ const STEPS = [
     // being told to "watch how few blocks get read" over a background that has
     // already moved on to scoring candidates.
     holdPanel: true,
-    body: 'Scroll down to “Segment anatomy” and click the 🔍 on the “term dictionary” column head. One picture, four steps: the graph on top is the index and it is in memory, the blocks beneath it are the dictionary and they are on disk. Watch how few of them get read.',
+    body: 'Scroll down to “Segment anatomy” and click the 🔍 next to the segment’s name. One picture, four steps: the graph on top is the index and it is in memory, the blocks beneath it are the dictionary and they are on disk. Watch how few of them get read.',
     advanceOn: (s) => s.closeUpKind === 'dictionary',
   },
   {
