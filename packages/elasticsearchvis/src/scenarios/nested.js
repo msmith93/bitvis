@@ -344,7 +344,7 @@ export default {
   id: 'nested',
   label: 'object vs nested',
   blurb:
-    'Index one product under each mapping and watch a two-clause query answer wrongly, then correctly — for a document per variant, a join per query and a block rewrite per update.',
+    'See why a boolean query behaves differently on nested vs object mappings.',
   steps: STEPS,
   setup: (actions) => actions.reset(),
 }

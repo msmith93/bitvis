@@ -207,7 +207,7 @@ const STEPS = [
 export default {
   id: 'wildcard',
   label: 'leading wildcards',
-  blurb: 'Watch a segment seek “sc*” — then read every term for “*search”.',
+  blurb: 'See the difference between querying for the term “sc*” and “*search”.',
   steps: STEPS,
   setup: (actions) => actions.reset(),
 }
