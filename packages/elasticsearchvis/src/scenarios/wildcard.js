@@ -20,6 +20,16 @@ import { reviewResults } from './shared'
 const PANEL_WALK = 1
 const atDictWalk = (s) => s.closeUpKind !== 'dictionary' || s.closeUpStep >= PANEL_WALK
 
+// The SHARD panel's own step list, for the single-clause pattern queries this
+// scenario runs against a flat dataset: parse · lookup · expand · postings ·
+// score · topk · return (localSearchSteps in src/ops/search.js — a pure
+// function, unlike the dictionary panel's steps above). `lookup` is where the
+// probe itself plays out — the seek for “sc*”, the full enumeration for
+// “*search” — so the two "descend one level" tips below wait for the reader to
+// have actually watched it finish before telling them what it was.
+const PANEL_LOOKUP = 1
+const pastLookup = (s) => s.closeUpKind === 'shard' && s.closeUpStep > PANEL_LOOKUP
+
 const STEPS = [
   {
     id: 'welcome',
@@ -28,7 +38,6 @@ const STEPS = [
     body: [
       'A shard’s inverted index keeps its terms in sorted order. That one detail decides whether a wildcard query is cheap or ruinous.',
       '“sc*” has a literal prefix to jump to. “*search” does not — and you will watch the difference, term by term, inside a real segment.',
-      'A naming note, because both conventions are common: Elasticsearch calls “search*” a PREFIX QUERY (the wildcard is at the end). “*search” is the LEADING WILDCARD. It is the leading one that hurts.',
     ],
     cta: 'Show me',
     secondary: 'Skip for now',
@@ -40,7 +49,7 @@ const STEPS = [
     dataset: 'sample',
     placement: 'right',
     title: 'Start with some data',
-    body: 'Open “Load docs” and pick “Sample docs” to fill the cluster with searchable segments — we need a term dictionary with something in it.',
+    body: 'Open “Load docs” and pick “Sample docs” to fill the cluster with searchable segments.',
     advanceOn: (s) => s.sampleSet === 'sample',
   },
   {
@@ -48,7 +57,7 @@ const STEPS = [
     target: '[data-tour="merge"]',
     placement: 'right',
     title: 'Merge first, so the dictionaries are worth reading',
-    body: 'Click Merge. Each shard’s small segments become one bigger segment, with the shard’s whole vocabulary in a single term dictionary. The cost difference you are about to see is only interesting against a dictionary with something in it.',
+    body: 'Click Merge. Each shard’s small segments become one bigger segment, with the shard’s whole vocabulary in a single term dictionary.',
     // Merge is disabled while another op's clock runs, and the sample set
     // tombstones a doc so Refresh is live too — an off-script click lands here.
     // Wait for an idle timeline so the ring only lands on a pressable button.
@@ -76,7 +85,7 @@ const STEPS = [
     title: 'Look inside a segment',
     waitFor: (s) => s.opQuery === 'sc*' && s.opStep === 2,
     onShow: (s, actions) => actions.pause(),
-    body: 'Every serving shard is now resolving that pattern in each of its segments. Click the highlighted 🔍 and watch the dictionary get seeked: the probe bounces to narrow down where “sc” belongs, then reads forward only while the prefix holds.',
+    body: 'Every serving shard is now resolving that pattern in each of its segments. Click the highlighted 🔍 and watch the dictionary get seeked.',
     advanceOn: (s) => s.zoomShard != null || (s.opDone && !s.playing),
   },
   {
@@ -89,8 +98,8 @@ const STEPS = [
     target: '[data-anat-dict]',
     placement: 'bottom',
     title: 'That binary search was a simplification',
-    waitFor: (s) => s.closeUpKind === 'shard',
-    body: 'The probe you just watched treats the dictionary as a flat sorted array and bisects it. That is a useful lie — it gets the cost story right and it is easy to see. What Lucene actually keeps is blocks of terms on disk, indexed by a small automaton held in memory, and it does not bisect anything. Scroll to “Segment anatomy” and click the 🔍 on the “term dictionary” column head to watch “sc*” resolved against the real thing.',
+    waitFor: pastLookup,
+    body: 'The probe you just watched treats the dictionary as a flat sorted array and bisects it. That is a useful simplification. What Lucene actually keeps is blocks of terms on disk, indexed by a small automaton held in memory. Click the 🔍 icon to watch “sc*” resolved against the real FST.',
     advanceOn: (s) => s.closeUpKind === 'dictionary',
   },
   {
@@ -102,7 +111,7 @@ const STEPS = [
     target: '[data-tour="fst"]',
     placement: 'right',
     title: 'Watch an arrow die',
-    body: 'Follow the walk. “sc*” can only ever accept a term beginning s-c, so at the very first character the machine refuses every other arrow: it turns red, and the whole branch of the dictionary behind it is skipped without being read. The readout counts what that bought — arcs pruned, blocks off the disk, terms examined. Hold this picture. You are about to run a pattern that cannot refuse anything.',
+    body: 'Follow the walk. “sc*” can only ever accept a term beginning s-c, so at the very first character the machine refuses every other arrow: it turns red, and the whole branch of the dictionary behind it is skipped without being read.',
     waitFor: atDictWalk,
     cta: 'Got it',
   },
@@ -110,8 +119,8 @@ const STEPS = [
     id: 'resume-prefix',
     target: '[data-tour="stepper-play"]',
     placement: 'top',
-    title: 'Let that search finish',
-    body: 'Press ▶ Play to let the paused search run to the end, so the Search button is free for the second query.',
+    title: 'Resume the search',
+    body: 'The search is still paused mid-flight. Press ▶ Play to resume it.',
     // Hidden while either close-up is open so it can never cover one.
     waitFor: (s) => s.zoomShard == null && !s.coordZoom,
     highlightPlay: true,
@@ -135,7 +144,7 @@ const STEPS = [
     title: 'Nothing to seek to',
     waitFor: (s) => s.opQuery === '*search' && s.opStep === 2,
     onShow: (s, actions) => actions.pause(),
-    body: 'Click 🔍 again. There is no prefix to jump to, so the segment reads every term in order and tests each one — and the two matches really are far apart. Watch the “examined” counter: it ends at 100%.',
+    body: 'Click 🔍 again to see how a leading wildcard is handled in the shard.',
     advanceOn: (s) => s.zoomShard != null || (s.opDone && !s.playing),
   },
   {
@@ -149,8 +158,8 @@ const STEPS = [
     target: '[data-anat-dict]',
     placement: 'bottom',
     title: 'One level deeper — the real structure',
-    waitFor: (s) => s.closeUpKind === 'shard',
-    body: 'The flat table you just watched is a useful lie: underneath, the dictionary is blocks on disk indexed by a small graph in memory. Scroll down to “Segment anatomy” and click the 🔍 on the “term dictionary” column head to see the pattern resolved against the real thing.',
+    waitFor: pastLookup,
+    body: 'The flat table you just watched is a useful simplification. Click the 🔍 to see the pattern resolved against the real FST.',
     advanceOn: (s) => s.closeUpKind === 'dictionary',
   },
   {
@@ -169,8 +178,8 @@ const STEPS = [
     id: 'resume-leading',
     target: '[data-tour="stepper-play"]',
     placement: 'top',
-    title: 'Run it to the end',
-    body: 'Press ▶ Play once more to finish the search — the wildcard is an ordinary boolean OR from here, so the rest of the flow is exactly the scatter-gather you already know.',
+    title: 'Resume the search',
+    body: 'The search is still paused mid-flight. Press ▶ Play to resume it.',
     waitFor: (s) => s.zoomShard == null && !s.coordZoom,
     highlightPlay: true,
     advanceOn: (s) => s.opType === 'search' && s.opDone && !s.playing,

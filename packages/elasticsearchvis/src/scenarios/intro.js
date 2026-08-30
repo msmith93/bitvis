@@ -116,8 +116,8 @@ const STEPS = [
     id: 'stepper-finish',
     target: '[data-tour="stepper-play"]',
     placement: 'top',
-    title: 'Run the search to the end',
-    body: 'Press ▶ Play once more to let the search run to the end — watch the coordinator fetch the winning documents from their shards and return the ranked results.',
+    title: 'Resume the search',
+    body: 'The search is still paused mid-flight. Press ▶ Play to resume it.',
     // Hidden while either inspector is open. Advances only once the search
     // animation reaches its final step, so the tour can't end with the
     // scatter-gather still frozen. "Skip" in the tooltip is the escape
