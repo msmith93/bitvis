@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { MAX_FETCH_WINNERS } from '../constants'
 
 // What the client actually gets back once a search op has run its scatter-gather
-// to completion: the hit count and the ranked list of results, each row
+// to completion: the true hit count plus the top MAX_FETCH_WINNERS ranked
+// results (the only ones the fetch phase pulled full _source for), each row
 // expandable to the document's indexed fields. Built from the SAME `search`
 // (extra.search) the results panel already renders, so this can never disagree
 // with what the stage just showed happening.
@@ -17,7 +19,12 @@ export default function SearchResultsOverlay({ open, query, search, docs, onClos
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
 
-  const hits = open && search ? search.merged : null
+  const merged = open && search ? search.merged : null
+  // The fetch phase only pulled full _source for the top winners of the merged
+  // ranking (MAX_FETCH_WINNERS), so those are the only hits the client actually
+  // gets back — the summary still reports the true total that matched.
+  const hits = merged ? merged.slice(0, MAX_FETCH_WINNERS) : null
+  const total = merged ? merged.length : 0
 
   return (
     <AnimatePresence>
@@ -48,8 +55,11 @@ export default function SearchResultsOverlay({ open, query, search, docs, onClos
               </div>
 
               <div className="results-summary">
-                <span className="results-total">{hits.length}</span>
-                <span>{hits.length === 1 ? 'hit' : 'hits'} for “{query}”</span>
+                <span className="results-total">{total}</span>
+                <span>{total === 1 ? 'hit' : 'hits'} for “{query}”</span>
+                {total > hits.length && (
+                  <span className="routing-tag">showing top {hits.length}</span>
+                )}
                 {search.routing && (
                   <span className="routing-tag">
                     routing <b>{search.routing}</b> → shard {search.routedShard}
