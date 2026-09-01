@@ -15,6 +15,7 @@ import {
   initialCluster,
   isRootDoc,
   routeShard,
+  shardWillMerge,
   SHARD_PLACEMENT,
 } from './cluster'
 import { lastStep, OP_LABELS, opNote, stepsFor } from './ops'
@@ -370,8 +371,7 @@ export default function App() {
     if (!canMerge) return
     const newSegments = {}
     base.shards.forEach((s) => {
-      if (s.segments.filter((seg) => seg.searchable).length >= 2)
-        newSegments[s.id] = `seg-${segNum.current++}`
+      if (shardWillMerge(s, base.docs)) newSegments[s.id] = `seg-${segNum.current++}`
     })
     start('merge', { newSegments })
   }

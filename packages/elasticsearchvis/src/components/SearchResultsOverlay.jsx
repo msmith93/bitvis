@@ -1,36 +1,14 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 
-// What the client actually gets back once a search op has run its scatter-
-// gather to completion — shown as an inspectable JSON tree, the read path's
-// counterpart to the index form's "writes N Lucene docs" preview. Built from
-// the SAME `search` (extra.search) the results panel already renders, so this
-// can never disagree with what the stage just showed happening.
-function buildResponse(query, search, docs) {
-  const shardsQueried = Object.keys(search.serving)
-    .map(Number)
-    .sort((a, b) => a - b)
-  return {
-    query,
-    routing: search.routing || null,
-    shards: { queried: shardsQueried, skipped: search.skipped },
-    hits: {
-      total: search.merged.length,
-      hits: search.merged.map((h) => ({
-        _id: h.docId,
-        _score: h.score,
-        _shard: h.shard,
-        // The indexed fields, not the original request body — this app never
-        // models a separate `_source` (see src/mapping.js), so what a fetch
-        // hands back is exactly what was analyzed. Under `object` mapping a
-        // variant's fields are already flattened in here, which is the same
-        // fact the nested lesson prices at index time.
-        _source: docs[h.docId]?.fields ?? null,
-      })),
-    },
-  }
-}
-
+// What the client actually gets back once a search op has run its scatter-gather
+// to completion: the hit count and the ranked list of results, each row
+// expandable to the document's indexed fields. Built from the SAME `search`
+// (extra.search) the results panel already renders, so this can never disagree
+// with what the stage just showed happening.
+//
+// It is deliberately NOT the verbatim Elasticsearch response JSON — the lesson
+// here is "a ranked list of hits with a total", not the envelope shape.
 export default function SearchResultsOverlay({ open, query, search, docs, onClose }) {
   useEffect(() => {
     if (!open) return
@@ -39,11 +17,11 @@ export default function SearchResultsOverlay({ open, query, search, docs, onClos
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
 
-  const response = open && search ? buildResponse(query, search, docs) : null
+  const hits = open && search ? search.merged : null
 
   return (
     <AnimatePresence>
-      {response && (
+      {hits && (
         <>
           <motion.div
             className="index-backdrop"
@@ -68,14 +46,33 @@ export default function SearchResultsOverlay({ open, query, search, docs, onClos
                   ✕
                 </button>
               </div>
-              <div className="results-scroll">
-                <JsonNode value={response} />
+
+              <div className="results-summary">
+                <span className="results-total">{hits.length}</span>
+                <span>{hits.length === 1 ? 'hit' : 'hits'} for “{query}”</span>
+                {search.routing && (
+                  <span className="routing-tag">
+                    routing <b>{search.routing}</b> → shard {search.routedShard}
+                  </span>
+                )}
               </div>
-              <p className="overlay-hint">
-                The JSON the coordinator hands back: hit ids and scores with the
-                shard each came from, plus every matching document's indexed
-                fields. Click a bracket to collapse or expand that section.
-              </p>
+
+              <div className="results-scroll">
+                {hits.length === 0 ? (
+                  <div className="results-empty">No documents matched.</div>
+                ) : (
+                  <ol className="results-list">
+                    {hits.map((h, i) => (
+                      <ResultRow
+                        key={h.docId}
+                        rank={i + 1}
+                        hit={h}
+                        doc={docs[h.docId]}
+                      />
+                    ))}
+                  </ol>
+                )}
+              </div>
             </motion.div>
           </div>
         </>
@@ -84,57 +81,49 @@ export default function SearchResultsOverlay({ open, query, search, docs, onClos
   )
 }
 
-// A minimal, dependency-free JSON tree: every object/array is a node whose
-// brace can be toggled, collapsing to a one-line summary. Expanded by default
-// — this dialog exists to show the full response, not to make you go dig for
-// it — so collapsing is for focusing on one section, not for finding one.
-function JsonNode({ name, value }) {
-  const isContainer = value !== null && typeof value === 'object'
-  const [open, setOpen] = useState(true)
-
-  if (!isContainer) {
-    return (
-      <div className="json-row">
-        {name != null && <span className="json-key">{name}: </span>}
-        <JsonScalar value={value} />
-      </div>
-    )
-  }
-
-  const isArray = Array.isArray(value)
-  const entries = isArray ? value.map((v, i) => [i, v]) : Object.entries(value)
-  const [openBrace, closeBrace] = isArray ? ['[', ']'] : ['{', '}']
+// One hit: a collapsed row (rank, id, shard, score) that expands to the
+// document's indexed fields. The indexed form is all this app models — there is
+// no separate `_source` (see src/mapping.js) — so a multi-valued field under
+// `object` mapping simply shows all its values, which is the nested lesson's
+// cost made visible at read time.
+function ResultRow({ rank, hit, doc }) {
+  const [open, setOpen] = useState(false)
+  const fields = doc?.fields ? Object.entries(doc.fields) : []
 
   return (
-    <div className="json-node">
-      <button type="button" className="json-toggle" onClick={() => setOpen((o) => !o)}>
+    <li className="result-item">
+      <button
+        type="button"
+        className="result-row"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+      >
         <span className="json-caret">{open ? '▾' : '▸'}</span>
-        {name != null && <span className="json-key">{name}: </span>}
-        <span className="json-bracket">{openBrace}</span>
-        {!open && (
-          <span className="json-summary">
-            {entries.length} {isArray ? (entries.length === 1 ? 'item' : 'items') : entries.length === 1 ? 'key' : 'keys'}
-          </span>
-        )}
-        {!open && <span className="json-bracket">{closeBrace}</span>}
+        <span className="result-rank">{rank}</span>
+        <span className="doc-chip" style={{ background: doc?.color || '#888' }}>
+          {hit.docId}
+        </span>
+        {doc?.label && <span className="result-label">{doc.label}</span>}
+        <span className="result-meta">
+          shard {hit.shard} · score {hit.score}
+        </span>
       </button>
       {open && (
-        <div className="json-children">
-          {entries.length === 0 && <div className="json-row empty">(empty)</div>}
-          {entries.map(([k, v]) => (
-            <JsonNode key={k} name={isArray ? null : k} value={v} />
-          ))}
-          <div className="json-bracket json-close">{closeBrace}</div>
+        <div className="result-source">
+          {fields.length === 0 ? (
+            <div className="json-row empty">(no indexed fields)</div>
+          ) : (
+            fields.map(([k, v]) => (
+              <div className="source-field" key={k}>
+                <span className="source-key">{k}</span>
+                <span className="source-val">
+                  {Array.isArray(v) ? v.join(', ') : String(v)}
+                </span>
+              </div>
+            ))
+          )}
         </div>
       )}
-    </div>
+    </li>
   )
-}
-
-function JsonScalar({ value }) {
-  if (value === null) return <span className="json-null">null</span>
-  if (typeof value === 'string') return <span className="json-string">"{value}"</span>
-  if (typeof value === 'number') return <span className="json-number">{value}</span>
-  if (typeof value === 'boolean') return <span className="json-bool">{String(value)}</span>
-  return <span className="json-value">{String(value)}</span>
 }

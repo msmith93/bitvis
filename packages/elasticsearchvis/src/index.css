@@ -414,6 +414,12 @@ textarea:focus {
   text-decoration: line-through;
   opacity: 0.55;
 }
+/* A refresh has applied the delete (live-docs bit cleared): search steps over
+   it, but its entries sit in the segment until a merge. Fainter than a
+   still-searchable tombstone. */
+.doc-chip.purged {
+  opacity: 0.38;
+}
 .doc-chip.hit {
   outline: 2px solid var(--good);
   outline-offset: 1px;
@@ -523,6 +529,9 @@ textarea:focus {
   margin-bottom: 10px;
   line-height: 1.45;
 }
+.ii-strike-note {
+  color: var(--accent-soft);
+}
 .term-chip {
   display: inline-block;
   font-family: ui-monospace, Menlo, monospace;
@@ -558,6 +567,10 @@ table.ii td.term {
   padding: 1px 6px;
   border-radius: 5px;
   margin: 1px 3px 1px 0;
+}
+.posting.deleted {
+  text-decoration: line-through;
+  opacity: 0.5;
 }
 
 .shard-ii {
@@ -2318,42 +2331,64 @@ table.ii td.term {
   margin-bottom: 0;
 }
 
-/* ---------------- Search results overlay (the full JSON response) ---------------- */
-/* Reuses the index overlay's backdrop + card, like the document list does. */
+/* ---------------- Search results overlay (the ranked hit list) ---------------- */
+/* Reuses the index overlay's backdrop + card, like the document list does.
+   Not the verbatim ES response JSON — a total plus one expandable row per hit. */
 .results-card {
-  width: min(640px, 94vw);
+  width: min(560px, 94vw);
+}
+.results-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.results-total {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
 }
 .results-scroll {
   max-height: min(56vh, 460px);
   overflow-y: auto;
   margin-top: 10px;
-  padding: 10px 12px;
+  padding: 6px;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 8px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
-  line-height: 1.7;
 }
-.json-row,
-.json-toggle {
-  white-space: pre-wrap;
-  word-break: break-word;
+.results-empty {
+  padding: 14px;
+  text-align: center;
+  color: var(--muted);
+  font-style: italic;
 }
-.json-toggle {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
+.results-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.result-item + .result-item {
+  border-top: 1px solid var(--border);
+}
+.result-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 6px;
   background: none;
   border: none;
-  padding: 0;
-  margin: 0;
   color: inherit;
   font: inherit;
+  text-align: left;
   cursor: pointer;
 }
-.json-toggle:hover .json-bracket {
-  color: var(--accent);
+.result-row:hover {
+  background: var(--panel);
 }
 .json-caret {
   color: var(--muted);
@@ -2361,31 +2396,44 @@ table.ii td.term {
   width: 10px;
   flex: none;
 }
-.json-children {
-  margin-left: 12px;
-  padding-left: 10px;
-  border-left: 1px dashed var(--border);
-}
-.json-bracket {
+.result-rank {
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 1.2em;
 }
-.json-summary {
+.result-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.result-meta {
+  margin-left: auto;
+  flex: none;
   color: var(--muted);
-  font-style: italic;
-  margin: 0 2px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
-.json-key {
+.result-source {
+  padding: 4px 6px 10px 28px;
+  display: grid;
+  gap: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.source-field {
+  display: flex;
+  gap: 8px;
+  word-break: break-word;
+}
+.source-key {
   color: var(--accent-2);
+  flex: none;
 }
-.json-string {
+.source-val {
   color: var(--good);
-}
-.json-number {
-  color: var(--accent-soft);
-}
-.json-bool,
-.json-null {
-  color: var(--warn);
 }
 .json-row.empty {
   color: var(--muted);

@@ -155,8 +155,10 @@ function dictionaryCost(shards, docs, patterns) {
   for (const shard of shards)
     for (const seg of shard.segments) {
       if (!seg.searchable) continue
+      // Terms physically on disk — a purged delete's entries are still read
+      // until a merge — so this matches the shard close-up's dictionary count.
       const scan = dictionaryScan(
-        segmentInvertedIndex(seg, docs).map((r) => r.term),
+        segmentInvertedIndex(seg, docs, { includePurged: true }).map((r) => r.term),
         patterns,
       )
       examined += scan.examined
@@ -348,7 +350,7 @@ const PLAIN_LOCAL_STEPS = [
     key: 'postings',
     title: '3 · Walk the posting lists',
     blurb:
-      'Each matched term’s posting list names the docs that contain it — ids only, not the documents themselves. Their union (across terms and segments) is the candidate set; tombstoned / un-refreshed docs are skipped.',
+      'Each matched term’s posting list names the docs that contain it — ids only, not the documents themselves. Their union (across terms and segments) is the candidate set. A delete is near-real-time just like a write: until a refresh applies it, a tombstoned doc is still a candidate. After the refresh its posting entries are still here — struck through — but search steps over them; only a merge removes them for good.',
   },
   {
     key: 'score',
@@ -527,7 +529,10 @@ export function computeShardSearch(shard, patterns, docs, k = LOCAL_TOPK) {
   const segments = shard.segments
     .filter((seg) => seg.searchable)
     .map((seg) => {
-      const rows = segmentInvertedIndex(seg, docs)
+      // The dictionary the close-up draws and the trace it replays are the terms
+      // physically on disk — a purged (refreshed-away) delete still has its
+      // entries until a merge. Live-docs filtering happens below, on candidates.
+      const rows = segmentInvertedIndex(seg, docs, { includePurged: true })
       return {
         id: seg.id,
         rows,
@@ -537,11 +542,15 @@ export function computeShardSearch(shard, patterns, docs, k = LOCAL_TOPK) {
       }
     })
 
-  // Candidate docs = those appearing in a matched (query-term) posting list.
+  // Candidate docs = those in a matched (query-term) posting list AND still live.
+  // A refresh applies a delete by clearing the doc's live-docs bit (`purged`),
+  // so search steps over it even though its posting entries sit there until the
+  // next merge.
   const candidateSet = new Set()
   for (const seg of segments)
     for (const row of seg.rows)
-      if (matchesAny(row.term, patterns)) for (const id of row.docIds) candidateSet.add(id)
+      if (matchesAny(row.term, patterns))
+        for (const id of row.docIds) if (!docs[id]?.purged) candidateSet.add(id)
   const candidates = [...candidateSet].sort((a, b) => a.localeCompare(b))
 
   // Scored at the LUCENE doc level -- this is what the postings actually

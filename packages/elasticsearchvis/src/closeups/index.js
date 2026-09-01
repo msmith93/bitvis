@@ -103,6 +103,10 @@ function segmentContext(cu, derived) {
   const shard = derived.shards.find((s) => s.id === cu.shard)
   const seg = shard?.segments.find((s) => s.id === cu.seg && s.searchable)
   if (!shard || !seg) return null
+  // No `includePurged` here (unlike the shard anatomy one level up): the on-disk
+  // FST / block-tree models are tuned to the live dictionary, and a
+  // refreshed-away delete's leftover terms would perturb the block counts the
+  // zoom exists to teach. It is reclaimed at the next merge anyway.
   const rows = segmentInvertedIndex(seg, derived.docs)
   if (!rows.length) return null
   return { shard, seg, segId: seg.id, rows }

@@ -1,6 +1,9 @@
-// The `merge` op: each shard's small searchable segments are consolidated into
-// one, and docs whose deletes a refresh has already applied are physically
-// reclaimed.
+// The `merge` op: a shard's searchable segments are consolidated into one, and
+// docs whose deletes a refresh has already applied (`purged`) are physically
+// reclaimed. A shard merges when it has several segments to combine OR a single
+// segment still carrying a purged doc — see `shardWillMerge`.
+
+import { shardWillMerge } from '../cluster'
 
 const dedupe = (arr) => [...new Set(arr)]
 
@@ -10,14 +13,14 @@ const STEPS = [
     ms: 1300,
     title: '1 · Select segments to merge',
     blurb:
-      'On each shard with several small segments, the merge picks them to combine into one. Any tombstoned (deleted) docs are identified here — this is where they get reclaimed.',
+      'On each shard, the merge picks the searchable segments to fold into one. Docs whose delete a refresh has already applied are identified here — reclaiming them is the other reason to merge, so a shard with a single segment still merges if it holds one.',
   },
   {
     key: 'merged',
     ms: 1400,
     title: '2 · One merged segment per shard',
     blurb:
-      'The small segments are replaced by a single new, larger segment; the old ones are discarded and deleted docs are physically dropped. Both primary and replica copies merge.',
+      'The selected segments are replaced by one new segment; the old ones are discarded and the deleted docs are physically dropped, reclaiming their space. Both primary and replica copies merge.',
   },
 ]
 
@@ -31,8 +34,8 @@ export default {
     if (s >= 1) {
       const newSegs = op.payload.newSegments
       for (const shard of c.shards) {
+        if (!shardWillMerge(shard, c.docs)) continue
         const mergeable = shard.segments.filter((seg) => seg.searchable)
-        if (mergeable.length < 2) continue
         // Segments are concatenated in order and each segment's own order is
         // preserved, so every block stays contiguous with its root last — and
         // every Lucene doc gets a NEW ordinal, because an ordinal is just an
@@ -69,7 +72,7 @@ export default {
     return {
       merge: {
         shards: cluster.shards
-          .filter((sh) => sh.segments.filter((x) => x.searchable).length >= 2)
+          .filter((sh) => shardWillMerge(sh, cluster.docs))
           .map((sh) => sh.id),
       },
     }

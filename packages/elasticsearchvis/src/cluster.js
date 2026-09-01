@@ -76,6 +76,18 @@ export const docRootId = (d) => d?.root ?? d?.id ?? null
 // Is this Lucene doc the block's root (the Elasticsearch document itself)?
 export const isRootDoc = (d) => (d?.kind ?? 'root') === 'root'
 
+// Would a merge do any work on this shard? Two reasons to merge, and either is
+// enough: there are several searchable segments to fold into one, OR a single
+// segment still carries a doc a refresh has already deleted (`purged`) — Lucene
+// rewrites that segment to physically drop it and reclaim the space, which is
+// what `_forcemerge?only_expunge_deletes=true` does. A tombstone a refresh has
+// NOT applied yet is still live and is not a reason to merge.
+export function shardWillMerge(shard, docs) {
+  const searchable = shard.segments.filter((seg) => seg.searchable)
+  if (searchable.length >= 2) return true
+  return searchable.some((seg) => seg.docIds.some((id) => docs[id]?.purged))
+}
+
 // NOTE on the parent bitset. Lucene resolves a nested match to its document by
 // walking a cached per-segment bitset (BitSetProducer) FORWARD from the matching
 // child to the next set bit -- which is why the root must be written last. This

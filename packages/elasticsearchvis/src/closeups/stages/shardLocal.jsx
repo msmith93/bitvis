@@ -785,8 +785,20 @@ function DocChip({ id, docs, hit, anchor }) {
   return (
     <span
       data-posting-chip={anchor ? id : undefined}
-      className={'doc-chip' + (d?.deleted ? ' deleted' : '') + (hit ? ' hit' : '')}
+      className={
+        'doc-chip' +
+        (d?.deleted ? ' deleted' : '') +
+        (d?.purged ? ' purged' : '') +
+        (hit ? ' hit' : '')
+      }
       style={{ background: d?.color || '#888' }}
+      title={
+        d?.purged
+          ? 'deleted — a refresh dropped it from search; still on disk until the next merge'
+          : d?.deleted
+          ? 'deleted — still searchable until the next refresh applies it'
+          : undefined
+      }
     >
       {id}
     </span>

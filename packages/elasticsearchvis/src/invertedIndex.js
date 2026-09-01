@@ -9,19 +9,26 @@ const indexRows = (map) =>
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([term, ids]) => ({ term, docIds: [...ids] }))
 
-// Build ONE segment's inverted index (term -> Lucene doc ids). A tombstoned doc
-// stays in the index until a refresh applies the delete (purged); only then does
-// it leave.
+// Build ONE segment's inverted index (term -> Lucene doc ids).
+//
+// A delete does not touch the term dictionary or the posting lists: the doc's
+// entries physically stay on disk until a merge rewrites the segment. What a
+// refresh does is set the doc's live-docs bit (here: `purged`) so search steps
+// over it. So `includePurged` is the difference between the two honest views —
+// what search can still reach (default) and what the segment actually stores
+// (`true`, used by the shard close-up so a just-refreshed delete is shown struck
+// through in its posting list rather than vanishing before the merge).
 //
 // The postings address LUCENE docs, so a nested child appears here in its own
 // right -- that is the whole reason a nested query needs a join to get back to
 // the document you asked for. The field set comes from the doc rather than a
 // hardcoded pair, so a child's "variants.color" indexes like any other field.
-export function segmentInvertedIndex(seg, docs) {
+export function segmentInvertedIndex(seg, docs, { includePurged = false } = {}) {
   const map = new Map()
   for (const id of seg.docIds) {
     const doc = docs[id]
-    if (!doc || doc.purged) continue
+    if (!doc) continue
+    if (doc.purged && !includePurged) continue
     for (const terms of Object.values(doc.tokens))
       for (const term of terms) {
         if (!map.has(term)) map.set(term, new Set())
@@ -32,11 +39,11 @@ export function segmentInvertedIndex(seg, docs) {
 }
 
 // Build a shard's inverted index by merging its searchable segments' indexes.
-export function shardInvertedIndex(shard, docs) {
+export function shardInvertedIndex(shard, docs, opts) {
   const map = new Map()
   for (const seg of shard.segments) {
     if (!seg.searchable) continue
-    for (const { term, docIds } of segmentInvertedIndex(seg, docs)) {
+    for (const { term, docIds } of segmentInvertedIndex(seg, docs, opts)) {
       if (!map.has(term)) map.set(term, new Set())
       for (const id of docIds) map.get(term).add(id)
     }
@@ -58,15 +65,17 @@ function multiValuedFields(fields) {
 // What ONE segment physically stores, as data for the close-up's anatomy view:
 // its inverted index (term dictionary + postings, via segmentInvertedIndex), the
 // stored fields of each doc, and each doc's delete state (the live-docs bitset).
-// Pure derivation — no model change. Includes purged docs in `docs` so the bitset
-// can show them, even though segmentInvertedIndex omits them from `terms`.
+// Pure derivation — no model change. `includePurged` is on here: this view is
+// "what the segment holds on disk", so a refreshed-but-not-merged delete still
+// appears in its posting list (struck through), the same as it still appears in
+// the stored _source rows below.
 //
 // Each doc carries its ORDINAL (its index in seg.docIds -- that is what a Lucene
 // doc id is) plus whether it is a block root.
 export function segmentAnatomy(seg, docs) {
   return {
     id: seg.id,
-    terms: segmentInvertedIndex(seg, docs),
+    terms: segmentInvertedIndex(seg, docs, { includePurged: true }),
     docs: seg.docIds
       .map((id, ord) => ({ d: docs[id], ord }))
       .filter(({ d }) => d)

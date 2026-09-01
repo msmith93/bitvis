@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { docRootId } from './cluster'
+import { docRootId, shardWillMerge } from './cluster'
 import { applyOp, deriveCluster, lastStep, opExtra, stepDuration } from './ops'
 
 // The op lifecycle state machine: the committed cluster, the active op, the
@@ -53,8 +53,7 @@ export function useOpLifecycle(makeInitialCluster) {
   const hasUncommitted =
     !!base && base.shards.some((s) => s.segments.some((seg) => !seg.committed))
   const hasMergeable =
-    !!base &&
-    base.shards.some((s) => s.segments.filter((seg) => seg.searchable).length >= 2)
+    !!base && base.shards.some((s) => shardWillMerge(s, base.docs))
   const hasSearchable =
     !!base && base.shards.some((s) => s.segments.some((seg) => seg.searchable))
 
