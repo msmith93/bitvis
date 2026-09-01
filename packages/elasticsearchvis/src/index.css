@@ -104,6 +104,7 @@ button {
 label.field {
   display: block;
   margin-bottom: 10px;
+  margin-top: 10px;
 }
 label.field span {
   display: block;
@@ -1532,24 +1533,25 @@ table.ii td.term {
 }
 .adv-map {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin: 8px 0;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  margin: 10px 0;
 }
-.adv-label {
+.adv-label,
+.adv label.field span {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: var(--accent-2);
 }
 .adv-radio {
-  display: inline-flex;
+  display: flex;
   align-items: baseline;
-  gap: 5px;
+  gap: 6px;
   border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 3px 10px;
+  border-radius: 7px;
+  padding: 5px 10px;
   font-size: 11px;
   cursor: pointer;
   color: var(--muted);
@@ -1565,6 +1567,7 @@ table.ii td.term {
 }
 .adv-radio b {
   font-family: ui-monospace, Menlo, monospace;
+  min-width: 52px;
 }
 .adv-radio span {
   font-size: 10px;
@@ -1609,6 +1612,7 @@ table.ii td.term {
   font-size: 11px;
   padding: 4px;
   margin-top: 2px;
+  margin-bottom: 10px;
 }
 .adv-cost {
   margin: 8px 0 0;

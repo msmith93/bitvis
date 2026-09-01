@@ -322,16 +322,6 @@ export default function IndexOverlay({
                 >
                   ＋ add a variant
                 </button>
-
-                {/* The mapping decision, priced before it is made. */}
-                <p className={'adv-cost' + (previewBlock.length > 1 ? ' many' : '')}>
-                  writes <b>{previewBlock.length}</b> Lucene doc
-                  {previewBlock.length === 1 ? '' : 's'}
-                  {variants.length > 0 &&
-                    (nestedPath
-                      ? ` — one per variant, plus the document itself, written as one block`
-                      : ` — the variants flatten into it, so their pairing is not stored`)}
-                </p>
               </details>
 
               <button
