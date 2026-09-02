@@ -54,8 +54,8 @@ export function useOpLifecycle(makeInitialCluster) {
     !!base && base.shards.some((s) => s.segments.some((seg) => !seg.committed))
   const hasMergeable =
     !!base && base.shards.some((s) => shardWillMerge(s, base.docs))
-  const hasSearchable =
-    !!base && base.shards.some((s) => s.segments.some((seg) => seg.searchable))
+  // NOTE: there is deliberately no `hasSearchable` here. Search is allowed to
+  // run against an empty index — see the `canSearch` comment in App.jsx.
 
   // Fold the previous (finished) op into committed state, then begin the new op
   // at step 0 under auto-play. This "fold before next" is why a completed op can
@@ -138,7 +138,6 @@ export function useOpLifecycle(makeInitialCluster) {
     hasPendingDelete,
     hasUncommitted,
     hasMergeable,
-    hasSearchable,
     start,
     step,
     play,

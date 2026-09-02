@@ -60,9 +60,12 @@ distinctions are the whole pedagogical point.
    whitespace/punctuation) on the primary. The user sees THEIR words become terms.
 4. **Primary buffer + translog** — added to the in-memory buffer and translog.
    NOT searchable yet. Make "not searchable" visually explicit.
-5. **Replicate to the replica** — the primary forwards the doc to its replica on
-   a DIFFERENT node, which buffers + logs it too; only then is the client acked.
-   Data now lives on two nodes.
+5. **Replicate to the replica** — the primary forwards the OPERATION (the
+   document) to its replica on a DIFFERENT node; the replica performs that
+   indexing operation LOCALLY — analyzing the document itself — then buffers +
+   logs it. Only then is the client acked. Data now lives on two nodes.
+   **Show the analysis happening a second time, at the replica.** Terms must
+   never be drawn crossing between the two copies: what travels is the document.
 
 ### Refresh
 1. **Buffers → new segments** — each shard's buffered docs are written into ONE
@@ -95,6 +98,13 @@ distinctions are the whole pedagogical point.
 5. **Fetch phase** — coordinator fetches full `_source` for the winning ids.
 6. **Return to client** — merged, ranked results returned. Buffered and
    tombstoned docs never appear.
+
+**A search must be runnable with nothing searchable** — an empty cluster, or one
+whose every document is still sitting in a buffer. It is a first-class lesson,
+not an edge case: the scatter still goes out, every shard answers "no local
+hits", and zero results is the proof that "buffered ≠ searchable" from the index
+path is real. The Search button is therefore gated only on a non-empty query and
+on no op being in flight — never on there being a searchable segment.
 
 ### Wildcard queries (term-dictionary cost)
 A segment's term dictionary is SORTED, which is the whole reason wildcards differ
@@ -586,6 +596,17 @@ future view that draws the term list must not imply otherwise.
 - Refresh ≠ flush. Refresh makes docs searchable (new segment); flush makes them
   durable and clears the translog. Keep these separate.
 - A replica is always on a different node than its primary.
+- **Replication ships the OPERATION, not the index.** The primary executes the
+  write locally first, then forwards the document to each in-sync replica, and
+  every copy analyzes and indexes it for itself — so analysis runs once per shard
+  copy, not once per cluster. Lucene segment files cross the wire only during
+  peer recovery, never on the write path. (Elastic's "Reading and writing
+  documents": the primary "forward[s] the operation to each replica in the
+  current in-sync copies set", and "each in-sync replica copy performs the
+  indexing operation locally so that it has a copy".) The index op's replicate
+  step used to fly the primary's analyzed TOKENS to the replica, which taught
+  exactly the wrong thing; it now flies the document and replays the analysis
+  there. Don't undo that to save a beat of animation.
 - Search is scatter-then-gather, coordinated by one node; two-phase
   query-then-fetch.
 - Updates = new doc + tombstone on old; deletes = tombstone, reclaimed at merge.

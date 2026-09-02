@@ -181,9 +181,6 @@ function ShardCard({
 
       <div className="seg-stack">
         <AnimatePresence mode="popLayout">
-          {shard.segments.length === 0 && (
-            <span className="empty-note small">no segments</span>
-          )}
           {shard.segments.map((seg) => (
             <motion.div
               key={seg.id}
@@ -240,6 +237,10 @@ function DocChip({ id, docs, hit }) {
         'doc-chip' +
         (child ? ' child' : '') +
         (d?.deleted ? ' deleted' : '') +
+        // The refresh that applies a tombstone is otherwise INVISIBLE here —
+        // this is the only thing on the main stage that moves when a delete
+        // leaves the searchable view. The shard close-up has always drawn it.
+        (d?.purged ? ' purged' : '') +
         (hit ? ' hit' : '')
       }
       style={{ background: d?.color || '#888' }}

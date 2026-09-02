@@ -33,6 +33,13 @@ export const FLIGHT_PAD_MS = 400
 export const INDEX_SCAN_MS = 800
 export const INDEX_ANALYSIS_LEAD_MS = 1800
 
+// ---- Replication choreography (components/IndexOverlay.jsx, last step) -----
+// What crosses the wire to the replica is the OPERATION (the document), not the
+// terms — so the replica runs the whole step-2 sequence again on arrival. This
+// is the budget reserved for the doc's hop primary -> replica before that scan
+// starts; the hop itself is a framer spring, not a timed animation.
+export const INDEX_REPLICA_HOP_MS = 900
+
 // ---- Close-ups (src/closeups/) ---------------------------------------------
 export const INSPECTOR_DWELL_MS = 2400 // per-step auto-play dwell (room for flights + layout moves)
 export const INSPECTOR_FLIGHT_PAD_MS = 250

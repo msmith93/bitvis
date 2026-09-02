@@ -14,7 +14,7 @@ export default function HomeLink() {
       className="home-link"
       href={LANDING_URL}
       title="All bitvis visualizations"
-      aria-label="bitvis — all visualizations"
+      aria-label="bitvis — see more visualizations"
     >
       <span className="home-mark" aria-hidden="true">
         <span />
@@ -23,7 +23,7 @@ export default function HomeLink() {
         <span />
       </span>
       <span className="home-word">bitvis</span>
-      <span className="home-all">all visualizations</span>
+      <span className="home-all">see more visualizations</span>
     </a>
   )
 }

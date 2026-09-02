@@ -1,7 +1,13 @@
-import { flightMs, FLIGHT_PAD_MS, INDEX_ANALYSIS_LEAD_MS } from '../timing'
+import {
+  flightMs,
+  FLIGHT_PAD_MS,
+  INDEX_ANALYSIS_LEAD_MS,
+  INDEX_REPLICA_HOP_MS,
+} from '../timing'
 
 // The `index` op: a document travels client → coordinator → primary shard,
-// where it is analyzed, buffered + translogged, and replicated.
+// where it is analyzed, buffered + translogged — and then the DOCUMENT (not its
+// terms) is replicated, and the replica does that same analysis itself.
 // (Named indexOp.js so the file doesn't collide with ops/index.js.)
 
 const STEPS = [
@@ -24,7 +30,7 @@ const STEPS = [
     ms: 2600, // overridden by duration() (scan + tokens-in-box + emit flight)
     title: '3 · Analysis (tokenize + normalize)',
     blurb:
-      'On the primary shard, the analyzer tokenizes and lowercases each text field. Your sentences become the list of terms that will actually be indexed.',
+      'On the primary shard, the analyzer tokenizes and lowercases each text field. Your sentences become the list of terms that will actually be indexed. Every copy of the shard does this for itself — watch step 5.',
   },
   {
     key: 'primary',
@@ -35,10 +41,10 @@ const STEPS = [
   },
   {
     key: 'replicate',
-    ms: 1500, // overridden by duration() (replica flight + dwell)
-    title: '5 · Replicate to the replica',
+    ms: 1500, // overridden by duration() (hop + scan + tokens-in-box + emit flight)
+    title: '5 · Replicate — the replica indexes it too',
     blurb:
-      'The primary forwards the document to its replica copy on a DIFFERENT node, which buffers and logs it too. Only after the replica acknowledges does the coordinator ack the client. The data now lives on two nodes.',
+      'The primary forwards the operation to its replica copy on a DIFFERENT node. The replica performs the same indexing operation locally: it analyzes the document again, then buffers and translogs it. Only after the replica acknowledges does the coordinator ack the client.',
   },
 ]
 
@@ -99,7 +105,10 @@ export default {
       0,
     )
     if (op.step === 2) return INDEX_ANALYSIS_LEAD_MS + flightMs(n) // scan + tokens-in-box + emit flight
-    if (op.step === STEPS.length - 1) return flightMs(n) + FLIGHT_PAD_MS // replica flight
+    // The replicate step replays the whole analysis sequence at the replica, so
+    // it budgets for step 2 all over again plus the doc's hop across the wire.
+    if (op.step === STEPS.length - 1)
+      return INDEX_REPLICA_HOP_MS + INDEX_ANALYSIS_LEAD_MS + flightMs(n) + FLIGHT_PAD_MS
     return undefined
   },
 }

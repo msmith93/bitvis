@@ -411,15 +411,18 @@ textarea:focus {
   opacity: 0.6;
   border-radius: 3px;
 }
+/* Tombstoned but NOT yet refreshed — and therefore still fully searchable, so
+   it stays at full strength. The strike is the only mark: fading it here would
+   spend the app's one "this is leaving search" signal a step too early. */
 .doc-chip.deleted {
   text-decoration: line-through;
-  opacity: 0.55;
 }
 /* A refresh has applied the delete (live-docs bit cleared): search steps over
-   it, but its entries sit in the segment until a merge. Fainter than a
-   still-searchable tombstone. */
+   it, but its entries sit in the segment until a merge. THIS is the fade, and
+   it is the whole visual payload of applying a delete — the chip is the only
+   thing on the cluster stage that changes when it happens. */
 .doc-chip.purged {
-  opacity: 0.38;
+  opacity: 0.5;
 }
 .doc-chip.hit {
   outline: 2px solid var(--good);
@@ -873,6 +876,9 @@ table.ii td.term {
   top: 0;
   left: 0;
   z-index: 55;
+  /* Purely narrative, and it stays mounted (faded to 0) over a shard card while
+     the doc sits in the buffer — so it must never swallow that card's clicks. */
+  pointer-events: none;
   width: 220px;
   transform-origin: center;
   overflow: hidden;
@@ -2902,7 +2908,7 @@ table.ii td.term {
 /* ================= home link (back to the bitvis landing page) =================
    First item in the topbar (see components/HomeLink.jsx). The 2×2 dot mark is
    the landing page's own, so the hub is recognisable from inside any
-   visualizer; the "all visualizations" label is what actually tells a visitor
+   visualizer; the "see more visualizations" label is what actually tells a visitor
    the others exist, and it drops out on narrow windows where the topbar's own
    subtitle is already being clipped. */
 .home-link {

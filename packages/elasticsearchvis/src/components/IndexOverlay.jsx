@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { buildBlock, makeMapping } from '../mapping'
 import { lastStep } from '../ops'
-import { INDEX_SCAN_MS, INDEX_ANALYSIS_LEAD_MS } from '../timing'
+import { INDEX_SCAN_MS, INDEX_ANALYSIS_LEAD_MS, INDEX_REPLICA_HOP_MS } from '../timing'
 import FlyingTokens, { selectorRect } from './tokenFlight'
 
 // The indexing experience as a presentation layer DRIVEN BY the live op step, so
@@ -14,7 +14,12 @@ import FlyingTokens, { selectorRect } from './tokenFlight'
 //   step 1 route       : doc floats to the routed primary shard
 //   step 2 analysis    : scan sweeps the doc, then tokens fly into the shard
 //   step 3 primary     : doc dissolves into the buffer (cluster animates)
-//   step 4 replicate   : replica copy animates in the cluster
+//   step 4 replicate   : the DOCUMENT hops to the replica, and the whole of
+//                        step 2 replays there — because what is replicated is
+//                        the operation, not the terms, and the replica analyzes
+//                        for itself. The doc card is therefore kept MOUNTED
+//                        (faded, not unmounted) through step 3, so it can fly on
+//                        from the primary rather than restarting at the form.
 export default function IndexOverlay({
   presets,
   title,
@@ -39,11 +44,17 @@ export default function IndexOverlay({
 }) {
   const [tokens, setTokens] = useState([])
   const [flight, setFlight] = useState(null) // { from, to } — analysis → primary
-  const [replicaFlight, setReplicaFlight] = useState(null) // primary → replica
+  const [replicaFlight, setReplicaFlight] = useState(null) // the replica's own analysis → its buffer
   const [target, setTarget] = useState(null) // { x, y, scale } for the floating doc
   const [scanning, setScanning] = useState(false)
   const [showTokens, setShowTokens] = useState(false) // tokens visible inside the card
   const [docHidden, setDocHidden] = useState(false)
+  // Has the replicate step's choreography actually finished? The overlay used
+  // to close as soon as auto-play stopped, which was fine when that step was a
+  // single token flight — but it now analyzes at the replica, and a reader who
+  // walks the op with Next instead of Play is never `playing` at all, so the
+  // whole sequence would be torn down the instant it started.
+  const [replicaDone, setReplicaDone] = useState(false)
   const cardRef = useRef(null) // the editing form card
   const flyRef = useRef(null) // the floating doc card
   const startRef = useRef(null) // editing-card rect captured at submit
@@ -73,6 +84,7 @@ export default function IndexOverlay({
     setShowTokens(false)
     setDocHidden(false)
     setReplicaFlight(null)
+    setReplicaDone(false)
     handledStep.current = -1
     setPhase('flying')
     onIndex() // start the real op at step 0; auto-play + footer take over pacing
@@ -98,11 +110,13 @@ export default function IndexOverlay({
     setFlight(null)
   }
 
-  // The doc's data copying from its primary shard to the replica on another node.
-  function beginReplicate() {
-    const from = selectorRect(`[data-shard-target="${shardRef.current}"]`)
+  // The replica's OWN analyzer output landing in its buffer — the mirror of
+  // beginEmit, one node over. Nothing token-shaped ever crosses between the two
+  // copies; both of these flights start at the document card.
+  function beginReplicaEmit() {
+    const from = flyRef.current?.getBoundingClientRect()
     const to = selectorRect(`[data-replica-target="${shardRef.current}"]`)
-    if (from && to) setReplicaFlight({ from, to })
+    setReplicaFlight({ from, to })
   }
 
   // React to each op step while flying: reposition the doc + fire scan/emit once.
@@ -137,27 +151,54 @@ export default function IndexOverlay({
         clearTimeout(t2)
       }
     } else if (step < lastStep('index')) {
-      setDocHidden(true) // step 3: doc dissolves into the buffer
-    } else {
+      // Step 3: doc dissolves into the buffer. It only FADES (see the step map);
+      // clear the analysis state with it so scrubbing back off step 4 doesn't
+      // leave a half-finished replica scan parked behind the fade.
       setDocHidden(true)
-      beginReplicate() // last step: copy to the replica on another node
+      setScanning(false)
+      setShowTokens(false)
+    } else {
+      // Last step: the primary forwards the OPERATION. The document itself
+      // crosses to the replica, which then runs the same analysis — so this is
+      // step 2's sequence again, one hop later and against the replica anchor.
+      setDocHidden(false)
+      setShowTokens(false)
+      setReplicaDone(false) // re-armed, so scrubbing back and forward replays it
+      setTarget(anchorTarget(`[data-replica-target="${shardRef.current}"]`, 0.85))
+      const t1 = setTimeout(() => setScanning(true), INDEX_REPLICA_HOP_MS)
+      const t2 = setTimeout(() => {
+        setScanning(false)
+        setShowTokens(true) // the REPLICA's own analyzer output
+      }, INDEX_REPLICA_HOP_MS + INDEX_SCAN_MS)
+      const t3 = setTimeout(() => {
+        setShowTokens(false)
+        beginReplicaEmit()
+      }, INDEX_REPLICA_HOP_MS + INDEX_ANALYSIS_LEAD_MS)
+      return () => {
+        clearTimeout(t1)
+        clearTimeout(t2)
+        clearTimeout(t3)
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, op?.step])
 
-  // Close the overlay once auto-play finishes the final (replicate) step: the
-  // scheduler holds `playing` true through that step's dwell, then drops it —
-  // so the replica flight has landed by the time we flip to 'done'.
+  // Close the overlay once the final (replicate) step is really over. Both
+  // conditions are load-bearing: auto-play holds `playing` true through that
+  // step's dwell, and `replicaDone` (set when the replica's own token flight
+  // lands) is what keeps a MANUALLY stepped op — never `playing` at all — from
+  // tearing the overlay down before the replica has analyzed anything.
   useEffect(() => {
     if (
       phase === 'flying' &&
       op?.type === 'index' &&
       op.step >= lastStep('index') &&
-      !playing
+      !playing &&
+      replicaDone
     ) {
       setPhase('done')
     }
-  }, [phase, op, playing, setPhase])
+  }, [phase, op, playing, replicaDone, setPhase])
 
   // Escape closes the form, matching DeleteDocOverlay. Only while EDITING —
   // once the document is flying there is a live op behind the overlay and the
@@ -179,6 +220,7 @@ export default function IndexOverlay({
       setScanning(false)
       setShowTokens(false)
       setDocHidden(false)
+      setReplicaDone(false)
     }
   }, [phase])
 
@@ -338,7 +380,10 @@ export default function IndexOverlay({
 
       {/* ---- floating document travelling through the cluster ---- */}
       <AnimatePresence>
-        {flying && !docHidden && (
+        {/* Stays MOUNTED for the whole flight and fades instead of unmounting
+            (see the step map above): the replicate step flies this same card on
+            from the primary, and beginReplicaEmit reads its rect. */}
+        {flying && (
           <motion.div
             ref={flyRef}
             className={'index-fly-card' + (scanning ? ' scanning' : '')}
@@ -350,8 +395,8 @@ export default function IndexOverlay({
             }}
             animate={
               target
-                ? { x: target.x, y: target.y, scale: target.scale, opacity: 1 }
-                : { opacity: 1 }
+                ? { x: target.x, y: target.y, scale: target.scale, opacity: docHidden ? 0 : 1 }
+                : { opacity: docHidden ? 0 : 1 }
             }
             exit={{ opacity: 0, scale: 0.5 }}
             transition={{ type: 'spring', stiffness: 120, damping: 20 }}
@@ -394,7 +439,11 @@ export default function IndexOverlay({
           tokens={tokens}
           from={replicaFlight.from}
           to={replicaFlight.to}
-          onComplete={() => setReplicaFlight(null)}
+          onComplete={() => {
+            setReplicaFlight(null)
+            setDocHidden(true) // dissolves into the replica's buffer, as on the primary
+            setReplicaDone(true) // ...and only now may the overlay close
+          }}
         />
       )}
     </>

@@ -174,7 +174,7 @@ const STEPS = [
     target: '[data-tour="stepper-play"]',
     placement: 'top',
     title: 'Finish the write',
-    body: 'Press ▶ Play to let the block replicate.',
+    body: 'Press ▶ Play to let the block replicate. The replica gets the DOCUMENT, not these chips — it analyzes it and builds all four Lucene docs itself.',
     highlightPlay: true,
     advanceOn: (s) => s.opType === 'index' && s.opDone && !s.playing,
   },

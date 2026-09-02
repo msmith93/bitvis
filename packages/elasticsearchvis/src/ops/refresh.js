@@ -1,6 +1,8 @@
 // The `refresh` op: buffered docs become ONE new immutable, searchable segment
 // per shard, and pending deletes are applied to the searchable view.
 
+import { docRootId } from '../cluster'
+
 const STEPS = [
   {
     key: 'write',
@@ -53,24 +55,44 @@ export default {
           c.docs[id] = { ...c.docs[id], purged: true }
   },
 
+  // The delete half of what derive() does, said only when there IS one. The
+  // step blurbs stay about buffers and segments — a plain refresh should not
+  // carry a sentence about deletes it isn't applying — so this rides on the
+  // payload-note hook instead, and lands next to the chips visibly fading out.
+  note(op, extra) {
+    const n = extra.refresh?.pendingDeletes ?? 0
+    if (!n) return null
+    return `This refresh also applies ${n} pending delete${n === 1 ? '' : 's'}: ${
+      n === 1 ? 'that document drops' : 'those documents drop'
+    } out of search now, though ${
+      n === 1 ? 'its entries stay' : 'their entries stay'
+    } in the segment until a merge.`
+  },
+
   extra(cluster) {
+    // Every tombstone this refresh will apply: a searchable segment holding a
+    // deleted-but-not-yet-purged doc. Collected as a Set of ROOT ids — counted
+    // per Elasticsearch document, not per Lucene doc, since a nested block's
+    // children are deleted with their root and would treble the number.
+    // NOTE this reads the COMMITTED cluster, not the derived one, so the count
+    // stays put once step 2 has actually applied the purges.
+    const pendingByShard = new Map()
+    for (const sh of cluster.shards)
+      for (const seg of sh.segments) {
+        if (!seg.searchable) continue
+        for (const id of seg.docIds) {
+          const d = cluster.docs[id]
+          if (!d || !d.deleted || d.purged) continue
+          if (!pendingByShard.has(sh.id)) pendingByShard.set(sh.id, new Set())
+          pendingByShard.get(sh.id).add(docRootId(d))
+        }
+      }
+    const pending = new Set([...pendingByShard.values()].flatMap((s) => [...s]))
     // Refresh touches a shard if it has buffered docs to segment OR a tombstone
-    // to apply (a searchable segment holding a not-yet-purged deleted doc).
-    const hasPendingDelete = (sh) =>
-      sh.segments.some(
-        (seg) =>
-          seg.searchable &&
-          seg.docIds.some((id) => {
-            const d = cluster.docs[id]
-            return d && d.deleted && !d.purged
-          }),
-      )
-    return {
-      refresh: {
-        shards: cluster.shards
-          .filter((sh) => sh.buffer.length > 0 || hasPendingDelete(sh))
-          .map((sh) => sh.id),
-      },
-    }
+    // to apply.
+    const shards = cluster.shards
+      .filter((sh) => sh.buffer.length > 0 || pendingByShard.has(sh.id))
+      .map((sh) => sh.id)
+    return { refresh: { shards, pendingDeletes: pending.size } }
   },
 }

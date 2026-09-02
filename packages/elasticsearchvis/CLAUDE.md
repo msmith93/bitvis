@@ -164,7 +164,13 @@ which lets the stepper scrub any operation forwards and backwards.
 - **`src/useOpLifecycle.js`** owns the op state machine: `cluster`/`op`/
   `opDone`/`playing`, the auto-play clock, memoized `derived`/`extra`,
   `start`/`step`/`play`/`pause`/`toggleDelete`/`resetTo`, and the `has*`
-  capability flags. **`App.jsx`** keeps UI state (overlay phase, zoom,
+  capability flags. There is deliberately **no `hasSearchable`**: a search
+  against an empty or entirely un-refreshed index is a lesson, not an error
+  state (`SPEC.md` says so), and zero hits is the payoff. Note what removing it
+  exposed — every other `can*` flag inherits the "no op in flight" guard from a
+  `has*` flag, because `base` is null unless `canStartNew`; `canSearch` names
+  `canStartNew` itself instead, and must keep doing so or `start()` commits a
+  null cluster. **`App.jsx`** keeps UI state (overlay phase, zoom,
   form inputs, doc/segment naming counters), composes the `can*` button flags,
   and builds op payloads.
 
@@ -326,10 +332,31 @@ which lets the stepper scrub any operation forwards and backwards.
   lowercase + split on non-(letter/number/apostrophe). No stemming/stopwords,
   keeping "your words → terms" obvious. Search relevance is term-frequency
   counting (`computeSearch`), a deliberate stand-in for BM25.
+  **Analysis runs once per shard COPY, and the index op must show that.**
+  Elasticsearch replicates the operation, not the index: the primary indexes
+  locally, forwards the DOCUMENT to each in-sync replica, and the replica runs
+  the same indexing operation — analysis included — itself. So the replicate step
+  in `IndexOverlay` flies the doc card on to the replica and replays step 2's
+  whole scan → tokens → emit sequence against `[data-replica-target]`; it used to
+  fly the primary's tokens across, which taught the opposite. Two consequences
+  worth knowing before touching that file: the fly card is now kept MOUNTED and
+  merely faded through step 3 (unmounting it would make it restart from the
+  editing form, and `beginReplicaEmit` needs its rect), which is why it carries
+  `pointer-events: none` — it hovers invisibly over a clickable shard card; and
+  the step's budget in `indexOp.js` is `INDEX_REPLICA_HOP_MS +
+  INDEX_ANALYSIS_LEAD_MS + flightMs(n) + FLIGHT_PAD_MS`, i.e. step 2's budget
+  again plus the hop. `SPEC.md` carries the guardrail and the Elastic citation.
 
 - The per-shard inverted index (`shardInvertedIndex` in `src/invertedIndex.js`)
   is built only from `searchable` segments and skips `purged` docs — buffered
   docs and applied deletes never appear in search, matching the SPEC guardrails.
+  **A tombstone is drawn at FULL strength and only fades once a refresh purges
+  it** (`.doc-chip.deleted` / `.doc-chip.purged`): the fade is the one signal
+  that a doc has left the searchable view, so spending it on a still-searchable
+  tombstone makes refresh a no-op on screen. `ClusterStage`'s `DocChip` must
+  keep passing `purged` — it didn't, and the main stage showed nothing at all
+  when a refresh applied a delete. `refresh.js`'s `note()` says it in words on
+  the same beat, and returns null when there is nothing to apply.
 
 - **`MobileWarning`** (`src/components/MobileWarning.jsx`, styled in `index.css`)
   is a full-screen advisory shown on small touch screens: these visualizers are

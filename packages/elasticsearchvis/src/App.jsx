@@ -62,7 +62,6 @@ export default function App() {
     hasPendingDelete,
     hasUncommitted,
     hasMergeable,
-    hasSearchable,
     start,
     step,
     play,
@@ -328,7 +327,15 @@ export default function App() {
   const canRefresh = (hasBuffered || hasPendingDelete) && !playing
   const canFlush = hasUncommitted && !playing
   const canMerge = hasMergeable && !playing
-  const canSearch = hasSearchable && query.trim() && !playing
+  // Deliberately NOT gated on there being anything searchable: running a query
+  // against an empty (or entirely un-refreshed) index is one of the things this
+  // app is for — the scatter still happens, every shard reports "no local hits",
+  // and the reader sees that buffered documents really are invisible to search.
+  // `canStartNew` is named explicitly here because it used to ride in on
+  // `hasSearchable` (which is false whenever `base` is null, i.e. mid-op); drop
+  // it and the button would arm while an op is paused, and `start()` would
+  // commit a null cluster.
+  const canSearch = canStartNew && query.trim() && !playing
 
   function startIndex() {
     if (!canIndex) return
@@ -480,8 +487,7 @@ export default function App() {
         <HomeLink />
         <h1>Elasticsearch Cluster Visualizer</h1>
         <span className="sub">
-          Routing & replication across a 3-node cluster, the write path, and
-          scatter-gather search
+          Visualizing a 3-shard (1-replica) index on a 3-node ElasticSearch cluster
         </span>
         <ScenarioPicker
           activeId={tour.id}
