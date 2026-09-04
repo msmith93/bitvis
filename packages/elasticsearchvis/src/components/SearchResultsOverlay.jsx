@@ -78,6 +78,7 @@ export default function SearchResultsOverlay({ open, query, search, docs, onClos
                         rank={i + 1}
                         hit={h}
                         doc={docs[h.docId]}
+                        docs={docs}
                       />
                     ))}
                   </ol>
@@ -91,14 +92,40 @@ export default function SearchResultsOverlay({ open, query, search, docs, onClos
   )
 }
 
+// A nested block's sub-objects, grouped by their `nested` path and each spelled
+// back out as the { field: value } record it was indexed from. The app has no
+// separate `_source`, but under `nested` mapping each sub-object IS its own
+// Lucene doc (a child of this block), so the paired form can be reconstructed
+// from those children — and that pairing surviving to read time is the whole
+// point of nested mapping. Empty for a flat or `object`-mapped document, whose
+// sub-objects were flattened into multi-valued fields on the root instead.
+function childBlocks(root, docs) {
+  const ord = (d) => Number(d.id.split('#').pop())
+  const kids = Object.values(docs || {})
+    .filter((d) => d?.kind === 'child' && d.root === root.id)
+    .sort((a, b) => ord(a) - ord(b))
+  const byPath = new Map()
+  for (const kid of kids) {
+    const entries = Object.entries(kid.fields).map(([k, v]) => [
+      k.slice(kid.path.length + 1),
+      v,
+    ])
+    byPath.set(kid.path, [...(byPath.get(kid.path) || []), entries])
+  }
+  return [...byPath].map(([path, items]) => ({ path, items }))
+}
+
 // One hit: a collapsed row (rank, id, shard, score) that expands to the
-// document's indexed fields. The indexed form is all this app models — there is
-// no separate `_source` (see src/mapping.js) — so a multi-valued field under
-// `object` mapping simply shows all its values, which is the nested lesson's
-// cost made visible at read time.
-function ResultRow({ rank, hit, doc }) {
+// document's indexed fields. Under `object` mapping the sub-objects were
+// flattened into multi-valued fields on the root, so a field like
+// `variants.color` simply shows all its values with the pairing gone — the
+// nested lesson's cost made visible at read time. Under `nested` mapping the
+// sub-objects come back paired, reconstructed from the block's child Lucene
+// docs (see childBlocks).
+function ResultRow({ rank, hit, doc, docs }) {
   const [open, setOpen] = useState(false)
   const fields = doc?.fields ? Object.entries(doc.fields) : []
+  const nested = doc ? childBlocks(doc, docs) : []
 
   return (
     <li className="result-item">
@@ -120,17 +147,36 @@ function ResultRow({ rank, hit, doc }) {
       </button>
       {open && (
         <div className="result-source">
-          {fields.length === 0 ? (
+          {fields.length === 0 && nested.length === 0 ? (
             <div className="json-row empty">(no indexed fields)</div>
           ) : (
-            fields.map(([k, v]) => (
-              <div className="source-field" key={k}>
-                <span className="source-key">{k}</span>
-                <span className="source-val">
-                  {Array.isArray(v) ? v.join(', ') : String(v)}
-                </span>
-              </div>
-            ))
+            <>
+              {fields.map(([k, v]) => (
+                <div className="source-field" key={k}>
+                  <span className="source-key">{k}</span>
+                  <span className="source-val">
+                    {Array.isArray(v) ? v.join(', ') : String(v)}
+                  </span>
+                </div>
+              ))}
+              {nested.map(({ path, items }) => (
+                <div className="source-nested" key={path}>
+                  <span className="source-key">{path}</span>
+                  <ol className="source-nested-list">
+                    {items.map((entries, i) => (
+                      <li key={i}>
+                        {entries.map(([k, v]) => (
+                          <span className="source-subfield" key={k}>
+                            <span className="source-subkey">{k}</span>
+                            <span className="source-val">{String(v)}</span>
+                          </span>
+                        ))}
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              ))}
+            </>
           )}
         </div>
       )}

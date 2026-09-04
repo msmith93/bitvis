@@ -2502,6 +2502,32 @@ table.ii td.term {
   font-style: italic;
 }
 
+/* A nested block's sub-objects, reconstructed from its child Lucene docs and
+   shown paired — the read-time payoff of nested mapping. */
+.source-nested {
+  display: grid;
+  gap: 3px;
+}
+.source-nested-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 3px;
+}
+.source-nested-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.source-subfield {
+  display: inline-flex;
+  gap: 5px;
+}
+.source-subkey {
+  color: var(--accent-2);
+  opacity: 0.8;
+}
+
 /* ===========================================================================
    On-disk close-ups (src/closeups/stages/{dictionary,postings,automaton})
    The deepest zoom level: one segment's .tip / .tim / .doc as they really are.
