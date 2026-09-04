@@ -4,6 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Elasticsearch Write-Path Visualizer</title>
+    <script>
+      // Apply the saved theme before first paint so a light-mode reader never
+      // sees a dark flash. The toggle lives in the header; see ThemeToggle.jsx.
+      try {
+        var t = localStorage.getItem('esvis-theme')
+        if (t === 'light' || t === 'dark')
+          document.documentElement.setAttribute('data-theme', t)
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

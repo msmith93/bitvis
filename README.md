@@ -13,6 +13,7 @@ the landing page that ties them together.
 | --- | --- | --- |
 | [`packages/kubevis`](packages/kubevis) | [kubevis.bitsculpt.top](https://kubevis.bitsculpt.top) | How Kubernetes turns kubectl commands into running pods (control plane, scheduler, self-healing). |
 | [`packages/elasticsearchvis`](packages/elasticsearchvis) | [elasticsearchvis.bitsculpt.top](https://elasticsearchvis.bitsculpt.top) | How Elasticsearch indexes and searches a distributed cluster (segments, refresh/flush/merge, scatter-gather, the FST + automaton a wildcard or fuzzy query is really resolved against, and what `object` vs `nested` mapping really writes to disk). |
+| [`packages/vespavis`](packages/vespavis) | [vespavis.bitsculpt.top](https://vespavis.bitsculpt.top) | How Vespa serves search and recommendation in one engine (the two-tier architecture, buckets and the ideal-state algorithm, the four ranking phases as a funnel, a live editable schema, and real-time personalization from a user tensor). |
 | [`packages/cassandravis`](packages/cassandravis) | [cassandravis.bitsculpt.top](https://cassandravis.bitsculpt.top) | How a leaderless NoSQL store (Cassandra) replicates and stores data (the ring, tunable quorums, hinted handoff, read repair, the LSM tree). |
 | [`packages/landing`](packages/landing) | [bitvis.bitsculpt.top](https://bitvis.bitsculpt.top) | The landing page — a plain static card grid linking to every visualization. |
 
@@ -33,6 +34,7 @@ Then run any app's dev server:
 ```bash
 npm run dev:kubevis             # or:  npm run dev -w @bitvis/kubevis
 npm run dev:elasticsearchvis    # or:  npm run dev -w @bitvis/elasticsearchvis
+npm run dev:vespavis            # or:  npm run dev -w @bitvis/vespavis
 npm run dev:cassandravis        # or:  npm run dev -w @bitvis/cassandravis
 npm run build                   # build every app to packages/*/dist
 ```

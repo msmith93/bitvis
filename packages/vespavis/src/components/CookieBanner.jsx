@@ -11,11 +11,11 @@ export default function CookieBanner({ onAccept, onDecline }) {
         bottom: 0,
         left: 0,
         right: 0,
-        backgroundColor: 'var(--panel)',
-        color: 'var(--text)',
+        backgroundColor: '#ffffff',
+        color: '#24261d',
         padding: '20px',
-        borderTop: '1px solid var(--border)',
-        boxShadow: '0 -2px 10px rgba(var(--shadow-rgb), 0.4)',
+        borderTop: '2px solid #b6aed5',
+        boxShadow: '0 -2px 12px rgba(60, 54, 96, 0.18)',
         zIndex: 10000,
         display: 'flex',
         alignItems: 'center',
@@ -40,18 +40,20 @@ export default function CookieBanner({ onAccept, onDecline }) {
             padding: '10px 20px',
             fontSize: '14px',
             fontWeight: 'bold',
-            color: 'var(--text)',
-            backgroundColor: 'var(--panel-2)',
-            border: '1px solid var(--border)',
+            color: '#24261d',
+            backgroundColor: '#ece9f4',
+            border: '1px solid #cabfdf',
             borderRadius: '6px',
             cursor: 'pointer',
             transition: 'all 0.2s ease',
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = 'var(--accent-text)'
+            e.currentTarget.style.backgroundColor = '#e0dbef'
+            e.currentTarget.style.borderColor = '#b6aed5'
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = 'var(--border)'
+            e.currentTarget.style.backgroundColor = '#ece9f4'
+            e.currentTarget.style.borderColor = '#cabfdf'
           }}
         >
           Decline
@@ -62,18 +64,20 @@ export default function CookieBanner({ onAccept, onDecline }) {
             padding: '10px 20px',
             fontSize: '14px',
             fontWeight: 'bold',
-            color: '#0b0c10',
-            backgroundColor: 'var(--accent)',
+            color: '#12130d',
+            backgroundColor: '#5cf699',
             border: 'none',
             borderRadius: '6px',
             cursor: 'pointer',
             transition: 'all 0.2s ease',
-            boxShadow: '0 2px 4px rgba(var(--shadow-rgb), 0.3)',
+            boxShadow: '0 2px 6px rgba(60, 54, 96, 0.2)',
           }}
           onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = '#34d8cb'
             e.currentTarget.style.transform = 'scale(1.05)'
           }}
           onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = '#5cf699'
             e.currentTarget.style.transform = 'scale(1)'
           }}
         >

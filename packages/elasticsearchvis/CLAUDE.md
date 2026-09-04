@@ -371,3 +371,23 @@ which lets the stepper scrub any operation forwards and backwards.
   visualizer is its own subdomain, so without it a visitor who enjoys this one
   has no path to the others; it sits first in the topbar and carries the landing
   page's own 2×2 dot mark. Every visualizer app carries an identical copy.
+
+- **Theming** — dark (default) and light, chosen by `ThemeToggle` (top-right of
+  the header) and remembered in `localStorage` as `esvis-theme`; `index.html`
+  applies the saved value to `<html data-theme>` before first paint so there is
+  no flash. It is entirely CSS custom properties: **two `:root` blocks** in
+  `index.css` (`:root` dark, `:root[data-theme='light']` light) define one set of
+  semantic tokens. The rules that matter when editing colour:
+  - The brand accents (`--accent` teal, `--accent-2` blue, `--good`, `--warn`,
+    `--danger`) keep their meaning in both themes, but teal `#00bfb3` is
+    illegible as text/hairlines on white, so **`--accent-text`** is the token for
+    teal-as-text / thin border / thin stroke (it just equals `--accent` in dark).
+    `--good`/`--warn`/`--danger`/`--accent-2`/`--accent-soft` are darkened
+    outright in the light block since none is used as a large fill.
+  - Translucent `rgba()` **tints of the brand colours are left as literals** —
+    they read on either ground. The **structural darks go through tokens**:
+    `--scrim` (modal backdrops), `--sink` (inset fills), `--tip-glass`
+    (translucent tour tips), and `--shadow-rgb` (the rgb triple inside every
+    `rgba(var(--shadow-rgb), …)` drop shadow). Add a new dark `rgba()` only as
+    one of these, never as a literal, or it will stay dark in light mode.
+  - `CookieBanner` is inline-styled: it uses `var(--…)` tokens, not hex.

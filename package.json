@@ -10,6 +10,7 @@
     "dev:cassandravis": "npm run dev -w @bitvis/cassandravis",
     "dev:kubevis": "npm run dev -w @bitvis/kubevis",
     "dev:elasticsearchvis": "npm run dev -w @bitvis/elasticsearchvis",
+    "dev:vespavis": "npm run dev -w @bitvis/vespavis",
     "build": "npm run build --workspaces --if-present",
     "preview": "npm run preview --workspaces --if-present"
   }

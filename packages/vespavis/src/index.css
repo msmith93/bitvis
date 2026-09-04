@@ -1,0 +1,1680 @@
+/* Vespa's own palette, taken from the brand stylesheet at brand.vespa.ai/color.
+   Vespa's site is a light theme and so is this app: the warm off-white
+   (--surface-warm #f4f4ea) and a wash of the brand lavender make the page,
+   the deep olive (--darkgreen #2e2f27) is the ink, and the two brand pastels
+   the guidelines lean on — the lavender #b6aed5 and the sky #b7e2f1 — carry the
+   surfaces, borders and section accents throughout rather than sitting nearly
+   unused. The signature button green #5cf699 stays the "happening right now"
+   accent for fills; on a light ground it needs an ink-dark partner
+   (--accent-ink) for text and hairline borders, and so do the two pastels
+   (--accent-2-ink, --lav-ink). Every rgba() below is one of these same colours —
+   keep them in sync if you change one here. */
+:root {
+  --bg: #e8e3f4;
+  --panel: #ffffff;
+  --panel-2: #e4def2;
+  --panel-3: #d2e8f2;
+  --border: #d7cfec;
+  --border-strong: #c1b5de;
+  --text: #24261d;
+  --muted: #6a6c5c;
+  --accent: #5cf699;
+  --accent-ink: #0f7d46;
+  --accent-dim: #2eb765;
+  --accent-2: #b7e2f1;
+  --accent-2-ink: #2f7c99;
+  --lav: #b6aed5;
+  --lav-ink: #5f549c;
+  --accent-3: #b0578a;
+  --good: #1f9a54;
+  --warn: #a9801f;
+  --danger: #c65a48;
+  --info: #4f7fd0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica,
+    Arial, sans-serif;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+code,
+pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.app {
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ================= topbar ================= */
+.topbar {
+  padding: 12px 22px;
+  background: var(--panel);
+  border-bottom: 2px solid var(--lav);
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+.topbar h1 {
+  font-size: 17px;
+  margin: 0;
+  white-space: nowrap;
+}
+.topbar .sub {
+  color: var(--muted);
+  font-size: 12px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Three columns. The centre stage is the thing worth the pixels, so the side
+   columns narrow before it does, and the middle track is minmax(0, 1fr) so a
+   wide cluster can never push the page sideways. */
+.layout {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr) 400px;
+  gap: 1px;
+  background: var(--border);
+  min-height: 0;
+}
+@media (max-width: 1439px) {
+  .layout {
+    grid-template-columns: 252px minmax(0, 1fr) 356px;
+  }
+}
+@media (max-width: 1199px) {
+  .layout {
+    grid-template-columns: 232px minmax(0, 1fr) 320px;
+  }
+  .topbar .sub {
+    display: none;
+  }
+}
+.col {
+  background: var(--bg);
+  padding: 16px;
+  overflow: auto;
+  min-width: 0;
+}
+.stage-col {
+  padding: 16px 14px;
+}
+
+.section-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--lav-ink);
+  margin: 0 0 10px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.section-title:not(:first-child) {
+  margin-top: 22px;
+}
+.doc-count {
+  margin-left: auto;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* ================= inputs / buttons ================= */
+input[type='text'],
+select {
+  width: 100%;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text);
+  padding: 8px 10px;
+  font-size: 13px;
+}
+input:focus,
+select:focus {
+  outline: none;
+  border-color: var(--accent-ink);
+}
+.btn {
+  border: 1px solid var(--border-strong);
+  background: var(--panel-2);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  transition: border-color 0.15s, background 0.15s;
+}
+.btn:hover:not(:disabled) {
+  border-color: var(--accent-ink);
+}
+.btn:disabled {
+  opacity: 0.36;
+  cursor: not-allowed;
+}
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent-ink);
+  color: #12130d;
+}
+.btn.primary:hover:not(:disabled) {
+  background: #7ff8ac;
+}
+.btn.block {
+  width: 100%;
+}
+.btn-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.search-row {
+  display: flex;
+  gap: 8px;
+}
+.search-row input {
+  flex: 1;
+}
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 4px;
+}
+.preset-chip {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11.5px;
+}
+.preset-chip:hover {
+  border-color: var(--accent-ink);
+  color: var(--text);
+}
+.hint {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-top: 12px;
+  line-height: 1.55;
+}
+.hint.tight {
+  margin-top: 8px;
+}
+.hint code {
+  color: var(--accent-2-ink);
+  font-size: 11px;
+}
+
+/* The four retrieval modes. They are the app's primary control, so they get
+   real estate rather than a dropdown: which one is selected changes the query
+   tree, the rank profile AND the number of steps in the footer. */
+.mode-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+  margin-bottom: 12px;
+}
+.mode-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 8px 9px;
+  color: var(--muted);
+}
+.mode-chip b {
+  font-size: 12px;
+  color: var(--text);
+  font-weight: 600;
+}
+.mode-chip i {
+  font-style: normal;
+  font-size: 10px;
+  font-family: ui-monospace, Menlo, monospace;
+  letter-spacing: 0.2px;
+}
+.mode-chip:hover {
+  border-color: var(--border-strong);
+}
+.mode-chip.on {
+  border-color: var(--accent-ink);
+  background: rgba(74, 200, 127, 0.09);
+}
+.mode-chip.on b {
+  color: var(--accent-ink);
+}
+
+.filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.filter-row label {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  font-family: ui-monospace, Menlo, monospace;
+}
+.target-row {
+  margin: 10px 0 8px;
+}
+
+/* ================= the cluster stage ================= */
+.cluster {
+  display: flex;
+  flex-direction: column;
+}
+
+.tier {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 11px;
+  background: var(--panel);
+  transition: border-color 0.25s, box-shadow 0.25s;
+}
+.tier-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 9px;
+  flex-wrap: wrap;
+}
+.tier-name {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--accent-2-ink);
+}
+.tier-sub {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* The stateless tier. Sky is its colour throughout the app — a permanent faint
+   sky fill here, and it lights up sky at BOTH ends of a query, which is the
+   thing the two-tier picture exists to show. */
+.container-tier {
+  background: var(--panel-3);
+  border-color: var(--accent-2);
+}
+.container-tier.busy {
+  border-color: var(--accent-2-ink);
+  box-shadow: 0 0 0 3px rgba(123, 197, 224, 0.35);
+}
+/* The content tier carries the lavender, so the two tiers read as two systems. */
+.content-tier {
+  background: var(--panel-2);
+  border-color: var(--lav);
+}
+.content-tier .tier-name {
+  color: var(--lav-ink);
+}
+.container-row {
+  display: flex;
+  gap: 9px;
+}
+.container-node {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+}
+.container-node.active {
+  border-color: var(--accent-2-ink);
+  background: rgba(123, 197, 224, 0.07);
+}
+.cn-name {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 12px;
+  font-weight: 700;
+}
+.badge {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  border-radius: 999px;
+  padding: 1px 6px;
+  white-space: nowrap;
+  color: var(--accent-2-ink);
+  border: 1px solid rgba(123, 197, 224, 0.45);
+}
+.badge.dist {
+  margin-left: auto;
+  color: var(--accent-3);
+  border-color: rgba(198, 130, 170, 0.45);
+}
+
+/* What the container is doing right now, phase by phase. A query touches this
+   tier twice and the second visit is where the expensive model runs, so it
+   gets its own visible slots rather than being implied by a border colour. */
+.container-work {
+  display: flex;
+  gap: 7px;
+  margin-top: 9px;
+}
+.cw-slot {
+  flex: 1;
+  min-width: 0;
+  border: 1px dashed var(--border);
+  border-radius: 7px;
+  padding: 5px 7px;
+  opacity: 0.45;
+  transition: opacity 0.25s, border-color 0.25s, background 0.25s;
+}
+.cw-slot.on {
+  opacity: 1;
+  border-style: solid;
+  border-color: var(--accent-2-ink);
+  background: rgba(123, 197, 224, 0.08);
+}
+.cw-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--accent-2-ink);
+}
+.cw-detail {
+  display: block;
+  font-size: 10.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The wire between the tiers, labelled with what is actually crossing it. */
+.tier-wire {
+  height: 26px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tier-wire::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  transform: translateX(-50%);
+  background: var(--border);
+}
+.tier-wire.live::before {
+  background: linear-gradient(
+    180deg,
+    var(--accent-ink) 0%,
+    rgba(74, 200, 127, 0.3) 100%
+  );
+}
+.wire-label {
+  position: relative;
+  background: var(--bg);
+  padding: 0 8px;
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.content-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(152px, 1fr));
+  gap: 9px;
+}
+
+/* one content node = a distributor + a proton */
+.cnode {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px;
+  min-width: 0;
+  transition: border-color 0.25s, box-shadow 0.25s;
+}
+.cnode.active {
+  border-color: var(--accent-ink);
+  box-shadow: 0 0 0 2px rgba(74, 200, 127, 0.18);
+}
+.cnode-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 7px;
+}
+.cnode-name {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* The buckets a node holds. Filled = it is the ACTIVE replica, and only the
+   active replica may answer for a bucket — the whole reason a redundancy-2
+   cluster does not return everything twice. */
+.bucket-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-bottom: 8px;
+}
+.bucket {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 9px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+  color: var(--muted);
+}
+.bucket.on {
+  background: var(--panel-3);
+  border-color: var(--accent-dim);
+  color: var(--accent-ink);
+  font-weight: 700;
+}
+.bucket.target {
+  outline: 2px solid var(--warn);
+  outline-offset: 1px;
+}
+.bucket.empty {
+  border-style: dashed;
+  font-style: italic;
+}
+
+/* ---- the funnel: a content node's actual work ----------------------------
+   Each bar is a ranking phase, scaled against the documents the node was ACTIVE
+   for. Read down the stack and you read the cost model: every phase sees fewer
+   documents than the one above it, which is what buys the right to run a more
+   expensive expression. This is the subject of the whole stage, so it gets the
+   node card's body. */
+.funnel {
+  margin-bottom: 8px;
+}
+.fn-row {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 4px;
+  opacity: 0.38;
+  transition: opacity 0.3s;
+}
+.fn-row.on {
+  opacity: 1;
+}
+.fn-label {
+  font-size: 8.5px;
+  letter-spacing: 0.2px;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fn-track {
+  height: 9px;
+  border-radius: 3px;
+  background: var(--panel-2);
+  overflow: hidden;
+  display: block;
+}
+.fn-bar {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+}
+/* The ramp is deliberate: the wide bar at the top is the cheap, plentiful end
+   and the narrow bar at the bottom is the expensive, scarce end, so the colour
+   intensifies as the count falls. */
+.fn-base {
+  background: var(--border-strong);
+}
+.fn-match {
+  background: var(--accent-2);
+}
+.fn-first {
+  background: #7fd0b4;
+}
+.fn-second {
+  background: var(--good);
+}
+.fn-returned {
+  background: var(--accent);
+}
+.fn-value {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  text-align: right;
+}
+.fn-note {
+  font-size: 9px;
+  line-height: 1.4;
+  color: var(--muted);
+  margin-top: 6px;
+  border-left: 2px solid var(--border-strong);
+  padding-left: 6px;
+}
+.fn-note.warn {
+  color: var(--warn);
+  border-left-color: var(--warn);
+}
+
+/* With no query running there is no funnel to draw, so the body says what the
+   node holds — counted the way a query would count it. */
+.idle-body {
+  margin-bottom: 8px;
+}
+.ib-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 10px;
+  color: var(--muted);
+  padding: 2px 0;
+  border-bottom: 1px dotted var(--border);
+}
+.ib-row:last-child {
+  border-bottom: none;
+}
+.ib-row b {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  color: var(--text);
+}
+.ib-row.muted b {
+  color: var(--muted);
+}
+
+/* ---- storage, one click away --------------------------------------------- */
+.store-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.store-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 9.5px;
+  padding: 3px 6px;
+  text-align: left;
+}
+.store-toggle:hover,
+.store-toggle.open {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.store-toggle .chev {
+  font-size: 8px;
+}
+.st-meta {
+  margin-left: auto;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 8.5px;
+  white-space: nowrap;
+}
+/* The flush strategy, as a gauge rather than a button. Proton flushes when the
+   memory index passes its budget; nobody presses anything, so nothing here is
+   pressable. */
+.flush-gauge {
+  width: 26px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.fg-fill {
+  display: block;
+  height: 100%;
+  background: var(--warn);
+  transition: width 0.35s ease;
+}
+.flush-gauge.firing {
+  border-color: var(--warn);
+  box-shadow: 0 0 0 2px rgba(185, 143, 43, 0.25);
+}
+.store-panel {
+  overflow: hidden;
+}
+.store-panel .subdb {
+  margin-top: 7px;
+}
+.user-row:empty {
+  display: none;
+}
+
+/* Proton's Ready sub-database */
+.subdb {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px;
+  background: var(--panel);
+}
+.subdb-head {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin-bottom: 6px;
+}
+.subdb-name {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--good);
+}
+.subdb-count {
+  margin-left: auto;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+.store {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px;
+  margin-bottom: 5px;
+  background: var(--bg);
+}
+/* The memory index is what makes the write path real-time: it is written on
+   feed and it is read by queries, so a document is findable the moment it lands
+   here. Dashed because it is the volatile one. */
+.store.mem {
+  border-style: dashed;
+  border-color: var(--accent-dim);
+  background: rgba(74, 200, 127, 0.05);
+}
+.store.mem.empty {
+  border-color: var(--border);
+  background: transparent;
+  opacity: 0.55;
+}
+.store.disk {
+  border-color: var(--border-strong);
+}
+.store.disk.fresh {
+  border-color: var(--warn);
+  box-shadow: 0 0 0 2px rgba(185, 143, 43, 0.18);
+}
+.store-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 9.5px;
+  color: var(--muted);
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.store-flag {
+  margin-left: auto;
+  color: var(--warn);
+}
+.lock {
+  font-size: 9px;
+}
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.chip-empty {
+  font-size: 9.5px;
+  color: var(--muted);
+  font-style: italic;
+}
+.attr-line {
+  font-size: 9.5px;
+  color: var(--accent-3);
+  border-top: 1px dotted var(--border);
+  padding-top: 5px;
+  margin-top: 2px;
+}
+.subdb-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: 7px;
+  font-size: 9.5px;
+  color: var(--muted);
+}
+.subdb-foot .has-tombstones {
+  color: var(--danger);
+}
+
+/* one document, as this node holds it */
+.doc-chip {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #12130d;
+  padding: 1px 5px;
+  border-radius: 4px;
+  transition: opacity 0.25s;
+}
+/* Stored, indexed, up to date — and still not allowed to answer, because
+   another node is the active replica of its bucket. */
+.doc-chip.passive {
+  opacity: 0.34;
+}
+/* A user document. Outlined rather than filled, because it is a different
+   document TYPE sharing the same nodes and buckets — not a product with an
+   odd colour. */
+.doc-chip.user {
+  background: transparent;
+  border: 1px dashed var(--accent-3);
+  color: var(--accent-3);
+}
+.doc-chip.removed {
+  opacity: 0.4;
+  text-decoration: line-through;
+}
+.doc-chip.highlight {
+  outline: 2px solid var(--warn);
+  outline-offset: 1px;
+}
+.doc-chip.matched {
+  outline: 2px solid var(--accent-2-ink);
+  outline-offset: 1px;
+}
+.doc-chip.returned {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 1px;
+  box-shadow: 0 0 8px rgba(74, 200, 127, 0.6);
+}
+
+.admin-tier {
+  margin-top: 10px;
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  flex-wrap: wrap;
+  background: transparent;
+  border-style: dashed;
+}
+.admin-item {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10.5px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 6px;
+}
+
+/* ================= right column ================= */
+.explain {
+  background: var(--panel-2);
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--accent-ink);
+  border-radius: 8px;
+  padding: 13px;
+  margin-bottom: 14px;
+}
+.explain h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+/* The blurbs run 3-6 lines depending on the step and the panel below would
+   slide up and down with them on every Next. Reserve the tallest in `em` so the
+   reservation tracks the font. */
+.explain p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  min-height: 8.5em;
+  color: var(--text);
+}
+.explain.idle p {
+  min-height: 0;
+  color: var(--muted);
+}
+.explain-note {
+  margin-top: 10px !important;
+  min-height: 0 !important;
+  color: var(--accent-2-ink) !important;
+  font-size: 11.5px !important;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.tab {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 6px 9px;
+}
+.tab:hover:not(:disabled) {
+  color: var(--text);
+}
+.tab.on {
+  color: var(--accent-ink);
+  border-bottom-color: var(--accent-ink);
+}
+.tab:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.code {
+  background: var(--panel-3);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 11px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--accent-2-ink);
+  overflow-x: auto;
+  white-space: pre;
+  margin: 0 0 10px;
+}
+.panel-note {
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--muted);
+  margin: 0 0 10px;
+}
+.panel-note b {
+  color: var(--text);
+}
+.panel-note.toy {
+  border-left: 2px solid var(--warn);
+  padding-left: 9px;
+  color: var(--warn);
+}
+.legend-row {
+  border-top: 1px solid var(--border);
+  padding: 9px 0;
+}
+.legend-row code {
+  font-size: 12px;
+  color: var(--accent-ink);
+  font-weight: 700;
+}
+.legend-where {
+  float: right;
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.legend-row p {
+  margin: 5px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* ---- results ---- */
+.yql {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+}
+.yql-head {
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.yql pre {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--accent-2-ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.qvec {
+  margin-top: 6px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10.5px;
+  color: var(--accent-3);
+}
+.qvec i {
+  font-style: normal;
+  color: var(--muted);
+}
+.results-meta {
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin-bottom: 9px;
+}
+.results-meta b {
+  color: var(--text);
+}
+
+/* Seven score columns in a 400px column: let the table scroll sideways in its
+   own box rather than pushing the page, and never let a long product title be
+   the thing that makes it need to. */
+.hits-wrap {
+  overflow-x: auto;
+}
+table.hits {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10.5px;
+}
+table.hits th {
+  text-align: right;
+  font-weight: 600;
+  white-space: nowrap;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--muted);
+  padding: 4px 2px;
+  border-bottom: 1px solid var(--border);
+}
+table.hits th.c-doc {
+  text-align: left;
+}
+table.hits td {
+  padding: 4px 2px;
+  border-bottom: 1px solid rgba(36, 38, 29, 0.13);
+}
+table.hits td.num {
+  text-align: right;
+  font-family: ui-monospace, Menlo, monospace;
+  color: var(--muted);
+  white-space: nowrap;
+}
+table.hits td.num.strong {
+  color: var(--accent-ink);
+  font-weight: 700;
+}
+table.hits tr.final td {
+  background: rgba(74, 200, 127, 0.07);
+}
+table.hits tr.below-cut {
+  opacity: 0.45;
+}
+td.c-doc {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.c-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 104px;
+}
+.c-node {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 9px;
+  color: var(--muted);
+}
+.via {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 9px;
+  color: var(--accent-3);
+  letter-spacing: 1px;
+}
+.cut-note {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+  border-left: 2px solid var(--border-strong);
+  padding-left: 9px;
+  margin: 10px 0 0;
+}
+
+.response {
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.response-head {
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent-ink);
+  margin-bottom: 8px;
+}
+.rhit {
+  display: flex;
+  gap: 7px;
+  align-items: flex-start;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(36, 38, 29, 0.13);
+}
+.rank {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  color: var(--muted);
+  width: 12px;
+  flex-shrink: 0;
+}
+.rbody {
+  min-width: 0;
+}
+.rtitle {
+  font-size: 12px;
+  font-weight: 600;
+}
+.rdesc {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.45;
+  margin-top: 2px;
+}
+.rmeta {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--accent-3);
+  font-family: ui-monospace, Menlo, monospace;
+}
+.empty-note {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* ================= stepper ================= */
+.stepper {
+  border-top: 2px solid var(--lav);
+  background: var(--panel-2);
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.op-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--accent-ink);
+  white-space: nowrap;
+  min-width: 96px;
+}
+.stepper .controls {
+  display: flex;
+  gap: 8px;
+}
+.step-track {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 6px;
+}
+.step-pip {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  line-height: 1.25;
+  color: var(--muted);
+  text-align: center;
+  /* Every pip is rendered at the current pip's weight so the labels wrap at the
+     same points whichever step is active — otherwise bolding the current one
+     re-wraps its label and the footer grows by a text line on every step. */
+  font-weight: 600;
+}
+.step-pip > span {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 2.5em;
+}
+.step-pip .bar {
+  height: 5px;
+  width: 100%;
+  border-radius: 3px;
+  background: var(--border);
+  transition: background 0.25s;
+}
+.step-pip.done .bar {
+  background: var(--accent-dim);
+}
+.step-pip.current .bar {
+  background: var(--accent-ink);
+}
+.step-pip.current {
+  color: var(--text);
+}
+.step-count {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* ================= flights ================= */
+.token-flight-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 60;
+}
+.flying-token {
+  position: fixed;
+  top: 0;
+  left: 0;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  color: #12130d;
+  padding: 2px 6px;
+  border-radius: 5px;
+  white-space: nowrap;
+  background: var(--accent);
+}
+/* Ids and scores, not documents. Deliberately drawn as hollow chips so the
+   summary-fill flight — the only one carrying real content — reads as a
+   different kind of traffic. */
+.flying-token--request {
+  background: var(--panel);
+  border: 1px solid var(--accent-2-ink);
+  color: var(--accent-2-ink);
+}
+
+/* ================= mobile advisory ================= */
+.mobile-warning {
+  position: fixed;
+  inset: 0;
+  z-index: 11000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(36, 34, 54, 0.42);
+  backdrop-filter: blur(3px);
+}
+.mobile-warning-card {
+  max-width: 420px;
+  width: 100%;
+  max-height: 100%;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 22px 20px;
+  text-align: center;
+  box-shadow: 0 18px 50px rgba(60, 54, 96, 0.28);
+}
+.mobile-warning-icon {
+  font-size: 30px;
+  line-height: 1;
+  margin-bottom: 10px;
+}
+.mobile-warning-card h2 {
+  margin: 0 0 10px;
+  font-size: 19px;
+}
+.mobile-warning-card p {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.mobile-warning-card .btn {
+  margin-top: 4px;
+  padding: 10px 18px;
+  font-size: 14px;
+}
+
+/* ================= home link ================= */
+.home-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  align-self: center;
+  padding: 5px 10px;
+  margin: -5px 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  text-decoration: none;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+.home-link:hover {
+  color: var(--text);
+  background: var(--panel-2);
+  border-color: var(--accent-ink);
+}
+.home-mark {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 2px;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.home-mark span {
+  border-radius: 50%;
+}
+.home-mark span:nth-child(1),
+.home-mark span:nth-child(4) {
+  background: #326ce5;
+}
+.home-mark span:nth-child(2),
+.home-mark span:nth-child(3) {
+  background: #5cf699;
+}
+.home-word {
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.2px;
+}
+.home-all::before {
+  content: '·';
+  margin-right: 6px;
+}
+@media (max-width: 1100px) {
+  .home-all {
+    display: none;
+  }
+}
+
+/* ================= use case, target and field pickers ================= */
+.usecase-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+  margin-bottom: 4px;
+}
+.usecase-chip {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 6px;
+}
+.usecase-chip:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.usecase-chip.on {
+  border-color: var(--accent-ink);
+  background: rgba(74, 200, 127, 0.1);
+  color: var(--accent-ink);
+}
+
+.user-pick {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.preset-chip.on {
+  border-color: var(--accent-ink);
+  color: var(--accent-ink);
+}
+
+/* Documents as chips rather than a native <select>: a select cannot be driven
+   from a screenshot, so the update/remove path had no end-to-end verification,
+   and it hid the corpus behind a click for no benefit. */
+.target-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 10px 0 8px;
+}
+.target-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  padding: 2px 5px;
+}
+.target-chip:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.target-chip.on {
+  border-color: var(--accent-ink);
+  color: var(--accent-ink);
+}
+.tc-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+}
+
+.field-pick {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.field-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 5px 7px;
+  color: var(--muted);
+}
+.field-chip b {
+  font-size: 11px;
+  font-family: ui-monospace, Menlo, monospace;
+  color: var(--text);
+  font-weight: 600;
+}
+.field-chip i {
+  font-style: normal;
+  font-size: 9px;
+}
+.field-chip.on {
+  border-color: var(--accent-ink);
+  background: rgba(74, 200, 127, 0.08);
+}
+.field-chip.on b {
+  color: var(--accent-ink);
+}
+
+/* ================= the vector space ================= */
+.vspace {
+  padding: 4px 0;
+}
+.vs-svg {
+  width: 100%;
+  max-width: 320px;
+  display: block;
+  margin: 0 auto 6px;
+}
+.vs-ring {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 1;
+}
+.vs-spoke {
+  stroke: var(--border);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+}
+.vs-topic {
+  font-size: 9px;
+  fill: var(--muted);
+  font-family: ui-monospace, Menlo, monospace;
+  letter-spacing: 0.2px;
+}
+.vs-dot {
+  stroke: var(--bg);
+  stroke-width: 1;
+  transition: r 0.25s;
+}
+.vs-halo {
+  fill: none;
+  stroke: var(--accent-ink);
+  stroke-width: 1.5;
+  opacity: 0.9;
+}
+/* The query and the profile are the two things that MOVE, so they are the two
+   things drawn as arrows rather than points. */
+.vs-query {
+  stroke: var(--accent-ink);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.vs-profile {
+  stroke: var(--accent-3);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 5 3;
+}
+.vs-origin {
+  fill: var(--muted);
+}
+.vs-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 8px 0;
+}
+.vs-key {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.vs-key i {
+  margin-left: auto;
+  font-style: normal;
+  font-family: ui-monospace, Menlo, monospace;
+  color: var(--text);
+}
+.vs-swatch {
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.vs-swatch.query {
+  background: var(--accent-ink);
+}
+.vs-swatch.profile {
+  background: var(--accent-3);
+}
+.vs-swatch.ring {
+  height: 9px;
+  width: 9px;
+  border-radius: 50%;
+  border: 1.5px solid var(--accent-ink);
+  background: transparent;
+}
+.vs-note {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+  margin: 10px 0 0;
+  border-top: 1px solid var(--border);
+  padding-top: 9px;
+}
+.vs-note code {
+  color: var(--accent-2-ink);
+  font-size: 10.5px;
+}
+
+/* ================= live schema knobs ================= */
+.knobs {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 11px;
+  background: var(--panel);
+}
+.knob + .knob {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dotted var(--border);
+}
+.knob-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+  font-family: ui-monospace, Menlo, monospace;
+  margin-bottom: 5px;
+}
+.knob-head b {
+  color: var(--accent-ink);
+  font-size: 12px;
+}
+.knob-steps {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.knob-steps button {
+  width: 18px;
+  height: 18px;
+  line-height: 1;
+  border-radius: 5px;
+  border: 1px solid var(--border-strong);
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 12px;
+  padding: 0;
+}
+.knob-steps button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.knob-steps b {
+  min-width: 16px;
+  text-align: center;
+  color: var(--accent-ink);
+}
+.knob input[type='range'] {
+  width: 100%;
+  accent-color: var(--accent-ink);
+}
+.knob-hint {
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--muted);
+  margin: 5px 0 0;
+}
+.knob-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--muted);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px;
+}
+.kt-dot {
+  width: 26px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--border-strong);
+  position: relative;
+  flex-shrink: 0;
+  transition: background 0.2s, border-color 0.2s;
+}
+.kt-dot::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: transform 0.2s, background 0.2s;
+}
+.knob-toggle.on .kt-dot {
+  background: rgba(74, 200, 127, 0.2);
+  border-color: var(--accent-ink);
+}
+.knob-toggle.on .kt-dot::after {
+  transform: translateX(12px);
+  background: var(--accent-ink);
+}
+.kt-label {
+  text-align: left;
+}
+.kt-state {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text);
+}
+.tabs.sub {
+  border-bottom: none;
+  margin-bottom: 8px;
+}
+
+/* The recommendation loop, closed. */
+.engage {
+  margin-top: 7px;
+  background: transparent;
+  border: 1px solid var(--accent-3);
+  color: var(--accent-3);
+  border-radius: 999px;
+  font-size: 10.5px;
+  padding: 3px 10px;
+}
+.engage:hover {
+  background: rgba(198, 130, 170, 0.14);
+  color: var(--text);
+}

@@ -25,6 +25,17 @@ window.SITES = [
     accent: '#00bfb3', // Elastic teal
   },
   {
+    id: 'vespavis',
+    title: 'vespavis',
+    tag: 'Vespa',
+    tagline: 'How Vespa serves search and recommendation in one engine.',
+    blurb:
+      'Watch a query fan out to every content node and narrow through four ranking phases across two tiers, with the whole embedding space drawn on a circle beside it — then edit the schema and run it again, or personalize a user by clicking one result.',
+    url: 'https://vespavis.bitsculpt.top',
+    icon: '◧', // ◧ the two-tier split: stateless container, stateful content
+    accent: '#5cf699', // Vespa green
+  },
+  {
     id: 'cassandravis',
     title: 'cassandravis',
     tag: 'Cassandra',

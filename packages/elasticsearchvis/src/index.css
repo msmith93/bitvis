@@ -1,7 +1,16 @@
-/* Elastic's palette: EUI dark-theme shades for the surfaces, Elastic brand
-   colors for the accents (teal #00bfb3 is the signature one, blue #36a2ef the
-   secondary, yellow #fec514 the warning). Every rgba() in this file is one of
-   these same colors — keep them in sync if you change one here. */
+/* Elastic's palette, two themes over one set of semantic tokens.
+   - Dark (default): EUI dark-theme shades over Elastic ink #16171c.
+   - Light (opt-in, [data-theme="light"] on <html> — toggled from the top-right
+     of the header, remembered in localStorage as `esvis-theme`): EUI Amsterdam
+     light shades over #fbfcfd.
+   The brand accents keep their meaning across both — teal #00bfb3 signature,
+   blue secondary, yellow warning, sea-green "good", coral danger — but the
+   light theme swaps a darker `--accent-text` in wherever teal is text, a
+   hairline or a thin stroke rather than a fill, and darkens --good / --warn /
+   --danger / --accent-2 / --accent-soft for the same reason.
+   Translucent rgba() tints of the brand colours read on either ground and are
+   left as literals; the structural darks (scrims, sinks, drop shadows) go
+   through --scrim / --sink / --shadow-rgb so the light theme can lift them. */
 :root {
   --bg: #16171c;
   --panel: #1d1e24;
@@ -10,14 +19,44 @@
   --text: #dfe5ef;
   --muted: #98a2b3;
   --accent: #00bfb3;
+  --accent-text: #00bfb3;
   --accent-2: #36a2ef;
   --accent-soft: #9be7e2;
   --warn: #fec514;
   --danger: #f86b63;
   --good: #54b399;
+
+  --scrim: rgba(16, 17, 22, 0.72);
+  --sink: rgba(0, 0, 0, 0.25);
+  --tip-glass: rgba(24, 26, 33, 0.82);
+  --shadow-rgb: 0, 0, 0;
+
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica,
     Arial, sans-serif;
   color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  --bg: #fbfcfd;
+  --panel: #ffffff;
+  --panel-2: #eef1f7;
+  --border: #d3dae6;
+  --text: #1c1f27;
+  --muted: #5c626d;
+  --accent: #00bfb3;
+  --accent-text: #077c73;
+  --accent-2: #0b64dd;
+  --accent-soft: #077c73;
+  --warn: #866400;
+  --danger: #bd271e;
+  --good: #2c7d67;
+
+  --scrim: rgba(32, 40, 58, 0.42);
+  --sink: rgba(20, 32, 60, 0.05);
+  --tip-glass: rgba(248, 250, 252, 0.9);
+  --shadow-rgb: 18, 28, 52;
+
+  color-scheme: light;
 }
 
 * {
@@ -59,6 +98,19 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* Dark/light switch, far right of the header (see ThemeToggle.jsx). */
+.theme-toggle {
+  flex-shrink: 0;
+  align-self: center;
+  padding: 5px 9px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--muted);
+}
+.theme-toggle:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--accent-text);
 }
 
 /* Three fixed-ish columns. The side columns narrow before the cluster does —
@@ -130,7 +182,7 @@ textarea {
 input:focus,
 textarea:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--accent-text);
 }
 
 .presets {
@@ -148,7 +200,7 @@ textarea:focus {
   font-size: 12px;
 }
 .preset-chip:hover {
-  border-color: var(--accent);
+  border-color: var(--accent-text);
   color: var(--text);
 }
 
@@ -162,7 +214,7 @@ textarea:focus {
   font-weight: 600;
 }
 .btn:hover:not(:disabled) {
-  border-color: var(--accent);
+  border-color: var(--accent-text);
 }
 .btn:disabled {
   opacity: 0.38;
@@ -170,7 +222,7 @@ textarea:focus {
 }
 .btn.primary {
   background: var(--accent);
-  border-color: var(--accent);
+  border-color: var(--accent-text);
   color: #0b0c10;
 }
 .btn.block {
@@ -191,7 +243,7 @@ textarea:focus {
 }
 .btn.tour-pulse {
   background: var(--accent);
-  border-color: var(--accent);
+  border-color: var(--accent-text);
   color: #0b0c10;
   animation: tour-pulse 1.4s ease-out infinite;
 }
@@ -327,7 +379,7 @@ textarea:focus {
   margin-bottom: 0;
 }
 .shard-card.active {
-  border-color: var(--accent);
+  border-color: var(--accent-text);
   box-shadow: 0 0 0 2px rgba(0, 191, 179, 0.22);
 }
 .shard-card.serving {
@@ -495,7 +547,7 @@ textarea:focus {
 .explain {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
+  border-left: 3px solid var(--accent-text);
   border-radius: 8px;
   padding: 13px;
   margin-bottom: 16px;
@@ -680,7 +732,7 @@ table.ii td.term {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.6px;
-  color: var(--accent);
+  color: var(--accent-text);
   white-space: nowrap;
   min-width: 90px;
 }
@@ -749,7 +801,7 @@ table.ii td.term {
   display: block;
   font-style: normal;
   font-size: 10px;
-  color: var(--accent);
+  color: var(--accent-text);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
@@ -758,7 +810,7 @@ table.ii td.term {
   position: fixed;
   inset: 0;
   z-index: 50;
-  background: rgba(16, 17, 22, 0.72);
+  background: var(--scrim);
   backdrop-filter: blur(3px);
 }
 .index-overlay-root {
@@ -778,12 +830,12 @@ table.ii td.term {
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 20px 22px;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 24px 60px rgba(var(--shadow-rgb), 0.5);
   overflow: hidden;
 }
 .index-card.solid {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent), 0 24px 60px rgba(0, 0, 0, 0.5);
+  border-color: var(--accent-text);
+  box-shadow: 0 0 0 1px var(--accent), 0 24px 60px rgba(var(--shadow-rgb), 0.5);
 }
 .index-card .section-title {
   margin-bottom: 12px;
@@ -883,19 +935,19 @@ table.ii td.term {
   transform-origin: center;
   overflow: hidden;
   background: var(--panel);
-  border: 1px solid var(--accent);
+  border: 1px solid var(--accent-text);
   border-radius: 12px;
   padding: 14px 16px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 12px 32px rgba(var(--shadow-rgb), 0.45);
 }
 .index-fly-card.scanning {
-  box-shadow: 0 0 0 2px var(--accent), 0 12px 32px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 0 0 2px var(--accent), 0 12px 32px rgba(var(--shadow-rgb), 0.45);
 }
 .fly-label {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.6px;
-  color: var(--accent);
+  color: var(--accent-text);
   font-weight: 700;
   margin-bottom: 8px;
 }
@@ -950,7 +1002,7 @@ table.ii td.term {
   border-radius: 7px;
   overflow: hidden;
   text-overflow: ellipsis;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 4px 14px rgba(var(--shadow-rgb), 0.4);
 }
 /* the GET _source request, coordinator → shard, that precedes the doc above */
 .flying-token--request {
@@ -1002,7 +1054,7 @@ table.ii td.term {
   position: fixed;
   inset: 0;
   z-index: 60;
-  background: rgba(11, 12, 16, 0.66);
+  background: var(--scrim);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1023,7 +1075,7 @@ table.ii td.term {
   border: 1px solid var(--good);
   border-radius: 12px;
   padding: 20px 24px;
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 18px 60px rgba(var(--shadow-rgb), 0.55);
 }
 /* header, explain, query box and stepper stay pinned; only the middle scrolls */
 .shard-inspector > .si-head,
@@ -1064,9 +1116,9 @@ table.ii td.term {
 .si-close-hint {
   font-size: 12px;
   font-weight: 600;
-  color: var(--accent);
+  color: var(--accent-text);
   background: var(--panel-2);
-  border: 1px solid var(--accent);
+  border: 1px solid var(--accent-text);
   border-radius: 6px;
   padding: 4px 9px;
   white-space: nowrap;
@@ -1094,11 +1146,11 @@ table.ii td.term {
   font-size: 13px;
 }
 .si-close:hover {
-  border-color: var(--accent);
+  border-color: var(--accent-text);
 }
 .si-close.tour-pulse {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--accent-text);
+  color: var(--accent-text);
   animation: tour-pulse 1.4s ease-out infinite;
 }
 .si-segs {
@@ -1563,7 +1615,7 @@ table.ii td.term {
   color: var(--muted);
 }
 .adv-radio.on {
-  border-color: var(--accent);
+  border-color: var(--accent-text);
   color: var(--text);
   background: var(--panel-2);
 }
@@ -1680,7 +1732,7 @@ table.ii td.term {
   flex-wrap: wrap;
 }
 .si-join-arrow {
-  color: var(--accent);
+  color: var(--accent-text);
   font-size: 13px;
 }
 .si-join-label {
@@ -1850,7 +1902,7 @@ table.ii td.term {
   transition: border-color 0.25s;
 }
 .si-query-box.scanning {
-  border-color: var(--accent);
+  border-color: var(--accent-text);
 }
 .si-query-box .si-query-str {
   font-size: 15px;
@@ -1880,7 +1932,7 @@ table.ii td.term {
    the hole between them lets the real control receive its click. */
 .tour-dim {
   position: fixed;
-  background: rgba(16, 17, 22, 0.6);
+  background: var(--scrim);
   pointer-events: auto;
 }
 /* A step that narrates something the reader has to WATCH (the FST and the
@@ -1906,17 +1958,17 @@ table.ii td.term {
   position: fixed;
   width: 280px;
   background: var(--panel);
-  border: 1px solid var(--accent);
+  border: 1px solid var(--accent-text);
   border-radius: 12px;
   padding: 14px 16px;
   pointer-events: auto;
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 18px 44px rgba(var(--shadow-rgb), 0.5);
 }
 /* Pairs with .tour-dim.clear: the tip sits ON the picture it is narrating, so it
    lets it show through rather than punching a hole in it. Blurred behind so the
    text stays readable over a busy graph. */
 .tour-tip.translucent {
-  background: rgba(24, 26, 33, 0.82);
+  background: var(--tip-glass);
   backdrop-filter: blur(6px);
 }
 /* The live "what just happened" block. Its accent matches what the picture is
@@ -1932,7 +1984,7 @@ table.ii td.term {
   line-height: 1.55;
   color: var(--text);
   border-left: 3px solid var(--border);
-  background: rgba(0, 0, 0, 0.25);
+  background: rgba(var(--shadow-rgb), 0.25);
   border-radius: 0 7px 7px 0;
   padding: 8px 10px;
   margin: 0 0 10px;
@@ -2006,7 +2058,7 @@ table.ii td.term {
   position: fixed;
   inset: 0;
   z-index: 70;
-  background: rgba(16, 17, 22, 0.72);
+  background: var(--scrim);
   backdrop-filter: blur(3px);
 }
 .tour-card-root {
@@ -2025,7 +2077,7 @@ table.ii td.term {
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 22px 24px;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 24px 60px rgba(var(--shadow-rgb), 0.5);
 }
 .tour-card h2 {
   margin: 0 0 10px;
@@ -2079,7 +2131,7 @@ table.ii td.term {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 6px;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 18px 40px rgba(var(--shadow-rgb), 0.5);
   z-index: 91;
   display: flex;
   flex-direction: column;
@@ -2101,7 +2153,7 @@ table.ii td.term {
   background: var(--panel-2);
 }
 .scenario-item.active {
-  outline: 1px solid var(--accent);
+  outline: 1px solid var(--accent-text);
 }
 .scenario-item-label {
   font-size: 13px;
@@ -2151,7 +2203,7 @@ table.ii td.term {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 6px;
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 18px 40px rgba(var(--shadow-rgb), 0.5);
   z-index: 41;
   display: flex;
   flex-direction: column;
@@ -2173,12 +2225,12 @@ table.ii td.term {
   background: var(--panel-2);
 }
 .doc-loader-item.active {
-  outline: 1px solid var(--accent);
+  outline: 1px solid var(--accent-text);
 }
 /* While a scenario is asking for one dataset: pulse that one, and put the rest
    beyond reach so the script cannot be derailed by picking the other. */
 .doc-loader-item.wanted {
-  outline: 1px solid var(--accent);
+  outline: 1px solid var(--accent-text);
   animation: tour-pulse 1.4s ease-out infinite;
 }
 .doc-loader-item:disabled {
@@ -2227,7 +2279,7 @@ table.ii td.term {
   color: var(--muted);
 }
 .preset-chip.on {
-  border-color: var(--accent);
+  border-color: var(--accent-text);
   color: var(--text);
   background: var(--panel-2);
 }
@@ -2459,7 +2511,7 @@ table.ii td.term {
 /* The nested panel sits on top of the shard panel, so it gets its own accent to
    read as "one level deeper" rather than as the same card again. */
 .shard-inspector.cu-panel {
-  border-color: var(--accent);
+  border-color: var(--accent-text);
   width: min(1000px, 96vw);
 }
 .cu-scroll {
@@ -2502,12 +2554,12 @@ table.ii td.term {
 }
 .cu-file.active {
   opacity: 1;
-  border-color: var(--accent);
+  border-color: var(--accent-text);
 }
 .cu-file-ext {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-weight: 700;
-  color: var(--accent);
+  color: var(--accent-text);
   min-width: 44px;
 }
 .cu-file-what {
@@ -2527,12 +2579,12 @@ table.ii td.term {
 }
 .cu-file-where.disk {
   color: var(--muted);
-  background: rgba(52, 55, 65, 0.5);
+  background: var(--sink);
 }
 
 /* the file offset + entry count, reused by the opened-block header below */
 .cu-block-fp {
-  color: var(--accent);
+  color: var(--accent-text);
   font-weight: 700;
   font-size: 11px;
 }
@@ -2544,7 +2596,7 @@ table.ii td.term {
 
 /* ---- one block opened up: shared prefix + suffix rows ---- */
 .cu-suffix-block {
-  border: 1px solid var(--accent);
+  border: 1px solid var(--accent-text);
   border-radius: 8px;
   overflow: hidden;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -2576,7 +2628,7 @@ table.ii td.term {
   gap: 0;
   padding: 4px 10px;
   font-size: 12px;
-  border-top: 1px solid rgba(52, 55, 65, 0.4);
+  border-top: 1px solid var(--border);
   transition: background 0.18s ease, opacity 0.18s ease;
 }
 .cu-suffix-row.untouched {
@@ -2606,7 +2658,7 @@ table.ii td.term {
   margin-left: 14px;
 }
 .cu-suffix-cell.meta.sub {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .cu-suffix-cell.meta.dim {
   opacity: 0.55;
@@ -2625,7 +2677,7 @@ table.ii td.term {
 .cu-fst {
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: rgba(22, 23, 28, 0.4);
+  background: var(--sink);
   padding: 4px;
   /* Bounded, and it pans to follow the walk (see ArcGraph). Without the cap a
      hundred-term dictionary makes this panel taller than the screen, because
@@ -2691,7 +2743,7 @@ table.ii td.term {
   border: 1.5px solid var(--border);
 }
 .cu-fst-legend .dot.has-out {
-  border-color: var(--accent);
+  border-color: var(--accent-text);
 }
 .cu-fst-legend .dot.followed {
   border-color: var(--good);
@@ -2738,7 +2790,7 @@ table.ii td.term {
   min-width: 0;
   border: 1px solid var(--border);
   border-radius: 9px;
-  background: rgba(22, 23, 28, 0.35);
+  background: var(--sink);
   overflow: hidden;
 }
 .cu-side.ram {
@@ -2835,11 +2887,11 @@ table.ii td.term {
 }
 /* the one block the walk landed on */
 .cu-bcol-item.focus {
-  border-color: var(--accent);
+  border-color: var(--accent-text);
   background: rgba(0, 191, 179, 0.12);
 }
 .cu-bcol-item.focus .cu-bcol-fp {
-  color: var(--accent);
+  color: var(--accent-text);
   opacity: 1;
 }
 /* ...and everything the walk did NOT reach, which is the cost lesson. Keyed on
@@ -2853,7 +2905,7 @@ table.ii td.term {
   padding: 4px 6px 7px;
 }
 .cu-bcol-open .cu-suffix-block {
-  border-color: var(--accent);
+  border-color: var(--accent-text);
 }
 
 /* ================= mobile warning =================
@@ -2868,7 +2920,7 @@ table.ii td.term {
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: rgba(0, 0, 0, 0.82);
+  background: rgba(var(--shadow-rgb), 0.82);
   backdrop-filter: blur(3px);
 }
 .mobile-warning-card {
@@ -2881,7 +2933,7 @@ table.ii td.term {
   border-radius: 12px;
   padding: 22px 20px;
   text-align: center;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 18px 50px rgba(var(--shadow-rgb), 0.55);
 }
 .mobile-warning-icon {
   font-size: 30px;
@@ -2930,7 +2982,7 @@ table.ii td.term {
 .home-link:hover {
   color: var(--text);
   background: var(--panel-2);
-  border-color: var(--accent);
+  border-color: var(--accent-text);
 }
 .home-mark {
   display: grid;
@@ -2998,7 +3050,7 @@ table.ii td.term {
 .cu-lev {
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: rgba(22, 23, 28, 0.4);
+  background: var(--sink);
   padding: 4px;
   overflow-x: auto;
   transition: background 0.2s ease;
@@ -3047,7 +3099,7 @@ table.ii td.term {
 }
 /* A match costs nothing, so it is the only edge drawn in the "free" colour. */
 .cu-lev-edge.match line {
-  stroke: rgba(223, 229, 239, 0.45);
+  stroke: var(--muted);
 }
 .cu-lev-edge.match text {
   fill: var(--text);
@@ -3152,7 +3204,7 @@ table.ii td.term {
   background: rgba(84, 179, 153, 0.3);
 }
 .cu-lev-legend .dot.accept {
-  border-color: var(--accent);
+  border-color: var(--accent-text);
   border-style: dashed;
 }
 .cu-lev-size {
@@ -3227,7 +3279,7 @@ table.ii td.term {
   color: var(--text);
 }
 .cu-isect-state.accept {
-  border-color: var(--accent);
+  border-color: var(--accent-text);
   background: rgba(0, 191, 179, 0.22);
   color: var(--accent-soft);
 }
@@ -3258,7 +3310,7 @@ table.ii td.term {
   color: var(--muted);
 }
 .cu-isect-verdict.exact {
-  color: var(--accent);
+  color: var(--accent-text);
   background: rgba(0, 191, 179, 0.08);
 }
 .cu-isect-verdict.edit {
@@ -3346,7 +3398,7 @@ table.ii td.term {
   margin-left: 0;
 }
 .cu-lev-edges .edge.match {
-  border-top-color: rgba(223, 229, 239, 0.6);
+  border-top-color: var(--muted);
 }
 .cu-lev-edges .edge.insert,
 .cu-lev-edges .edge.substitute {
@@ -3368,7 +3420,7 @@ table.ii td.term {
   border-color: rgba(0, 191, 179, 0.4);
 }
 .cu-isect-verdict.done {
-  color: var(--accent);
+  color: var(--accent-text);
   background: rgba(0, 191, 179, 0.06);
   font-weight: 400;
 }
@@ -3377,7 +3429,7 @@ table.ii td.term {
    the arc walk has run out of prefix. */
 .cu-isect-was {
   font-style: normal;
-  color: var(--accent);
+  color: var(--accent-text);
   opacity: 0.75;
 }
 .cu-isect-todo {
@@ -3413,6 +3465,6 @@ table.ii td.term {
   stroke-width: 3px;
 }
 .cu-fst-legend .dot.matched {
-  border-color: var(--accent);
+  border-color: var(--accent-text);
   background: rgba(0, 191, 179, 0.35);
 }

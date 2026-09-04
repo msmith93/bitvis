@@ -34,6 +34,7 @@ import HomeLink from './components/HomeLink'
 import MobileWarning from './components/MobileWarning'
 import Walkthrough from './components/Walkthrough'
 import ScenarioPicker from './components/ScenarioPicker'
+import ThemeToggle from './components/ThemeToggle'
 import DocLoader from './components/DocLoader'
 import { useWalkthrough } from './useWalkthrough'
 import { selectorRect } from './components/tokenFlight'
@@ -495,6 +496,7 @@ export default function App() {
           onStart={tour.start}
           onOpenChange={setScenariosOpen}
         />
+        <ThemeToggle />
       </div>
 
       <motion.div

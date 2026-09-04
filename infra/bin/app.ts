@@ -39,6 +39,12 @@ new StaticSiteStack(app, 'ElasticsearchvisStack', {
   redirectFrom: ['opensearchvis.bitsculpt.top'],
 });
 
+new StaticSiteStack(app, 'VespavisStack', {
+  ...common,
+  subDomain: 'vespavis',
+  sourceDir: '../packages/vespavis/dist',
+});
+
 new StaticSiteStack(app, 'CassandravisStack', {
   ...common,
   subDomain: 'cassandravis',
