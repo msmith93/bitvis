@@ -71,8 +71,13 @@ which lets the stepper scrub any operation forwards and backwards.
   flat `{title, body}` doc derives as exactly title and body.
   A doc's multi-valued fields (`valueBags` in `segmentAnatomy`) are drawn as
   aligned per-field lists in the shard close-up — that is the only place `object`
-  flattening is visible, so don't drop it. Only the INDEXED form is kept; the
-  original JSON is not modelled (see `src/mapping.js` and `SPEC.md`).
+  flattening is visible, so don't drop it. The block root ALSO carries `source`,
+  the original JSON verbatim: `buildBlock` stashes it and `SearchResultsOverlay`
+  renders it as `_source` — identical under `object` and `nested` (sub-objects
+  paired either way), because that is exactly what Elasticsearch returns and why
+  an `object` false positive is easy to miss. `fields` (the flattened indexed
+  form) is what the shard close-up shows; `source` is what the response shows.
+  Don't reconstruct sub-objects from child docs — read `source` (see `SPEC.md`).
 
 - **`op`** = `{ type, step, payload }` (held by `useOpLifecycle`). Each op type
   (`index`, `refresh`, `flush`, `merge`, `search`) is one module in `src/ops/`

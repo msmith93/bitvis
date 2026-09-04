@@ -202,13 +202,18 @@ ordinal  id                 kind    fields
    `variants.color [red] [blue] [black]` over `variants.size [S] [XL] [M]` —
    stacked and aligned, so the lists are plainly the same length with nothing
    linking them. That absence is the lesson, so keep them aligned.
-   **Only the INDEXED form is shown.** Real Elasticsearch also stores `_source`
-   as the original JSON, so an object-mapped document still has its sub-objects
-   there, pairing intact, and hands them back on a fetch — which is why the false
-   positive is so hard to spot in practice. Drawing the written form beside the
-   indexed one was built and REMOVED: two representations plus a caption was more
-   than the column could carry. Showing the original document is an open item,
-   and it needs its own space rather than a second block in this column.
+   **The shard close-up shows the INDEXED form only** — drawing the original JSON
+   beside it, in that same column, was built and REMOVED: two representations plus
+   a caption was more than the column could carry.
+   **The search RESPONSE shows `_source`.** The block root carries `source` (the
+   original JSON verbatim, stashed by `buildBlock`), and `SearchResultsOverlay`
+   renders it. It is IDENTICAL under `object` and `nested` — sub-objects paired
+   either way — because that is what Elasticsearch actually returns: `_source` is
+   untouched by the mapping. An object-mapped product therefore comes back from a
+   search looking perfectly correct, pairing intact, even though the query that
+   found it matched the flattened form; that gap is why the false positive is so
+   hard to spot in practice, and the response is now the place it shows. Do not
+   reconstruct the sub-objects from the child Lucene docs — read `source`.
 3. **A block is ATOMIC.** Lucene cannot update or delete one child, so a delete
    tombstones the whole block and an update rewrites all of it. This is where
    update amplification comes from, and it is why `toggleDelete` in

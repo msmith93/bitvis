@@ -51,12 +51,13 @@ function foldInto(bag, fields) {
 // `children`) when their path is mapped `nested`, and are folded into the parent
 // otherwise.
 //
-// NOTE: only the INDEXED form is kept. Real Elasticsearch also stores `_source`
-// as the original JSON, so an object-mapped document still has its sub-objects
-// there with the pairing intact, and hands them back on a fetch -- which is why
-// the false positive is so hard to spot in practice. Showing the written form
-// beside the indexed one is an OPEN ITEM: it was built and removed as too much
-// for the _source column to carry at once.
+// NOTE: this is the INDEXED form — what the inverted index and doc values hold.
+// Real Elasticsearch ALSO keeps the original JSON verbatim as `_source` and
+// returns it on every search hit, UNCHANGED by the mapping. `buildBlock` stashes
+// that original on the block root as `source`, and the search response overlay
+// renders it: an object-mapped document still shows its sub-objects paired
+// there, which is exactly why the false positive is so hard to spot in practice.
+// The flattening this function does stays visible only in the shard close-up.
 function flatten(source, prefix, nested, bag, children) {
   for (const [key, value] of Object.entries(source)) {
     const p = path(prefix, key)
@@ -137,6 +138,11 @@ export function buildBlock(source, { id, mapping = OBJECT_MAPPING, ...meta } = {
     fields: rootFields,
     tokens: analyzeDoc(rootFields),
     ...describe(rootFields),
+    // The document as it was handed to the index API — Elasticsearch keeps this
+    // as `_source` and returns it verbatim on every hit, the SAME under `object`
+    // and `nested`. Sub-objects stay paired here even when the indexed form
+    // above flattened them; the search response renders this, not `fields`.
+    source: JSON.parse(JSON.stringify(source)),
     // How many Lucene docs this one Elasticsearch document cost.
     blockSize: children.length + 1,
     ...meta,

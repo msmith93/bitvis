@@ -5,12 +5,15 @@ import { MAX_FETCH_WINNERS } from '../constants'
 // What the client actually gets back once a search op has run its scatter-gather
 // to completion: the true hit count plus the top MAX_FETCH_WINNERS ranked
 // results (the only ones the fetch phase pulled full _source for), each row
-// expandable to the document's indexed fields. Built from the SAME `search`
+// expandable to the document's `_source`. Built from the SAME `search`
 // (extra.search) the results panel already renders, so this can never disagree
 // with what the stage just showed happening.
 //
-// It is deliberately NOT the verbatim Elasticsearch response JSON — the lesson
-// here is "a ranked list of hits with a total", not the envelope shape.
+// The row body is `_source` — the original JSON, returned verbatim and IDENTICAL
+// under `object` and `nested` mapping (sub-objects paired either way). The
+// flattening that `object` mapping does is invisible here on purpose: that is
+// why an object-mapping false positive is so easy to miss. The flattened indexed
+// form is shown one zoom down, in the shard close-up.
 export default function SearchResultsOverlay({ open, query, search, docs, onClose }) {
   useEffect(() => {
     if (!open) return
@@ -78,7 +81,6 @@ export default function SearchResultsOverlay({ open, query, search, docs, onClos
                         rank={i + 1}
                         hit={h}
                         doc={docs[h.docId]}
-                        docs={docs}
                       />
                     ))}
                   </ol>
@@ -92,40 +94,56 @@ export default function SearchResultsOverlay({ open, query, search, docs, onClos
   )
 }
 
-// A nested block's sub-objects, grouped by their `nested` path and each spelled
-// back out as the { field: value } record it was indexed from. The app has no
-// separate `_source`, but under `nested` mapping each sub-object IS its own
-// Lucene doc (a child of this block), so the paired form can be reconstructed
-// from those children — and that pairing surviving to read time is the whole
-// point of nested mapping. Empty for a flat or `object`-mapped document, whose
-// sub-objects were flattened into multi-valued fields on the root instead.
-function childBlocks(root, docs) {
-  const ord = (d) => Number(d.id.split('#').pop())
-  const kids = Object.values(docs || {})
-    .filter((d) => d?.kind === 'child' && d.root === root.id)
-    .sort((a, b) => ord(a) - ord(b))
-  const byPath = new Map()
-  for (const kid of kids) {
-    const entries = Object.entries(kid.fields).map(([k, v]) => [
-      k.slice(kid.path.length + 1),
-      v,
-    ])
-    byPath.set(kid.path, [...(byPath.get(kid.path) || []), entries])
+const isSubObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
+const isSubObjectArray = (v) => Array.isArray(v) && v.some(isSubObject)
+
+// One `_source` field: a scalar / multi-valued scalar renders as a key + value
+// row; an array of sub-objects (the `variants` of an object- OR nested-mapped
+// product) renders as a paired list, one line per sub-object. Both mappings hand
+// back the same thing here — the pairing only breaks in the indexed form.
+function SourceField({ name, value }) {
+  if (isSubObjectArray(value) || isSubObject(value)) {
+    const items = Array.isArray(value) ? value : [value]
+    return (
+      <div className="source-nested">
+        <span className="source-key">{name}</span>
+        <ol className="source-nested-list">
+          {items.map((obj, i) => (
+            <li key={i}>
+              {Object.entries(obj).map(([k, v]) => (
+                <span className="source-subfield" key={k}>
+                  <span className="source-subkey">{k}</span>
+                  <span className="source-val">{String(v)}</span>
+                </span>
+              ))}
+            </li>
+          ))}
+        </ol>
+      </div>
+    )
   }
-  return [...byPath].map(([path, items]) => ({ path, items }))
+  return (
+    <div className="source-field">
+      <span className="source-key">{name}</span>
+      <span className="source-val">
+        {Array.isArray(value) ? value.join(', ') : String(value)}
+      </span>
+    </div>
+  )
 }
 
 // One hit: a collapsed row (rank, id, shard, score) that expands to the
-// document's indexed fields. Under `object` mapping the sub-objects were
-// flattened into multi-valued fields on the root, so a field like
-// `variants.color` simply shows all its values with the pairing gone — the
-// nested lesson's cost made visible at read time. Under `nested` mapping the
-// sub-objects come back paired, reconstructed from the block's child Lucene
-// docs (see childBlocks).
-function ResultRow({ rank, hit, doc, docs }) {
+// document's `_source` — the original JSON, the same under either mapping. Falls
+// back to the flattened indexed `fields` only for a doc built before blocks
+// carried their source (none, in practice).
+function ResultRow({ rank, hit, doc }) {
   const [open, setOpen] = useState(false)
-  const fields = doc?.fields ? Object.entries(doc.fields) : []
-  const nested = doc ? childBlocks(doc, docs) : []
+  const source = doc?.source
+  const entries = source
+    ? Object.entries(source).filter(([, v]) => v != null && v !== '')
+    : doc?.fields
+      ? Object.entries(doc.fields).map(([k, v]) => [k, v])
+      : []
 
   return (
     <li className="result-item">
@@ -147,36 +165,10 @@ function ResultRow({ rank, hit, doc, docs }) {
       </button>
       {open && (
         <div className="result-source">
-          {fields.length === 0 && nested.length === 0 ? (
-            <div className="json-row empty">(no indexed fields)</div>
+          {entries.length === 0 ? (
+            <div className="json-row empty">(empty _source)</div>
           ) : (
-            <>
-              {fields.map(([k, v]) => (
-                <div className="source-field" key={k}>
-                  <span className="source-key">{k}</span>
-                  <span className="source-val">
-                    {Array.isArray(v) ? v.join(', ') : String(v)}
-                  </span>
-                </div>
-              ))}
-              {nested.map(({ path, items }) => (
-                <div className="source-nested" key={path}>
-                  <span className="source-key">{path}</span>
-                  <ol className="source-nested-list">
-                    {items.map((entries, i) => (
-                      <li key={i}>
-                        {entries.map(([k, v]) => (
-                          <span className="source-subfield" key={k}>
-                            <span className="source-subkey">{k}</span>
-                            <span className="source-val">{String(v)}</span>
-                          </span>
-                        ))}
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-              ))}
-            </>
+            entries.map(([k, v]) => <SourceField key={k} name={k} value={v} />)
           )}
         </div>
       )}
