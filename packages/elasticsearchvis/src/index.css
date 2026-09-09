@@ -2528,6 +2528,72 @@ table.ii td.term {
   opacity: 0.8;
 }
 
+/* ---------------------------------------------------------------------------
+   Doc-pill peek (components/DocPeek.jsx)
+   Resting on a doc chip on the cluster stage shows that document's `_source`.
+   A fixed layer, positioned in JS off the chip's rect — it cannot be a child of
+   the chip, whose `.mini-seg` ancestor is transformed by framer's layout
+   animation and would capture anything fixed inside it. `pointer-events: none`
+   is load-bearing: the card must never take the hover that opened it.
+   --------------------------------------------------------------------------- */
+.doc-chip.peekable {
+  cursor: help;
+}
+.doc-chip.peekable:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 1px;
+}
+.doc-peek {
+  position: fixed;
+  /* Below EVERY overlay — the modals at 50/51, the close-up stack at 60, the
+     tour at 70 — and below the Load-docs menu (40/41) too. The peek is a stage
+     affordance, and a card left over from the chip the pointer was on as it
+     travelled to a button must never end up floating on top of the dialog that
+     button opened. Still above the stage itself, which is all z-index auto. */
+  z-index: 39;
+  pointer-events: none;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  box-shadow: 0 10px 28px rgba(var(--shadow-rgb), 0.45);
+  max-height: 45vh;
+  overflow: hidden;
+}
+.doc-peek-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 6px;
+}
+.doc-peek-title {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.doc-peek-body {
+  display: grid;
+  gap: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.55;
+}
+/* The line that says a CHILD chip is showing its root's source, and the one that
+   says the document is tombstoned. Both are about the chip rather than about the
+   JSON, so they sit outside the body's monospace block. */
+.doc-peek-note {
+  margin-bottom: 6px;
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.doc-peek-note.warn {
+  margin: 6px 0 0;
+  color: var(--danger);
+}
+
 /* ===========================================================================
    On-disk close-ups (src/closeups/stages/{dictionary,postings,automaton})
    The deepest zoom level: one segment's .tip / .tim / .doc as they really are.

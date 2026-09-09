@@ -40,6 +40,14 @@ export const INDEX_ANALYSIS_LEAD_MS = 1800
 // starts; the hop itself is a framer spring, not a timed animation.
 export const INDEX_REPLICA_HOP_MS = 900
 
+// ---- Doc-pill peek (components/DocPeek.jsx) --------------------------------
+// Hovering a doc chip on the cluster stage reveals its `_source`. Opening is
+// delayed so sweeping the pointer across a segment's chips doesn't strobe a card
+// per chip; closing is delayed less, but enough that crossing the 1px gap
+// between two adjacent chips reads as a move, not as a close and a reopen.
+export const PEEK_OPEN_MS = 180
+export const PEEK_CLOSE_MS = 120
+
 // ---- Close-ups (src/closeups/) ---------------------------------------------
 export const INSPECTOR_DWELL_MS = 2400 // per-step auto-play dwell (room for flights + layout moves)
 export const INSPECTOR_FLIGHT_PAD_MS = 250

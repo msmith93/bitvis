@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { MAX_FETCH_WINNERS } from '../constants'
+import { SourceField, sourceEntries } from './sourceView'
 
 // What the client actually gets back once a search op has run its scatter-gather
 // to completion: the true hit count plus the top MAX_FETCH_WINNERS ranked
@@ -94,56 +95,13 @@ export default function SearchResultsOverlay({ open, query, search, docs, onClos
   )
 }
 
-const isSubObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
-const isSubObjectArray = (v) => Array.isArray(v) && v.some(isSubObject)
-
-// One `_source` field: a scalar / multi-valued scalar renders as a key + value
-// row; an array of sub-objects (the `variants` of an object- OR nested-mapped
-// product) renders as a paired list, one line per sub-object. Both mappings hand
-// back the same thing here — the pairing only breaks in the indexed form.
-function SourceField({ name, value }) {
-  if (isSubObjectArray(value) || isSubObject(value)) {
-    const items = Array.isArray(value) ? value : [value]
-    return (
-      <div className="source-nested">
-        <span className="source-key">{name}</span>
-        <ol className="source-nested-list">
-          {items.map((obj, i) => (
-            <li key={i}>
-              {Object.entries(obj).map(([k, v]) => (
-                <span className="source-subfield" key={k}>
-                  <span className="source-subkey">{k}</span>
-                  <span className="source-val">{String(v)}</span>
-                </span>
-              ))}
-            </li>
-          ))}
-        </ol>
-      </div>
-    )
-  }
-  return (
-    <div className="source-field">
-      <span className="source-key">{name}</span>
-      <span className="source-val">
-        {Array.isArray(value) ? value.join(', ') : String(value)}
-      </span>
-    </div>
-  )
-}
-
 // One hit: a collapsed row (rank, id, shard, score) that expands to the
 // document's `_source` — the original JSON, the same under either mapping. Falls
 // back to the flattened indexed `fields` only for a doc built before blocks
 // carried their source (none, in practice).
 function ResultRow({ rank, hit, doc }) {
   const [open, setOpen] = useState(false)
-  const source = doc?.source
-  const entries = source
-    ? Object.entries(source).filter(([, v]) => v != null && v !== '')
-    : doc?.fields
-      ? Object.entries(doc.fields).map(([k, v]) => [k, v])
-      : []
+  const entries = sourceEntries(doc)
 
   return (
     <li className="result-item">

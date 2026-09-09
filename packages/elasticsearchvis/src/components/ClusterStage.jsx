@@ -1,11 +1,14 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { NODES, SHARD_PLACEMENT, COORDINATOR, shardsOnNode } from '../cluster'
+import { PEEK_OPEN_MS, PEEK_CLOSE_MS } from '../timing'
+import DocPeek from './DocPeek'
 
 const copyKey = (shard, role) => `${shard}:${role}`
 
 // The centre stage: a coordinator/request bar on top, then the 3-node cluster.
 // Highlights and badges are driven by the current operation + step.
-export default function ClusterStage({ cluster, extra, op, onZoom, onCoordZoom }) {
+export default function ClusterStage({ cluster, extra, op, playing, onZoom, onCoordZoom }) {
   const type = op?.type
   const step = op?.step ?? -1
   const inflight = extra.inflight
@@ -61,6 +64,42 @@ export default function ClusterStage({ cluster, extra, op, onZoom, onCoordZoom }
   const suppressId =
     inflight && inflight.onPrimary && !inflight.onReplica ? inflight.doc.id : null
 
+  // ---- doc-pill peek --------------------------------------------------------
+  // Which chip the pointer (or keyboard focus) is resting on, and where it was
+  // when it opened. One piece of state for the whole stage rather than one per
+  // chip: only one can be hovered, and the card is a single fixed layer.
+  const [peek, setPeek] = useState(null) // { id, rect }
+  const peekTimer = useRef(null)
+
+  const openPeek = useCallback((id, el) => {
+    clearTimeout(peekTimer.current)
+    peekTimer.current = setTimeout(() => {
+      // The chip can be gone by the time the delay elapses — a refresh moves it
+      // out of the buffer, a merge renumbers it away — and measuring a detached
+      // node yields an all-zero rect that would park the card in the corner.
+      if (el.isConnected) setPeek({ id, rect: el.getBoundingClientRect() })
+    }, PEEK_OPEN_MS)
+  }, [])
+
+  const closePeek = useCallback(() => {
+    clearTimeout(peekTimer.current)
+    peekTimer.current = setTimeout(() => setPeek(null), PEEK_CLOSE_MS)
+  }, [])
+
+  // Auto-play owns the screen: chips are moving between boxes under framer
+  // layout springs, so a card anchored to a rect measured a moment ago would be
+  // pointing at nothing. Inspection is a paused activity.
+  useEffect(() => {
+    if (playing) {
+      clearTimeout(peekTimer.current)
+      setPeek(null)
+    }
+  }, [playing])
+
+  useEffect(() => () => clearTimeout(peekTimer.current), [])
+
+  const peekProps = playing ? null : { onPeek: openPeek, onPeekEnd: closePeek }
+
   return (
     <div className="cluster">
       <div className="nodes-row">
@@ -108,12 +147,15 @@ export default function ClusterStage({ cluster, extra, op, onZoom, onCoordZoom }
                   mergeSelecting={
                     type === 'merge' && step === 0 && extra.merge?.shards.includes(shard)
                   }
+                  peekProps={peekProps}
                 />
               )
             })}
           </div>
         ))}
       </div>
+
+      <DocPeek peek={peek} docs={cluster.docs} />
     </div>
   )
 }
@@ -129,6 +171,7 @@ function ShardCard({
   scanning,
   onZoom,
   mergeSelecting,
+  peekProps,
 }) {
   const buffer = shard.buffer.filter((id) => id !== suppressId)
   return (
@@ -171,7 +214,7 @@ function ShardCard({
           <div className="buffer-label">buffer · not searchable</div>
           <div className="chip-row">
             {buffer.map((id) => (
-              <DocChip key={id} id={id} docs={docs} />
+              <DocChip key={id} id={id} docs={docs} peekProps={peekProps} />
             ))}
           </div>
         </div>
@@ -214,6 +257,7 @@ function ShardCard({
                     id={id}
                     docs={docs}
                     hit={isServing && matched.has(`${shard.id}:${id}`)}
+                    peekProps={peekProps}
                   />
                 ))}
               </div>
@@ -228,7 +272,13 @@ function ShardCard({
 // One LUCENE doc. A nested child is drawn smaller and dimmer than its root and
 // labelled by its ordinal within the block, so a block reads as "these belong to
 // that one" — and so a segment that has quietly grown 4x says so at a glance.
-function DocChip({ id, docs, hit }) {
+//
+// Resting on a chip peeks at its `_source` (DocPeek). `peekProps` is null while
+// auto-play runs, which is what disables the peek then — a chip with no handlers
+// rather than a card that checks a flag. The chip is focusable so the peek is
+// reachable from the keyboard and not hover-only; the native `title` it used to
+// carry is gone, since two tooltips racing on one element is worse than either.
+function DocChip({ id, docs, hit, peekProps }) {
   const d = docs[id]
   const child = d?.kind === 'child'
   return (
@@ -241,10 +291,16 @@ function DocChip({ id, docs, hit }) {
         // this is the only thing on the main stage that moves when a delete
         // leaves the searchable view. The shard close-up has always drawn it.
         (d?.purged ? ' purged' : '') +
-        (hit ? ' hit' : '')
+        (hit ? ' hit' : '') +
+        (peekProps ? ' peekable' : '')
       }
       style={{ background: d?.color || '#888' }}
-      title={child ? `${d.root} · ${d.detail}` : undefined}
+      tabIndex={peekProps ? 0 : undefined}
+      aria-label={peekProps ? `${child ? `${d.root} · ${d.detail}` : id} — show _source` : undefined}
+      onMouseEnter={peekProps && ((e) => peekProps.onPeek(id, e.currentTarget))}
+      onMouseLeave={peekProps?.onPeekEnd}
+      onFocus={peekProps && ((e) => peekProps.onPeek(id, e.currentTarget))}
+      onBlur={peekProps?.onPeekEnd}
     >
       {child ? `#${id.slice(id.lastIndexOf('#') + 1)}` : id}
     </span>

@@ -10,6 +10,10 @@ import FlyingTokens, { selectorRect } from './tokenFlight'
 //
 //   editing → flying ( op.step 0..4 ) → done → (Index another) → editing
 //
+// The card is on stage for BOTH flying and done (`walking`), and every step
+// below re-declares the whole of its visual state, so the walk is scrubbable in
+// either direction and at any time — including after it has finished.
+//
 //   step 0 coordinator : doc shrinks + floats to Node 1
 //   step 1 route       : doc floats to the routed primary shard
 //   step 2 analysis    : scan sweeps the doc, then tokens fly into the shard
@@ -119,14 +123,41 @@ export default function IndexOverlay({
     setReplicaFlight({ from, to })
   }
 
-  // React to each op step while flying: reposition the doc + fire scan/emit once.
+  // Is the document on stage? 'flying' is the walk, but 'done' has to count too:
+  // it only means auto-play reached the end and the form may be reopened, and
+  // gating the card on 'flying' alone meant that finishing an op RETIRED the
+  // choreography — scrub back afterwards and the steps narrated a document that
+  // was no longer rendered. Staying mounted through 'done' also keeps the card
+  // from re-entering from the editing form's old position on the way back.
+  const walking = (phase === 'flying' || phase === 'done') && op?.type === 'index'
+
+  // React to each op step while walking: reposition the doc + fire scan/emit once.
   useEffect(() => {
-    if (phase !== 'flying' || !op || op.type !== 'index') return
+    if (!walking) return
     const step = op.step
     if (handledStep.current === step) return
     handledStep.current = step
 
     const shardSel = `[data-shard-target="${shardRef.current}"]`
+
+    // Every step declares its own COMPLETE visual state. Each branch below sets
+    // only the flags it needs, so without this reset the ones it doesn't touch
+    // survive the scrub: step 3 hid the doc card and only the last step ever
+    // un-hid it, which left the document invisible on every earlier step once
+    // you had walked past the buffer — the scan and the flights still replayed,
+    // against a card nobody could see. Same for a scan or a token row abandoned
+    // mid-sequence by a Prev.
+    setScanning(false)
+    setShowTokens(false)
+    setDocHidden(false)
+    // The flights go too, and not only for tidiness: a batch abandoned by a
+    // scrub still runs its own completion timer, and the replica's batch hides
+    // the doc card when it lands. Left alone it would fire against whatever
+    // step you had scrubbed to and blank the card there. Unmounting cancels the
+    // timer (FlyingTokens clears it on cleanup), and no auto-play step can lose
+    // a flight this way — every flight's step budgets for it in indexOp.js.
+    setFlight(null)
+    setReplicaFlight(null)
 
     if (step === 0) {
       setTarget(anchorTarget('[data-coordinator]', 0.5))
@@ -151,18 +182,14 @@ export default function IndexOverlay({
         clearTimeout(t2)
       }
     } else if (step < lastStep('index')) {
-      // Step 3: doc dissolves into the buffer. It only FADES (see the step map);
-      // clear the analysis state with it so scrubbing back off step 4 doesn't
-      // leave a half-finished replica scan parked behind the fade.
+      // Step 3: doc dissolves into the buffer. It only FADES (see the step map)
+      // rather than unmounting, so the replicate step can fly this same card on
+      // from the primary.
       setDocHidden(true)
-      setScanning(false)
-      setShowTokens(false)
     } else {
       // Last step: the primary forwards the OPERATION. The document itself
       // crosses to the replica, which then runs the same analysis — so this is
       // step 2's sequence again, one hop later and against the replica anchor.
-      setDocHidden(false)
-      setShowTokens(false)
       setReplicaDone(false) // re-armed, so scrubbing back and forward replays it
       setTarget(anchorTarget(`[data-replica-target="${shardRef.current}"]`, 0.85))
       const t1 = setTimeout(() => setScanning(true), INDEX_REPLICA_HOP_MS)
@@ -181,7 +208,7 @@ export default function IndexOverlay({
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, op?.step])
+  }, [walking, phase, op?.step])
 
   // Close the overlay once the final (replicate) step is really over. Both
   // conditions are load-bearing: auto-play holds `playing` true through that
@@ -210,7 +237,10 @@ export default function IndexOverlay({
     return () => window.removeEventListener('keydown', onKey)
   }, [phase, setPhase])
 
-  // Reset transient bits whenever we return to the editing form.
+  // Reset transient bits whenever we return to the editing form. NOT docHidden:
+  // the previous walk's card is mid-exit at this point, and un-hiding it makes
+  // the old document flash back over the cluster while the form springs in.
+  // handleIndex clears it (and all of these) at the moment that matters.
   useEffect(() => {
     if (phase === 'editing') {
       setTokens([])
@@ -219,13 +249,11 @@ export default function IndexOverlay({
       setTarget(null)
       setScanning(false)
       setShowTokens(false)
-      setDocHidden(false)
       setReplicaDone(false)
     }
   }, [phase])
 
   const editing = phase === 'editing'
-  const flying = phase === 'flying'
   const start = startRef.current
 
   return (
@@ -383,7 +411,7 @@ export default function IndexOverlay({
         {/* Stays MOUNTED for the whole flight and fades instead of unmounting
             (see the step map above): the replicate step flies this same card on
             from the primary, and beginReplicaEmit reads its rect. */}
-        {flying && (
+        {walking && (
           <motion.div
             ref={flyRef}
             className={'index-fly-card' + (scanning ? ' scanning' : '')}

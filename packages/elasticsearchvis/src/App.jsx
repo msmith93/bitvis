@@ -645,6 +645,7 @@ export default function App() {
             cluster={derived}
             extra={extra}
             op={op}
+            playing={playing}
             onZoom={(id) => openCloseUp({ kind: 'shard', shard: id })}
             onCoordZoom={() => openCloseUp({ kind: 'coordinator' })}
           />
