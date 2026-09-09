@@ -79,14 +79,17 @@ export default function App() {
   // step (or revisiting it) never reopens it — only a NEW search does.
   const [resultsPhase, setResultsPhase] = useState('idle')
   // Open close-ups, innermost last. Nesting is what lets a zoom open a zoom (a
-  // shard's local search → one segment's on-disk term dictionary); the shell in
+  // shard's local search → inside one of its segments); the shell in
   // src/closeups renders the whole stack and only the top one is interactive.
   const [closeUps, setCloseUps] = useState([]) // [{ kind, ... }] — see closeups/index.js
   const [zoomOrigin, setZoomOrigin] = useState('50% 50%') // transform-origin of the dive
 
   // Back-compat projections of the stack root, for the scenario snapshot below.
   const rootCloseUp = closeUps[0] ?? null
-  const zoomShard = rootCloseUp?.kind === 'shard' ? rootCloseUp.shard : null
+  // Both shard-rooted zooms — the local search and the fetch — count as "a
+  // shard is open" for a scenario that only needs to know nothing is on top.
+  const zoomShard =
+    rootCloseUp?.kind === 'shard' || rootCloseUp?.kind === 'fetch' ? rootCloseUp.shard : null
   const coordZoom = rootCloseUp?.kind === 'coordinator'
 
   // Where the innermost close-up's own mini-stepper has got to, reported up by
@@ -648,6 +651,7 @@ export default function App() {
             playing={playing}
             onZoom={(id) => openCloseUp({ kind: 'shard', shard: id })}
             onCoordZoom={() => openCloseUp({ kind: 'coordinator' })}
+            onFetchZoom={(id) => openCloseUp({ kind: 'fetch', shard: id })}
           />
         </div>
 

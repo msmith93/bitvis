@@ -2726,6 +2726,17 @@ table.ii td.term {
 .cu-suffix-row.untouched {
   opacity: 0.3;
 }
+/* One line, only when the scan stopped early, saying what the greyed rows mean */
+.cu-suffix-note {
+  padding: 5px 10px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.cu-suffix-note b {
+  color: var(--text);
+}
 .cu-suffix-row.read {
   background: rgba(54, 162, 239, 0.16);
 }
@@ -3559,4 +3570,446 @@ table.ii td.term {
 .cu-fst-legend .dot.matched {
   border-color: var(--accent-text);
   background: rgba(0, 191, 179, 0.35);
+}
+
+/* ===========================================================================
+   The segment close-up — four tiles and a camera (closeups/stages/segment.jsx)
+   The grid is the persistent picture; a step only moves the camera onto one
+   tile and changes what is lit. Diving is the .layout tween + the panel spring,
+   so it reads as the same zoom the shard card gets.
+   =========================================================================== */
+.si-scroll.seg-stage {
+  position: relative;
+  overflow: hidden;
+}
+.seg-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  height: 100%;
+  padding: 4px 6px 4px 2px;
+  box-sizing: border-box;
+}
+.seg-grid.behind {
+  pointer-events: none;
+}
+.seg-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--sink);
+  transition: opacity 0.25s, border-color 0.25s;
+}
+.seg-tile.ram {
+  border-color: rgba(84, 179, 153, 0.45);
+}
+.seg-tile.dim {
+  opacity: 0.42;
+}
+.seg-tile.current {
+  border-color: var(--accent-text);
+  box-shadow: 0 0 0 2px rgba(0, 191, 179, 0.18);
+}
+.seg-tile-head,
+.seg-panel-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 13px;
+}
+.seg-tile-ext {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 700;
+  color: var(--accent-text);
+}
+.seg-tile-name {
+  font-weight: 600;
+}
+.seg-tile-where {
+  margin-left: auto;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.seg-tile-where.ram {
+  color: var(--good);
+  background: rgba(84, 179, 153, 0.16);
+}
+.seg-tile-where.disk {
+  color: var(--muted);
+  background: var(--panel-2);
+}
+.seg-glyph {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  max-height: 84px;
+}
+.seg-glyph .g-arc line {
+  stroke: var(--muted);
+  stroke-width: 1.4;
+}
+.seg-glyph .g-node circle {
+  fill: var(--panel-2);
+  stroke: var(--muted);
+  stroke-width: 1.4;
+}
+.seg-glyph .g-node circle.out {
+  stroke: var(--good);
+  fill: rgba(84, 179, 153, 0.25);
+}
+.seg-glyph .g-block rect {
+  fill: var(--panel-2);
+  stroke: var(--border);
+}
+.seg-glyph .g-block rect.prefix {
+  fill: rgba(0, 191, 179, 0.4);
+  stroke: none;
+}
+.seg-glyph .g-block rect:not(:first-child):not(.prefix) {
+  fill: var(--border);
+  stroke: none;
+}
+.seg-glyph .g-post rect.term {
+  fill: var(--panel-2);
+  stroke: var(--border);
+}
+.seg-glyph .g-post rect:not(.term) {
+  fill: rgba(0, 191, 179, 0.4);
+}
+.seg-glyph .g-row rect {
+  fill: var(--panel-2);
+  stroke: var(--border);
+}
+.seg-glyph .g-row rect.ord {
+  fill: rgba(0, 191, 179, 0.4);
+  stroke: none;
+}
+.seg-glyph .g-row rect.text {
+  fill: var(--border);
+  stroke: none;
+}
+.seg-tile-what {
+  font-size: 11px;
+  color: var(--muted);
+}
+.seg-tile-status {
+  margin-top: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--muted);
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.seg-tile.done .seg-tile-status {
+  color: var(--good);
+}
+.seg-tile-status.hot {
+  color: var(--accent-text);
+}
+
+/* the tile the camera is on: fills the stage box and scrolls on its own */
+.seg-tile-panel {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  padding: 2px 6px 6px 2px;
+  background: var(--panel);
+}
+.seg-panel-head {
+  padding: 4px 2px;
+}
+.seg-panel-status {
+  margin-left: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+.seg-panel-head .seg-tile-where {
+  margin-left: 0;
+}
+/* The panel is the scroller: nothing inside it may shrink to fit (a .cu-side
+   has overflow hidden, which would let flex clip it to the panel's height). */
+.seg-tile-panel > * {
+  flex: none;
+}
+
+/* ---- the postings tile — .doc ------------------------------------------- */
+.seg-post-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+}
+.seg-post-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 130px) 58px 78px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  transition: opacity 0.2s, border-color 0.2s;
+}
+.seg-post-row.unread {
+  opacity: 0.38;
+}
+.seg-post-row.query {
+  opacity: 0.7;
+  border-style: dashed;
+}
+.seg-post-row.walked {
+  border-color: var(--accent-text);
+}
+.seg-post-row.open {
+  background: rgba(0, 191, 179, 0.08);
+}
+.seg-post-term {
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.seg-post-fp {
+  color: var(--accent-text);
+}
+.seg-post-df {
+  color: var(--muted);
+  font-size: 11px;
+}
+.seg-post-entries {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.seg-post-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--sink);
+  transition: opacity 0.2s, border-color 0.2s;
+}
+.seg-post-entry.pending {
+  opacity: 0.3;
+}
+.seg-post-entry.read {
+  opacity: 1;
+  border-color: var(--good);
+  background: rgba(84, 179, 153, 0.16);
+}
+.seg-ord {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text);
+}
+.seg-freq {
+  font-style: normal;
+  color: var(--muted);
+  font-size: 11px;
+}
+.seg-post-entry .doc-chip {
+  font-size: 9px;
+  padding: 1px 5px;
+}
+.seg-post-note {
+  grid-column: 1 / -1;
+  font-size: 10px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* ---- the stored-fields tile — .fdx + .fdt -------------------------------- */
+.seg-fdt-banner {
+  padding: 8px 11px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(214, 191, 87, 0.12);
+  font-size: 12px;
+  color: var(--muted);
+}
+.seg-fdt.idle .seg-fdx,
+.seg-fdt.idle .seg-fdt-chunks {
+  opacity: 0.45;
+}
+.seg-fdx {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 6px;
+  padding: 8px 11px;
+  border-bottom: 1px solid var(--border);
+}
+.seg-fdx-label {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.seg-fdx-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  transition: border-color 0.2s, background 0.2s;
+}
+.seg-fdx-cell.wanted {
+  border-style: dashed;
+}
+.seg-fdx-cell.hit {
+  border-style: solid;
+  border-color: var(--accent-text);
+  background: rgba(0, 191, 179, 0.14);
+}
+.seg-fdx-cell b {
+  color: var(--text);
+}
+.seg-fdx-cell i {
+  font-style: normal;
+  color: var(--accent-text);
+}
+.seg-fdt-chunks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 11px;
+}
+.seg-fdt-chunk {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.seg-fdt-chunk.located {
+  border-color: var(--accent-text);
+}
+.seg-fdt-chunk.open {
+  box-shadow: 0 0 0 2px rgba(0, 191, 179, 0.22);
+}
+.seg-fdt-chunk-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 5px 10px;
+  background: var(--panel-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+.seg-fdt-chunk-note {
+  color: var(--muted);
+}
+.seg-fdt-chunk.located .seg-fdt-chunk-note {
+  color: var(--accent-text);
+}
+.seg-fdt-row {
+  display: grid;
+  grid-template-columns: 34px minmax(120px, 160px) minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  transition: background 0.2s;
+}
+.seg-fdt-row.wanted {
+  background: rgba(0, 191, 179, 0.05);
+}
+.seg-fdt-row.read {
+  background: rgba(84, 179, 153, 0.14);
+}
+.seg-fdt-row.child {
+  color: var(--muted);
+}
+.seg-fdt-k {
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+.seg-fdt-none {
+  font-size: 11px;
+  color: var(--muted);
+}
+.seg-fdt-json {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+.seg-fdt-row .cu-suffix-flag {
+  align-self: center;
+}
+
+/* the segment head's per-phase note, and the rows a fetch is after */
+.anat-card-note {
+  margin-left: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  color: var(--muted);
+}
+.anat-doc.fetching {
+  background: rgba(0, 191, 179, 0.14);
+  border-radius: 5px;
+}
+.anat-fetch-flag {
+  margin-left: 6px;
+  font-size: 10px;
+  color: var(--accent-text);
+  white-space: nowrap;
+}
+
+/* ---- the fetch-phase shard close-up (closeups/stages/shardFetch.jsx) ----- */
+.sf-winner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.sf-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sf-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: var(--panel-2);
+}
+.sf-where {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+.sf-where.pending,
+.sf-where.none {
+  color: var(--muted);
+}
+.anat-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }

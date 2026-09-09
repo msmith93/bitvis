@@ -68,3 +68,16 @@ export const DICT_SCAN_MS = 130
 export const CU_DWELL_MS = 3000 // a step with nothing to replay
 export const BLOCK_READ_MS = 300 // one entry of an in-block suffix scan
 export const AUTOMATON_STEP_MS = 260 // one arc decision (follow / prune) or term test — every mode
+
+// ---- The segment close-up's camera (src/closeups/stages/segment.jsx) -------
+// The tour dives into one tile at a time with the same look as the shard zoom:
+// the tile grid rushes toward the tile and fades (SEG_ZOOM_OUT_MS is the same
+// tween coming back), the tile's panel springs out of it, and between two tiles
+// the grid is held for a beat so the hand-off — the address one tile leaves for
+// the next — can be read off the tile status lines. Every step whose tile
+// differs from the previous one budgets these on top of its replay.
+export const SEG_ZOOM_OUT_MS = 500
+export const SEG_GRID_DWELL_MS = 900
+export const SEG_ZOOM_IN_MS = 650
+export const POSTING_STEP_MS = 320 // one posting revealed (ordinal + frequency)
+export const FETCH_STEP_MS = 900 // one ordinal located in .fdx / one _source read from .fdt

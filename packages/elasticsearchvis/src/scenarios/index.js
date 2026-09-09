@@ -78,12 +78,12 @@ import nested from './nested'
 //               ROOT — unchanged by anything opened on top of it)
 //   coordZoom   coordinator close-up is the stack root
 //   closeUpKind kind of the INNERMOST open close-up, or null when none:
-//               'shard' | 'coordinator' | 'dictionary'
+//               'shard' | 'coordinator' | 'fetch' | 'segment'
 //   closeUpDepth how many close-ups are stacked (0 = looking at the cluster)
 //   closeUpStep  which step the INNERMOST close-up's own mini-stepper is on, or
 //               -1 when none is open. This is how a step waits for a beat
 //               INSIDE a panel — the fuzzy walk only reaches an accepting state
-//               on the dictionary panel's last step, so the tip that points at
+//               on the segment panel's found step, so the tip that points at
 //               it has to know when the panel gets there.
 //   closeUpLast  that panel's last step index (-1 when none is open)
 //   closeUpSub   how far into the CURRENT step's own replay the reader has

@@ -5,9 +5,9 @@
 // shape twice, `sc*` then `*search`, and sends the user into the 🔍 close-up
 // both times, because the difference is only visible inside a segment: a seek
 // that touches a handful of rows versus an enumeration of every single one.
-// The dictionary panel's own step list is index · walk · read · found, so the
-// arc walk — the thing both "read the arcs" steps below describe — happens at
-// index 1. Speaking before the panel gets there shows a tip about a walk that
+// The segment panel's own step list is overview · walk · read · found ·
+// postings · done, so the arc walk — the thing both "read the arcs" steps below
+// describe — happens at index 1, once the panel has dived into its first tile. Speaking before the panel gets there shows a tip about a walk that
 // has not started; and because those steps are cta-with-no-advanceOn, they FREEZE
 // the panel (App's `held`), so it would never get there afterwards either.
 // Unlike the shard panel's step list (a pure function, so check-models pins its
@@ -18,7 +18,7 @@
 import { reviewResults } from './shared'
 
 const PANEL_WALK = 1
-const atDictWalk = (s) => s.closeUpKind !== 'dictionary' || s.closeUpStep >= PANEL_WALK
+const atDictWalk = (s) => s.closeUpKind !== 'segment' || s.closeUpStep >= PANEL_WALK
 
 // The SHARD panel's own step list, for the single-clause pattern queries this
 // scenario runs against a flat dataset: parse · lookup · expand · postings ·
@@ -106,8 +106,8 @@ const STEPS = [
     // background stays parked on the seek it just finished rather than racing
     // on to "score" / "top hits" while the reader is being told about it.
     holdPanel: true,
-    body: 'The probe you just watched treats the dictionary as a flat sorted array and bisects it. That is a useful simplification. What Lucene actually keeps is blocks of terms on disk, indexed by a small automaton held in memory. Click the 🔍 icon to watch “sc*” resolved against the real FST.',
-    advanceOn: (s) => s.closeUpKind === 'dictionary',
+    body: 'The probe you just watched treats the dictionary as a flat sorted array and bisects it. That is a useful simplification. What Lucene actually keeps is blocks of terms on disk, indexed by a small automaton held in memory. Click the 🔍 icon to open the segment; it dives into that automaton first, and you will watch “sc*” resolved against the real FST.',
+    advanceOn: (s) => s.closeUpKind === 'segment',
   },
   {
     // Spotlighted rather than a centered card, for the same reason as
@@ -170,8 +170,8 @@ const STEPS = [
     title: 'One level deeper — the real structure',
     waitFor: pastLookup,
     holdPanel: true,
-    body: 'The flat table you just watched is a useful simplification. Click the 🔍 to see the pattern resolved against the real FST.',
-    advanceOn: (s) => s.closeUpKind === 'dictionary',
+    body: 'The flat table you just watched is a useful simplification. Click the 🔍 to open the segment and see the pattern resolved against the real FST.',
+    advanceOn: (s) => s.closeUpKind === 'segment',
   },
   {
     // Spotlighted, not a centered card: a card's backdrop would dim the picture

@@ -193,16 +193,21 @@ which lets the stepper scrub any operation forwards and backwards.
   module in `src/closeups/stages/` exporting
   `build(...) → { key, title, sub, steps, dwell?, Stage, stageProps, source,
   className? }`, and `src/closeups/index.js` is the registry
-  (`shardCloseUp` / `coordCloseUp` / `closeUpStillValid` / `closeUpAnchor` /
-  `buildCloseUp`). **Adding a zoom = one module plus one case in the registry.**
-  Three things to respect:
+  (`shardCloseUp` / `coordCloseUp` / `fetchShards` / `closeUpStillValid` /
+  `closeUpAnchor` / `buildCloseUp`). Four kinds: `shard` (local search, search
+  step 2), `coordinator` (steps 3–4), `fetch` (a shard holding a winner, step
+  4 — `stages/shardFetch.jsx`, which turns each id back into a segment +
+  ordinal), and `segment` (inside one segment, nested under `shard` or
+  `fetch`, with `phase: 'query' | 'fetch'`). **Adding a zoom = one module plus
+  one case in the registry.** Three things to respect:
   - App holds ONE `closeUps` array (the stack, innermost last), not a flag per
     zoom. Only the top is `active`: the shell runs a clock only for it, and stages
     read `active` to park their own timers (that is how the shard stage's probe
     replay freezes behind a child). `closeUpStillValid` is checked against the
     stack ROOT only — a nested zoom lives and dies with its parent. `zoomShard`
-    and `coordZoom` survive in the walkthrough snapshot as projections of the
-    root, alongside `closeUpKind` / `closeUpDepth`.
+    (a `shard` OR `fetch` root) and `coordZoom` survive in the walkthrough
+    snapshot as projections of the root, alongside `closeUpKind` /
+    `closeUpDepth`.
   - A `Stage` must be a **module-scope** component and receive its data through
     `stageProps`. Defining it inside `build()` gives it a new identity on every
     re-derive, which remounts it and destroys flight/probe state mid-animation.
@@ -213,6 +218,54 @@ which lets the stepper scrub any operation forwards and backwards.
     being relayouted can deadlock an exit animation and leave an invisible
     click-swallowing backdrop.
 
+- **The segment close-up** (`src/closeups/stages/segment.jsx`, `kind:
+  'segment'`) is the deepest zoom: FOUR TILES — `.tip` term index, `.tim` term
+  blocks, `.doc` postings, `.fdt` stored fields — on a 2×2 grid, and a tour that
+  dives into them in the order a query reads them (overview · walk · read ·
+  found · postings · done; in the fetch phase overview · locate · read · done,
+  with the three query-phase tiles dimmed). The dive is a CAMERA inside the one
+  panel, not a nested close-up: the grid animates with the same tween App's
+  `.layout` uses (scale 1.7, fade, transform-origin at the tile's quadrant) and
+  the tile's panel springs in with the same spring `CloseUp` uses, so it reads
+  as the same zoom the shard card gets. Rules that will break it if ignored:
+  - Every tile is mounted for every step (at grid scale: glyph, name, status
+    line off the models — `tileStatus`). A step only moves the camera and
+    changes what is lit. Tile bodies gate their replays AND their scroll
+    effects on `live` (= active, camera on this tile, spring landed —
+    `shared.jsx`'s `scrollTileTo` defers a frame on top of that); a replay or
+    a measurement made while the panel is still scaling in is wrong.
+  - `cameraBeats(to, from)` is the ONE place the zoom-out / grid-hold / dive
+    timings live; `dwell()` adds it to each step's replay so the clock and the
+    camera agree. A backward step or a manual scrub (`sub != null`) moves the
+    camera straight to the target — the grid beat is for watching.
+  - The camera aims by GEOMETRY (`QUADRANT`), never by measuring the grid,
+    which may be mid-tween when the target is decided.
+  - `stages/dictionary.jsx` is no longer a stage: `deriveDictionary` runs the
+    models once per build and `FstTile` / `BlocksTile` are the first two tile
+    bodies (module-scope, fed by props). `src/postings.js` and
+    `src/storedFields.js` are the pure models behind the other two, and `npm
+    run check` section 8 pins them to the levels above (ordinal = index in
+    `seg.docIds`, frequency = `scoreDoc`'s count, root last, `_source` on roots
+    only, every fetch winner resolves to one segment).
+  - The stored-fields tile is NEVER dived into by the query-phase tour — the
+    fetch-step 🔍 on a shard opens it (`stages/shardFetch.jsx` → `segment` with
+    `phase: 'fetch'`). `shardLocal.jsx`'s `sourceHL` is `false` for the same
+    reason. Doc values are out of scope: four tiles, not five.
+
+- **`src/closeups/anatomy.jsx`** is the segment card BOTH shard close-ups draw —
+  the inverted index (term dictionary | postings) and the stored `_source` rows.
+  Keep it shared: the query phase lights the dictionary then the postings and
+  never the `_source`; the fetch phase lights only the `_source` and flags the
+  rows it was sent for, leaving everything above visibly untouched. That
+  contrast is the two-phase lesson and it needs one picture, so a phase gets its
+  own behaviour through `focus` (per-step lighting, plus `fetchIds`), `magnify`
+  (the 🔍 and which phase it opens — `data-anat-dict` vs `data-anat-fetch`) and
+  `note`, never through a second card.
+  - The fuzzy and wildcard scenarios pin panel step indices (`PANEL_WALK = 1`,
+    `PANEL_FOUND = 3`) and target `[data-tour="fst"]` / `"automaton"`, which
+    only exist while the camera is on the term-index tile — so the fuzzy tour
+    has a `dive` step that makes the reader press into it first.
+
 - **The on-disk models** (`src/blocktree.js`, `src/automaton.js`) are the deepest
   teaching layer: what a segment's term dictionary really is (an FST in `.tip`
   over prefix-compressed blocks in `.tim`) and how a pattern resolves against it
@@ -220,8 +273,9 @@ which lets the stepper scrub any operation forwards and backwards.
   for `*`/`?`, a Levenshtein `(i, e)` grid for `~` — and that choice is the ONLY
   thing a pattern's kind decides; determinization, the walk, pruning and floor
   selection are shared, because to Lucene both are just an `AutomatonQuery`.
-  `automaton.js` has **no stage of its own** — it feeds the `dictionary` stage,
-  which serves a plain term, a wildcard and a fuzzy with one picture. For a fuzzy
+  `automaton.js` has **no stage of its own** — it feeds the term-index and
+  term-blocks tiles of the segment close-up (`dictionary.jsx`), which serve a
+  plain term, a wildcard and a fuzzy with one picture. For a fuzzy
   that picture gains a second panel: `buildLevenshteinNfa` also returns a `grid`
   drawing model (nodes carrying their own `(i, e)`, edges tagged by which edit
   they are), and `shared.jsx`'s `AutomatonGrid` renders it, lighting the state
@@ -229,8 +283,10 @@ which lets the stepper scrub any operation forwards and backwards.
   coordinate from a state id — `npm run check` asserts the two agree. The
   geometry is ONE stack in every mode: the split holds what is in memory (only
   fuzzy has a second thing to put beside the FST) and the `.tim` block column is
-  a full-width strip beneath it; that is a property of the QUERY, not of the
-  step, so the no-content-swapping rule still holds. The FST
+  the next tile; that is a property of the QUERY, not of the
+  step, so the no-content-swapping rule still holds. A fuzzy's `found` step
+  dives BACK into the term-index tile, because the spell-out lives in the
+  automaton grid. The FST
   panel is **capped and pans to the cursor** (`.cu-fst` + the scroll effect in
   `ArcGraph`): the .tip FST is bushy rather than deep, so its height grows with
   the dictionary and would otherwise set the panel's size. The strip therefore
@@ -309,21 +365,23 @@ which lets the stepper scrub any operation forwards and backwards.
   spread, `*search`'s two matches and `sc*`'s range — read those before editing
   the dataset.
 
-  Posting-list encoding had a model and a zoom; both were removed and `SPEC.md`
-  records why — don't rebuild them. These models are
+  Posting-list ENCODING had a model and a zoom; both were removed and `SPEC.md`
+  records why — don't rebuild them. The postings tile (`src/postings.js`) is
+  the CONCEPT — ordinals and frequencies — and must stay that. These models are
   pure and produce **replayable traces**, exactly like `dictionaryTrace` in
   `src/wildcard.js` — the stage folds a trace into a view rather than animating
-  imperatively. The `dictionary` stage is a **persistent stage** in the
-  `coordMerge` style: the FST (in memory) and the blocks it indexes (on disk) are
-  rendered on every step and the step only changes what is highlighted. Do not
-  reintroduce per-step content swapping there — `SPEC.md` explains why.
+  imperatively. The segment close-up is a **persistent stage** in the
+  `coordMerge` style: every tile is rendered on every step and the step only
+  changes the camera and what is highlighted. Do not reintroduce per-step
+  content swapping there — `SPEC.md` explains why.
 
   `SPEC.md` has the accuracy guardrails; the short version is that
   block sizes are toy-scaled (2–4 vs Lucene's 25–48), documented in `SPEC.md`
-  rather than badged in the zoom. The deep panel ends at the `.tim` strip: the
-  per-step cost lines, the toy-size badge, the term-entry / expansion block and
-  the two-automaton contrast table that used to sit below it were all removed as
-  clutter (the expansion list still shows in the shard zoom and results panel).
+  rather than badged in the zoom. The term-blocks tile ends at the `.tim` strip
+  and its totals: the per-step cost lines, the toy-size badge, the term-entry /
+  expansion block and the two-automaton contrast table that used to sit below it
+  were all removed as clutter (the expansion list still shows in the shard zoom
+  and results panel); what follows the strip now is the next TILE, not more copy.
   Every rendered number must come from a trace, and `automaton.js`'s matched set
   is kept in agreement with `expandTerms` so the zoom levels can't drift.
 

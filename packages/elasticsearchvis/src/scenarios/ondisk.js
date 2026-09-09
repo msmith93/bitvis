@@ -2,9 +2,11 @@
 //
 // The deepest lesson in the app, and the one that pays off the flat sorted table
 // the other scenarios teach with. It drives the user down three zoom levels —
-// cluster → shard → one segment's files — because the structures only exist at
-// the bottom: an FST in memory, prefix-compressed blocks on disk, and a posting
-// list that turns out to be bit-packed gaps rather than the doc ids it draws as.
+// cluster → shard → inside one segment — because the structures only exist at
+// the bottom: an FST in memory, prefix-compressed blocks on disk, and the
+// posting list the term row points at. The segment panel tours its tiles on its
+// own from there (stages/segment.jsx), so this scenario only has to get the
+// reader to the door.
 //
 // It merges first, deliberately: one big segment per shard gives the block tree
 // enough terms to branch into sub-blocks and floor blocks, which two-doc segments
@@ -80,15 +82,15 @@ const STEPS = [
     // The zoom icon now sits by the segment id, a small target the tip's own
     // top-left corner would land on — nudge the tip clear so the 🔍 stays clickable.
     offset: { x: 40 },
-    title: 'Zoom 2: into the term dictionary',
+    title: 'Zoom 2: into the segment',
     // Only while the shard panel is the top of the stack — the 🔍 lives on it.
     waitFor: (s) => s.closeUpKind === 'shard',
     // Freezes the shard panel's clock while this tip is up, so the reader isn't
     // being told to "watch how few blocks get read" over a background that has
     // already moved on to scoring candidates.
     holdPanel: true,
-    body: 'Scroll down to “Segment anatomy” and click the 🔍 next to the segment’s name. One picture, four steps: the graph on top is the index and it is in memory, the blocks beneath it are the dictionary and they are on disk. Watch how few of them get read.',
-    advanceOn: (s) => s.closeUpKind === 'dictionary',
+    body: 'Scroll down to “Segment anatomy” and click the 🔍 next to the segment’s name. The segment opens as four tiles and the panel dives into them in the order a query reads them: the term index (in memory), the blocks it points at (on disk), then the postings. Watch how few blocks get read.',
+    advanceOn: (s) => s.closeUpKind === 'segment',
   },
   {
     id: 'finish',
@@ -99,6 +101,7 @@ const STEPS = [
     body: [
       'What you just watched is an FST: an automaton whose arrows are characters and whose circles can carry the address of a block. That is the structure Lucene uses to index the terms of a text field.',
       'And the reason it exists is the split you were looking at. The dictionary is far too large to hold in memory at real scale, so it stays on disk in blocks; what stays resident is a small graph that indexes those BLOCKS rather than the terms. Finding any term costs a walk through memory and a single block read — no matter how many terms there are.',
+      'What that read hands back is an address in the postings, and the postings are numbers: the ordinals of the Lucene docs that contain the term. The text itself sits in a fourth file the query never opens — the stored fields — which is fetched later, for the winners only.',
     ],
     waitFor: (s) => s.closeUpDepth === 0,
     cta: 'Done',

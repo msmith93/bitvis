@@ -94,8 +94,11 @@ distinctions are the whole pedagogical point.
    the others stay idle. Routing must be supplied at index time AND query time.
 3. **Local search** — each contacted shard searches its own segments' inverted
    indexes, scores matches, returns its local top hits (doc ids + scores only).
+   No stored field is opened to do this.
 4. **Gather + merge + sort** — coordinator merges all shards' hits and ranks.
 5. **Fetch phase** — coordinator fetches full `_source` for the winning ids.
+   Each shard holding a winner maps the id back to a segment + ordinal and reads
+   that row of the segment's stored fields; the fetch-step 🔍 shows it.
 6. **Return to client** — merged, ranked results returned. Buffered and
    tombstoned docs never appear.
 
@@ -290,8 +293,11 @@ object over-matches there too and the contrast stops being clean.
 
 ## On-disk anatomy (the deepest zoom — KEEP THESE ACCURATE)
 The flat two-column table above is a drawing, not a layout. A fourth zoom level
-(reached by the 🔍 on a segment's column heads, inside the shard close-up) shows
-what one segment's structures actually are. Three separate zooms, three models:
+(reached by the 🔍 by a segment's name, inside the shard close-up) shows what one
+segment's structures actually are: **four tiles** — the term index (`.tip`), the
+term blocks (`.tim`), the postings (`.doc`) and the stored fields (`.fdt`) — and
+a tour that dives into them in the order a query reads them. See "Inside a
+segment — the four tiles" below for how it is presented; the models first:
 
 ### Term dictionary — `.tip` + `.tim` (`src/blocktree.js`)
 1. **`.tip` is an FST**: a minimized automaton, held in MEMORY, whose arcs are
@@ -304,35 +310,90 @@ what one segment's structures actually are. Three separate zooms, three models:
 3. **Prefix compression**: a block stores its shared prefix ONCE and only the
    suffix each term adds ("search"/"searchable"/"searching" → "arch"/"archable"/
    "arching" under "se").
+3b. **The in-block scan is LINEAR WITH AN EARLY EXIT, not a full read of the
+   block.** Entries are sorted, so the scan walks them in order and stops at the
+   first one that equals the term or sorts past it — Lucene's
+   `SegmentTermsEnumFrame.scanToTermLeaf`, and `blockScan` in `blocktree.js`
+   does the same. Rows after the stop are never compared, which is why
+   `entriesRead` can honestly be 1 in a block of four. The opened block says so
+   in one line whenever it stopped early: without it the greyed rows read as
+   "these were checked too", which the row count beneath them contradicts.
 4. **A seek costs one in-RAM FST walk plus exactly ONE disk read**, regardless of
    dictionary size. That is the number to teach, against the ~log₂(n) scattered
    probes the flat binary search one level up needs.
 5. A term outside the field's min/max term is rejected with **zero** disk reads.
 6. Per-term metadata is `docFreq` plus pointers into `.doc`/`.pos`/`.pay`.
 
-### Postings — `.doc` — deliberately NOT modelled
-A zoom existed for this (segment-local ordinals, delta encoding, bit-packed
-blocks, VInt tail, skip lists, `nextDoc`/`advance`/leapfrog) and was **removed**.
-Don't rebuild it. The reasons, so the decision isn't re-litigated:
+### Postings — `.doc` (`src/postings.js`) — the concept, never the encoding
+A posting list is modelled as what it IS to a query: for one term, the
+segment-local **ordinals** of the Lucene docs that contain it, each with the
+term's **frequency** there, read forwards. Three things the tile exists to make
+visible, and `npm run check` asserts the first two against the levels above:
+1. A posting is an ordinal — the doc's index in `seg.docIds` — not an `_id`.
+   The chip beside it is the reader's bridge to the level above, where the same
+   doc was a coloured id; the number is what the file holds.
+2. The frequency is the count `scoreDoc` uses. The scorer never sees text.
+3. The ordinal is also the row address of the stored-fields file. The four-hop
+   chain (`.tip` → `.tim` → `.doc` → `.fdt`) is the whole lesson, and the
+   postings tile is the hop that turns a term into numbers.
 
-- **The concept is already taught one level up.** The shard inspector's "Walk the
-  posting lists" step says what a posting list is — which documents contain a
-  term. The zoom only added on-disk *encoding*, which is not what a reader needs
-  to understand search.
-- **This dataset cannot demonstrate it.** On the merged shard-0 segment (24
-  terms): **22 of 24 terms have no skip data at all**, **22 of 24 have ≤1 packed
-  block**, and the best case (`search`) is 4 postings in 2 blocks with no VInt
-  tail — 2 bytes against 16. More than half the zoom rendered "there isn't one
-  here". Fixing that means enlarging the sample set, which would perturb the
-  tuned `search` ×4/×3/×2/×1 counts the top-k eviction demo depends on.
-- **It read as mechanism without purpose** — every step titled after a technique
-  rather than a reason, and reached with no narrative bridge.
+The on-disk ENCODING (delta-coded ordinals, bit-packed blocks, a VInt tail, skip
+lists, `nextDoc`/`advance`/leapfrog) had a zoom of its own and was **removed**;
+that stays removed. The reasons still hold and are the boundary of this tile:
+- The concept is what a reader needs to understand search; the encoding is not.
+- **This dataset cannot demonstrate it.** On the merged shard-0 segment, 22 of
+  24 terms had no skip data and at most one packed block; more than half of
+  that zoom rendered "there isn't one here". Enlarging the sample set would
+  perturb the tuned `search` ×4/×3/×2/×1 counts the top-k eviction demo depends
+  on.
+- It read as mechanism without purpose. The postings tile is reached the way
+  Lucene reaches a posting list — from the term row's `.doc` pointer, after the
+  index and the block — which is the narrative bridge the old zoom lacked.
 
-What survives: `.tim` still visibly points onward to `.doc` — the expanded block
-rows name each term's `.doc` pointer and its `docFreq` — and one clause in the
-shard inspector noting Lucene writes no skip data below 128 documents. (The
-`.tip → .tim → .doc → .fdt` "you are here" strip that used to make the hop to
-`.fdt` explicit was itself removed as clutter.)
+`.pos` (positions) and `.pay` are not modelled; the term row names only its
+`.doc` pointer and `docFreq`. The shard inspector keeps its one clause noting
+Lucene writes no skip data below 128 documents.
+
+### Stored fields — `.fdx` + `.fdt` (`src/storedFields.js`) — read in the FETCH phase
+Stored fields are addressed by ordinal and hold, in Elasticsearch, `_id` and
+`_source` — the original JSON verbatim — because mapped fields are indexed, not
+stored. `.fdt` is written in compressed chunks and `.fdx` is the index that says
+which chunk holds an ordinal; reading one document is one `.fdx` lookup and one
+chunk decompressed. Chunks are toy-scaled (`FDT_CHUNK_MAX` docs per chunk, not
+Lucene's byte-sized chunks) so a chunk boundary can be seen — the one
+simplification here, listed with the block sizes below.
+
+**The fact this file exists to place correctly: a query never opens it.** The
+query phase returns ordinals and scores; the stored fields are read in the fetch
+phase, in a separate request, for the winners of the coordinator's cut and no one
+else. So the query-phase tour marks this tile "later" and does not dive into it,
+and the shard close-up no longer lights "stored _source" on its return step
+(it used to, and that taught the wrong phase). The fetch step of the search op
+has its own 🔍 on each shard holding a winner: a fetch close-up
+(`stages/shardFetch.jsx`) turns each id back into a segment + ordinal — which is
+what a shard's reader really has to do with a hit before it can open anything —
+and a 🔍 per segment opens the same four-tile view with the three query-phase
+tiles dimmed and the camera going straight to the stored fields.
+
+**Both shard close-ups draw the SAME segment anatomy** (`src/closeups/anatomy.jsx`,
+shared by `shardLocal` and `shardFetch`), and that is a requirement rather than
+a saving: it is the same shard and the same segments, so a reader must see the
+second phase reach into the part of them the first phase left alone. The query
+phase lights the term dictionary and then the postings and never lights the
+stored `_source`; the fetch phase lights only the `_source`, flags the rows it
+was sent for, and leaves the dictionary and postings visibly untouched above
+them. Drawing the fetch phase without that card — as an id-to-ordinal list
+alone — was tried and was wrong: it hid the whole contrast the two phases exist
+to teach.
+
+A block root carries `_source`. A nested child carries **no stored fields**:
+Elasticsearch indexes the parent's `_id` on it (so a delete removes the whole
+block) but does not store it, and a child has no `_source` — the document's
+`_source` lives on its root. The tile draws a child's row as "nothing stored",
+which is the honest picture and one more reason the root is written last.
+
+Doc values are out of scope: a match query sorted by score never reads them, and
+`text` fields have none. The segment view has four tiles, not five.
 
 ### Patterns — the same picture, driven by a query (`src/automaton.js`)
 A wildcard is **not a separate zoom**. A plain term is the degenerate case of a
@@ -518,18 +579,54 @@ pattern, the dictionary zoom draws the automaton beside the term index.
   panel's size is independent of the dictionary's and the eye follows the walk
   instead of hunting for it.
 
+### Inside a segment — the four tiles (`src/closeups/stages/segment.jsx`)
+The segment close-up opens on a 2×2 grid of tiles — `.tip` term index (in
+memory), `.tim` term blocks, `.doc` postings, `.fdt` stored fields (on disk) —
+each with a glyph, its name, where it lives, and a status line that advances
+with the tour ("walked · carrying 0x7C0", "1 of 42 read · “search” → 0x958",
+"4 postings read → ordinals 0, 1, 2, 3", "not read in the query phase"). The
+tour then dives into one tile at a time: overview → term index (the arc walk) →
+term blocks (the scan, then the found row with its `.doc` pointer) → postings
+(the list, one ordinal at a time) → back to the grid, with the stored-fields
+tile saying "not yet — read in the fetch phase". A fuzzy query's found step
+dives back into the term-index tile, because its payoff (the machine finishing
+the word) lives in the automaton grid drawn there.
+
+- **The zoom looks like the zoom.** Diving into a tile is the choreography App
+  uses to dive into a shard: the grid rushes toward the tile and fades (the
+  `.layout` tween, transform-origin at the tile's quadrant) while the tile's
+  panel springs out of it (the `CloseUp` entrance spring). Zooming back is the
+  tween reversed, and between two tiles the grid is HELD for a beat so the
+  hand-off can be read off the status lines — the address the walk carried is
+  what the blocks tile is opened at; the `.doc` pointer on the found row is what
+  the postings tile is opened at. This is a CAMERA inside one close-up panel,
+  not a stack of nested panels: one clock, one stepper, and Prev/Next scrub
+  across a tile boundary (a backward step or a manual scrub moves the camera
+  straight there, without the grid beat — that beat is for watching, not
+  navigating). Replays start only once the camera has landed.
+- **The tiles are the four-hop chain.** A "you are here" strip listing
+  `.tip → .tim → .doc → .fdt` used to sit above the dictionary zoom and was
+  removed as clutter. The grid is that strip done properly: it is the persistent
+  picture the camera returns to, and each hop is a tile with a status line
+  saying what it handed to the next.
+- **The one-picture rule now holds PER TILE.** Every tile is mounted for every
+  step; a step only changes which tile the camera is on and what is lit inside
+  it, never a tile's content. Within the term-index and term-blocks tiles the
+  rules below are unchanged — they used to share one scroller and now sit in
+  two tiles, which is the only thing that moved.
+
 ### How this level must be PRESENTED
 The structures above are only half the job. Two earlier builds modelled them
 correctly and still failed: the first was illegible, the second was legible but
 read as a slide deck about an inverted index rather than a picture of one
 working. These are requirements, not polish:
 
-- **The dictionary zoom is about the FST, and it is ONE PICTURE.** The term index
-  on top under "in memory", the blocks it indexes beneath under "on disk", both
-  on screen for **every** step. A step may only change what is lit up
+- **The dictionary tiles are about the FST, and each is ONE PICTURE.** The term
+  index under "in memory", the blocks it indexes under "on disk", each drawn in
+  full for **every** step it is on screen. A step may only change what is lit up
   — the walk, then the single block that gets read. Never swap the content area
   per step; that is what made it a slideshow. `stages/coordMerge.jsx` is the
-  in-repo precedent for a persistent stage.
+  in-repo precedent for a persistent stage, and the tile grid above follows it.
 - **The lesson is the memory footprint**, and the layout carries it: a small graph
   that stays resident, a dictionary that does not, and exactly one block crossing
   between them. Blocks not read must be visibly dimmed rather than absent.
@@ -558,13 +655,13 @@ working. These are requirements, not polish:
   walk is carrying, which is what `SpellOut` and `PatternWalk` used to say in
   two mode-specific panels of their own.
 - **The four-hop chain** is `.tip` (which block) → `.tim` (which term) → `.doc`
-  (which documents) → `.fdt` (the text). Collapsing the first and last hop —
+  (which ordinals) → `.fdt` (the text). Collapsing the first and last hop —
   reading `.tip` as "points at the document" — is the natural mistake, and it was
-  the first thing a reader got wrong. A "you are here" strip listing all four
-  used to sit pinned above the zoom to head that off; it was removed as clutter.
-  The `.tip → .tim → .doc` hops are still visible where they do work: the split's
-  "in memory · .tip" / "on disk · .tim" headers, and the expanded block rows
-  naming each term's `.doc` pointer.
+  the first thing a reader got wrong. The tile grid is the answer to it (see
+  "Inside a segment" above): every hop is a tile the tour visits in order, and
+  the last one is visibly NOT visited until the fetch phase. The expanded block
+  rows name each term's real `.doc` address, which is the address the postings
+  tile then opens at.
 - **Depth that isn't the lesson belongs elsewhere.** The block tree, prefix
   compression and the terms→blocks mapping are all true and all modelled, but as
   steps they buried the FST. Blocks appear in the dictionary zoom only as the
@@ -650,12 +747,16 @@ Documented so reviewers can verify the teaching stays honest:
 - Routing is a deterministic string hash standing in for murmur3 `_routing`.
 - **Toy constants in the on-disk zooms.** The real algorithms run, but scaled so
   the structure fits on one screen: `.tim` blocks hold 2–4 entries instead of
-  Lucene's 25–48. This is documented here rather than surfaced in the zoom: the
-  deep panel is kept free of cost lines and badges, so no on-screen number in it
-  may be read as a saving ratio (the ~2× on screen badly understates Lucene's
-  ~30×). This is the ONLY simplification at that level — the FST, the block tree,
-  floor blocks, prefix compression and the DFA intersection — glob and
-  Levenshtein alike — are all modeled for real.
+  Lucene's 25–48, and `.fdt` chunks hold `FDT_CHUNK_MAX` (4) docs instead of
+  Lucene's byte-sized chunks. This is documented here rather than surfaced in
+  the zoom: the deep panel is kept free of cost lines and badges, so no on-screen
+  number in it may be read as a saving ratio (the ~2× on screen badly
+  understates Lucene's ~30×). These are the ONLY simplifications at that level —
+  the FST, the block tree, floor blocks, prefix compression and the DFA
+  intersection — glob and Levenshtein alike — are all modeled for real, and the
+  postings tile shows real ordinals and frequencies (only the file ENCODING is
+  left out, deliberately — see above). `.doc` and `.fdt` file offsets are
+  fake-but-stable, like the `.tim` block pointers.
 - **Fuzzy expansion is not blended.** Elasticsearch's default rewrite blends the
   document frequencies of the expanded terms and boosts by edit distance; here
   each matched term is scored on its own frequencies, so a close match and a

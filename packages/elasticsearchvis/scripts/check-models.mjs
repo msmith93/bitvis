@@ -12,6 +12,7 @@
 //   3. Fuzziness.AUTO switches where Elasticsearch says it does
 //   4. the automaton PICTURE describes the automaton that actually ran
 //   5. the intersection trace's two cursors agree with the walk they describe
+//   8. the postings and stored-fields tiles say what the levels above say
 //
 // Dependency-free and node-only. The app's imports are extensionless (Vite
 // resolves them), so a small loader hook below does the same for node.
@@ -53,6 +54,12 @@ const { buildTermIndex, fstSeek, seekTrace } = await import(SRC + 'blocktree.js'
 const { ANY, compileAutomaton, intersectTrace } = await import(SRC + 'automaton.js')
 const { buildBlock, OBJECT_MAPPING, makeMapping } = await import(SRC + 'mapping.js')
 const { scoreDoc, computeShardSearch, localSearchSteps } = await import(SRC + 'ops/search.js')
+const searchOp = (await import(SRC + 'ops/search.js')).default
+const { computeCoordinatorMerge } = await import(SRC + 'ops/search.js')
+const { segmentInvertedIndex } = await import(SRC + 'invertedIndex.js')
+const { buildPostings, postingsWalk } = await import(SRC + 'postings.js')
+const { buildStoredFields, locateInShard, FDT_CHUNK_MAX } = await import(SRC + 'storedFields.js')
+const { initialCluster, docRoute } = await import(SRC + 'cluster.js')
 const W = await import(SRC + 'wildcard.js')
 
 let failures = 0
@@ -756,6 +763,148 @@ section('7 · object vs nested mapping')
       roots.size === 2 && [...roots].sort().join(',') === 'doc-2,doc-5',
       `roots: [${[...roots]}]`,
     )
+  }
+}
+
+// ---------------------------------------------------------------------------
+section('8 · the postings and stored-fields tiles agree with the levels above')
+// The segment close-up's last two tiles draw src/postings.js and
+// src/storedFields.js. A posting is an ORDINAL with a FREQUENCY; the ordinal
+// must be the doc's index in seg.docIds (cluster.js's definition) and the
+// frequency the count scoreDoc uses — otherwise the tile animates numbers the
+// shard close-up above it would contradict. The stored-fields rows are
+// addressed by that same ordinal, the root is the LAST row of its block, and
+// only a root carries _source. And the fetch close-up's resolution of a winner
+// to (segment, ordinal) has to land on exactly one segment.
+// ---------------------------------------------------------------------------
+{
+  // The same seeding App.loadDataset does: blocks routed as the cluster routes
+  // them, ~3 segments per shard, every segment searchable.
+  function seed(source, mapping) {
+    const c = initialCluster()
+    const byShard = Object.fromEntries(c.shards.map((s) => [s.id, []]))
+    source.forEach((d, i) => {
+      const id = `doc-${i + 1}`
+      const { routing, ...fields } = d
+      const block = buildBlock(fields, { id, mapping, routing, shard: docRoute({ id, routing }) })
+      for (const ld of block) c.docs[ld.id] = ld
+      byShard[block[0].shard].push(block)
+    })
+    let seg = 1
+    for (const shard of c.shards) {
+      const blocks = byShard[shard.id]
+      const per = Math.max(2, Math.ceil(blocks.length / 3))
+      for (let j = 0; j < blocks.length; j += per)
+        shard.segments.push({
+          id: `seg-${seg++}`,
+          docIds: blocks.slice(j, j + per).flatMap((b) => b.map((ld) => ld.id)),
+          searchable: true,
+          committed: true,
+        })
+    }
+    return c
+  }
+  const SAMPLE = seed(SAMPLE_DOCS, OBJECT_MAPPING)
+  const NESTED = seed(CATALOG_DOCS, makeMapping(['variants']))
+  const CLUSTERS = [['sample', SAMPLE], ['catalog-nested', NESTED]]
+
+  // 1. postings: ordinal = index in seg.docIds, docFreq = list length, freq =
+  //    scoreDoc's per-term count, lists in ordinal order.
+  for (const [name, c] of CLUSTERS) {
+    let bad = []
+    let n = 0
+    for (const shard of c.shards)
+      for (const seg of shard.segments) {
+        const rows = segmentInvertedIndex(seg, c.docs)
+        const p = buildPostings(seg, rows, c.docs)
+        for (const term of p.order) {
+          const list = p.byTerm.get(term)
+          if (list.docFreq !== list.entries.length) bad.push(`${seg.id} ${term}: docFreq`)
+          let prev = -1
+          for (const e of list.entries) {
+            n += 1
+            if (seg.docIds[e.ord] !== e.id) bad.push(`${seg.id} ${term}: ord ${e.ord} ≠ ${e.id}`)
+            if (e.ord <= prev) bad.push(`${seg.id} ${term}: not in ordinal order`)
+            prev = e.ord
+            if (/[*?~:\s]/.test(term)) continue
+            const sc = scoreDoc(c.docs[e.id], W.parseQuery(term))
+            if ((sc.perTerm[term] ?? 0) !== e.freq) bad.push(`${seg.id} ${term}@${e.id}: freq ${e.freq} vs scoreDoc ${sc.perTerm[term]}`)
+          }
+        }
+        if (p.total !== rows.reduce((k, r) => k + r.docIds.length, 0)) bad.push(`${seg.id}: total`)
+      }
+    check(`${name}: every posting is (ordinal in seg.docIds, scoreDoc's frequency), lists in ordinal order (${n} postings)`,
+      bad.length === 0, bad.slice(0, 5).join('; '))
+  }
+
+  // 2. the walk the postings step replays for "search" on shard 0 is the 4/3/2/1
+  //    docs the top-k demo is tuned on, in ordinal order across segments.
+  {
+    const shard0 = SAMPLE.shards[0]
+    const got = []
+    for (const seg of shard0.segments) {
+      const p = buildPostings(seg, segmentInvertedIndex(seg, SAMPLE.docs), SAMPLE.docs)
+      const w = postingsWalk(p, ['search'])
+      check(`${seg.id}: postingsWalk("search") has units = docFreq and one entry per posting`,
+        w.units === (p.byTerm.get('search')?.docFreq ?? 0) && w.order.length === w.units &&
+          w.order.every((e, i) => e.i === i))
+      for (const e of w.order) got.push(`${e.id}x${e.freq}`)
+    }
+    check('shard 0: the "search" lists carry the 4/3/2/1 frequencies',
+      ['doc-2x4', 'doc-11x3', 'doc-5x2', 'doc-8x1'].every((x) => got.includes(x)), got.join(' '))
+  }
+
+  // 3. stored fields: rows by ordinal, root last in its block, _source on roots
+  //    only, chunks partition the ordinals.
+  for (const [name, c] of CLUSTERS) {
+    let bad = []
+    for (const shard of c.shards)
+      for (const seg of shard.segments) {
+        const sf = buildStoredFields(seg, c.docs)
+        if (sf.maxDoc !== seg.docIds.length) bad.push(`${seg.id}: maxDoc`)
+        sf.rows.forEach((r, i) => {
+          if (r.ord !== i || r.id !== seg.docIds[i]) bad.push(`${seg.id}: row ${i} out of order`)
+          if (r.isRoot !== (r.source != null)) bad.push(`${seg.id}: _source on ${r.id} (${r.isRoot ? 'root' : 'child'})`)
+          if (!r.isRoot) {
+            // its root comes later, and no other block's row sits in between
+            const j = sf.rows.findIndex((x, k) => k > i && x.id === r.root)
+            if (j < 0) bad.push(`${seg.id}: child ${r.id} has no root after it`)
+            else if (sf.rows.slice(i, j).some((x) => x.root !== r.root)) bad.push(`${seg.id}: block of ${r.root} not contiguous`)
+          }
+          if (sf.chunks[r.chunk]?.ords.includes(r.ord) !== true) bad.push(`${seg.id}: row ${i} not in its chunk`)
+        })
+        const all = sf.chunks.flatMap((ch) => ch.ords)
+        if (all.length !== sf.maxDoc || all.some((o, i) => o !== i)) bad.push(`${seg.id}: chunks don't partition`)
+        if (sf.chunks.some((ch) => ch.ords.length > FDT_CHUNK_MAX || ch.ords.length === 0)) bad.push(`${seg.id}: chunk size`)
+      }
+    check(`${name}: stored-field rows are by ordinal, root last per block, _source on roots only, chunks partition`,
+      bad.length === 0, bad.slice(0, 5).join('; '))
+  }
+  {
+    const nestedChildren = NESTED.shards.flatMap((s) => s.segments).flatMap((seg) =>
+      buildStoredFields(seg, NESTED.docs).rows.filter((r) => !r.isRoot))
+    check('catalog-nested: the stored-fields tile has child rows to show as "nothing stored"', nestedChildren.length > 0)
+  }
+
+  // 4. the fetch close-up: every winner of the coordinator's cut resolves to
+  //    exactly one searchable segment of its shard, at the ordinal that holds it.
+  for (const [name, c, query] of [['sample', SAMPLE, 'search'], ['catalog-nested', NESTED, NESTED_QUERIES[2]]]) {
+    const search = searchOp.extra(c, { type: 'search', step: 4, payload: { query, routing: null } }).search
+    const co = computeCoordinatorMerge(search)
+    let bad = []
+    for (const [sid, ws] of Object.entries(co.byShard)) {
+      const shard = c.shards.find((s) => s.id === Number(sid))
+      if (!search.serving[sid]) bad.push(`shard ${sid} not serving`)
+      for (const w of ws) {
+        const at = locateInShard(shard, w.docId)
+        const holders = shard.segments.filter((seg) => seg.searchable && seg.docIds.includes(w.docId))
+        if (!at || holders.length !== 1 || holders[0] !== at.seg || at.seg.docIds[at.ord] !== w.docId)
+          bad.push(`${w.docId}: ${holders.length} holders, at=${at?.seg?.id}:${at?.ord}`)
+        if (!c.docs[w.docId] || (c.docs[w.docId].kind ?? 'root') !== 'root') bad.push(`${w.docId}: winner is not a block root`)
+      }
+    }
+    check(`${name} "${query}": ${co.winners.length} winners each resolve to one (segment, ordinal) on a serving shard`,
+      co.winners.length > 0 && bad.length === 0, bad.join('; '))
   }
 }
 

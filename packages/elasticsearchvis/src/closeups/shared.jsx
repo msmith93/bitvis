@@ -3,9 +3,10 @@ import { motion } from 'framer-motion'
 import { blockRange } from '../blocktree'
 
 // Small pieces shared by the on-disk close-up stages. These render the models in
-// src/blocktree.js, src/postings.js and src/automaton.js, so anything that
-// asserts a number here should be reading it from the model rather than being
-// written into copy.
+// src/blocktree.js and src/automaton.js (the postings and stored-fields tiles in
+// stages/segment.jsx render src/postings.js and src/storedFields.js), so
+// anything that asserts a number here should be reading it from the model
+// rather than being written into copy.
 
 // Reveal `total` units, one every `ms`, while `on` — the stepped replay every
 // on-disk stage uses (FST arcs, in-block suffix rows, postings walks, DFA
@@ -33,6 +34,28 @@ export function useReveal(on, total, ms, rest = total) {
   return n
 }
 
+// Bring `target` (a selector) into view inside the segment close-up's tile
+// panel — the scroller a dived-into tile sits in. Deferred a frame: the tile
+// body's effect fires the instant the camera reports it has landed, which can
+// still be a hair before the spring has settled or the content has laid out,
+// and measuring then scrolls by the wrong amount (or by nothing). `centre`
+// scrolls only when the target is outside the box, and centres it there.
+export function scrollTileTo(from, target, { centre = false } = {}) {
+  const el = from?.closest?.('.seg-tile-panel')
+  if (!el) return
+  const id = requestAnimationFrame(() => {
+    const t = typeof target === 'string' ? el.querySelector(target) : target
+    if (!t) return
+    const r = t.getBoundingClientRect()
+    const b = el.getBoundingClientRect()
+    if (centre) {
+      if (r.top >= b.top && r.bottom <= b.bottom) return
+      el.scrollTop += r.top - b.top - b.height / 2 + r.height / 2
+    } else el.scrollTop += r.top - b.top - 12
+  })
+  return () => cancelAnimationFrame(id)
+}
+
 // ---------------------------------------------------------------------------
 // .tim — the block tree
 // ---------------------------------------------------------------------------
@@ -47,8 +70,9 @@ export function useReveal(on, total, ms, rest = total) {
 // `expandedFps` opens blocks in place on the read step — the ones whose rows got
 // compared — with `scans` (fp → a blockScan-shaped {rows}) driving the per-row
 // reveal, ordered by `revealed` (a GLOBAL counter: rows carry their own `order`
-// when several blocks replay in sequence).
-export function BlockColumn({ index, focusFp, expandedFps, loadedFps, scans, revealed }) {
+// when several blocks replay in sequence). `postings` (src/postings.js) lets an
+// opened row print the real .doc address its term points at.
+export function BlockColumn({ index, focusFp, expandedFps, loadedFps, scans, revealed, postings }) {
   const reached = (fp) => (loadedFps ? loadedFps.has(fp) : fp === focusFp)
   const anyReached = !!loadedFps || focusFp != null
   return (
@@ -75,7 +99,7 @@ export function BlockColumn({ index, focusFp, expandedFps, loadedFps, scans, rev
             </div>
             {expanded && (
               <div className="cu-bcol-open">
-                <SuffixBlock block={b} scan={scans?.get(b.fp)} revealed={revealed} />
+                <SuffixBlock block={b} scan={scans?.get(b.fp)} revealed={revealed} postings={postings} />
               </div>
             )}
           </div>
@@ -93,8 +117,9 @@ export { hex as hexAddr }
 // actually read them and stop where it stopped. A row may carry its own `order`
 // (a global position across several blocks replaying in sequence); rows without
 // one are ordered as they come, which is what a single-block scan wants.
-export function SuffixBlock({ block, scan, revealed = Infinity }) {
+export function SuffixBlock({ block, scan, revealed = Infinity, postings }) {
   const readIx = new Map((scan?.rows || []).map((r, i) => [r.i, { ...r, order: r.order ?? i }]))
+  const untouched = scan ? block.entries.length - readIx.size : 0
   return (
     <div className="cu-suffix-block">
       <div className="cu-suffix-head">
@@ -116,6 +141,18 @@ export function SuffixBlock({ block, scan, revealed = Infinity }) {
           )}
         </span>
       </div>
+      {/* Why the greyed rows are grey. A block scan is a linear walk in sorted
+          order that stops at the term or at the first entry past it (Lucene's
+          scanToTermLeaf), so the rows below the stop are never compared — and
+          without saying so the picture reads as "all four were checked", which
+          is what the row count beneath it would then contradict. */}
+      {scan && untouched > 0 && (
+        <div className="cu-suffix-note">
+          the scan stops at the first entry that matches or sorts past the term — the{' '}
+          <b>{untouched}</b> row{untouched === 1 ? '' : 's'} below it{' '}
+          {untouched === 1 ? 'is' : 'are'} never compared
+        </div>
+      )}
       <div className="cu-suffix-rows">
         {block.entries.map((e, i) => {
           const r = readIx.get(i)
@@ -141,7 +178,11 @@ export function SuffixBlock({ block, scan, revealed = Infinity }) {
               {e.kind === 'term' ? (
                 <>
                   <span className="cu-suffix-cell meta">docFreq {e.docFreq}</span>
-                  <span className="cu-suffix-cell meta dim">→ .doc</span>
+                  {/* The hop the next tile opens at: the term's posting list
+                      lives at this address in .doc. */}
+                  <span className="cu-suffix-cell meta dim">
+                    → .doc{postings?.byTerm.get(e.term) ? ` ${hex(postings.byTerm.get(e.term).fp)}` : ''}
+                  </span>
                 </>
               ) : (
                 <span className="cu-suffix-cell meta sub">

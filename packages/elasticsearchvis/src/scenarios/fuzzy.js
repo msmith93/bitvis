@@ -21,6 +21,13 @@
 // second one unclickable; that is why descending two zoom levels is two steps.
 import { reviewResults } from './shared'
 
+// The segment panel's own step list is overview · walk · read · found ·
+// postings · done (stages/segment.jsx). The walk is at 1 and the spell-out —
+// the payoff — at 3; documented here rather than asserted, like the wildcard
+// scenario's PANEL_WALK, because the stage is .jsx the model check can't import.
+const PANEL_WALK = 1
+const PANEL_FOUND = 3
+
 const STEPS = [
   {
     id: 'welcome',
@@ -87,8 +94,26 @@ const STEPS = [
     title: 'And one level deeper — this is the one',
     waitFor: (s) => s.closeUpKind === 'shard',
     holdPanel: true,
-    body: 'Click the 🔍 next to the segment’s name. Two structures come up side by side, and both live in memory: the term index on the left, and “within one edit of serch” compiled into states on the right.',
-    advanceOn: (s) => s.closeUpKind === 'dictionary',
+    body: 'Click the 🔍 next to the segment’s name. The segment opens as four tiles — its term index, its term blocks, its postings and its stored fields — and the first of them is where a typo gets resolved.',
+    advanceOn: (s) => s.closeUpKind === 'segment',
+  },
+  {
+    // The panel opens on its tile overview, and the two read-this tips that
+    // follow point at things INSIDE the first tile — so the reader dives in
+    // first. The press lands on the walk step in manual mode (sub 0), which is
+    // exactly where walk-it-yourself wants them. holdPanel keeps the clock off
+    // so the tour never dives on the reader's behalf.
+    id: 'dive',
+    target: '[data-seg-tile="fst"]',
+    placement: 'right',
+    noDim: true,
+    panelNext: true,
+    panelNextLabel: 'Dive into the term index ›',
+    title: 'Start with the term index',
+    body: 'The panel dives into one tile at a time, in the order a query reads them. Press the button to dive into the first. Two structures come up side by side, and both live in memory: the term index on the left, and “within one edit of serch” compiled into states on the right.',
+    waitFor: (s) => s.closeUpKind === 'segment',
+    advanceOn: (s) => s.closeUpKind !== 'segment' || s.closeUpStep >= PANEL_WALK,
+    holdPanel: true,
   },
   {
     // Spotlighted rather than a centered card, because a card's backdrop would
@@ -98,7 +123,7 @@ const STEPS = [
     placement: 'left',
     title: 'What the grid is telling you',
     body: 'Every state is (characters matched, edits spent). Going right is a character that was right and cost nothing; going down is an edit spent to accept a wrong, extra or missing one. When the walk runs, several will be lit at once — the machine cannot yet tell which reading of the word will pay off, so it keeps them all and lets the next character settle it.',
-    waitFor: (s) => s.closeUpKind === 'dictionary',
+    waitFor: (s) => s.closeUpKind === 'segment' && s.closeUpStep >= PANEL_WALK,
     cta: 'Got it',
   },
   {
@@ -110,7 +135,7 @@ const STEPS = [
     placement: 'right',
     title: 'And what to watch for over here',
     body: 'In a moment you will drive these two panels yourself, one decision at a time. Most arrows will light green, but some will turn RED and grey out everything behind them — prefixes the machine refused, with every term underneath skipped unread. That is a stronger claim than “it did not match”: given this prefix there is NO continuation it could still accept inside its budget, so the index never has to look. Watch where it does NOT happen, too — at the root, where the edit is unspent and any first character is acceptable. That is why a fuzzy still reads a good half of the dictionary.',
-    waitFor: (s) => s.closeUpKind === 'dictionary',
+    waitFor: (s) => s.closeUpKind === 'segment' && s.closeUpStep >= PANEL_WALK,
     cta: 'Got it',
   },
   {
@@ -141,14 +166,14 @@ const STEPS = [
     liveNarration: true,
     title: 'Now walk it yourself',
     body: 'Each press advances the walk one arc — the same character fed to the machine. The note below explains why.',
-    waitFor: (s) => s.closeUpKind === 'dictionary',
-    // Panel steps are index:0, walk:1, read:2, found:3. Three decisions is
-    // enough for every shard to have shown at least one prune (the first falls
-    // at decision 1 or 2 depending on the shard) — npm run check asserts it.
+    waitFor: (s) => s.closeUpKind === 'segment',
+    // Three decisions is enough for every shard to have shown at least one
+    // prune (the first falls at decision 1 or 2 depending on the shard) — npm
+    // run check asserts it.
     advanceOn: (s) =>
-      s.closeUpKind !== 'dictionary' ||
-      s.closeUpStep > 1 ||
-      (s.closeUpStep === 1 && s.closeUpSub >= 3),
+      s.closeUpKind !== 'segment' ||
+      s.closeUpStep > PANEL_WALK ||
+      (s.closeUpStep === PANEL_WALK && s.closeUpSub >= 3),
     holdPanel: true,
   },
   {
@@ -164,12 +189,12 @@ const STEPS = [
     liveNarration: true,
     title: 'Keep going — and watch one die',
     body: 'Keep stepping until an arrow turns RED and the grid empties to ∅. The note below will tell you exactly which readings were left and what each of them was waiting for.',
-    waitFor: (s) => s.closeUpKind === 'dictionary',
+    waitFor: (s) => s.closeUpKind === 'segment',
     // Six decisions puts at least two prunes on screen on every shard.
     advanceOn: (s) =>
-      s.closeUpKind !== 'dictionary' ||
-      s.closeUpStep > 1 ||
-      (s.closeUpStep === 1 && s.closeUpSub >= 6),
+      s.closeUpKind !== 'segment' ||
+      s.closeUpStep > PANEL_WALK ||
+      (s.closeUpStep === PANEL_WALK && s.closeUpSub >= 6),
     holdPanel: true,
   },
   {
@@ -177,37 +202,52 @@ const STEPS = [
     // would make the panel's ▶ Play a dead button. Manual stepping already
     // cleared `playing`, so nothing runs until the reader asks it to.
     id: 'let-it-finish',
-    target: '[data-tour="automaton"]',
-    // 'right' puts the tip in the empty margin beside the close-up. 'left' would
-    // land it squarely on the FST panel — the other half of the picture the
-    // step is asking the reader to watch.
+    // The panel's OWN stepper, not the automaton — and that is a constraint of
+    // the tile camera rather than a preference. This is the one step of the
+    // three that survives the camera leaving the term-index tile: the walk ends,
+    // the panel zooms out and dives into the blocks, and `[data-tour="automaton"]`
+    // unmounts with it. A tip whose target is gone renders nothing and waits
+    // (see useTargetRect in Walkthrough.jsx), so this step silently disappeared
+    // at exactly the moment it was describing. The mini-stepper is on screen in
+    // every tile, and it is also literally what the step is asking the reader to
+    // press.
+    target: '[data-tour="cu-stepper"]',
+    // 'right' puts the tip in the margin beside the close-up rather than over
+    // the picture it is describing.
     placement: 'right',
     noDim: true,
     panelNext: true,
     panelNextLabel: 'Take one step ›',
     liveNarration: true,
     title: 'Let the rest of it run',
-    body: 'Same move, thirty-odd more times, and then the blocks that survived get read. Keep stepping to read the running commentary, or press ▶ Play in the panel to let it finish on its own.',
-    waitFor: (s) => s.closeUpKind === 'dictionary',
-    advanceOn: (s) => s.closeUpKind !== 'dictionary' || s.closeUpStep >= s.closeUpLast,
+    body: 'Same move, thirty-odd more times. Then the walk is over, and the panel zooms back out to its tiles and dives into the blocks — the ones the arrows above did not rule out. Keep stepping to read the running commentary, or press ▶ Play to let it finish on its own.',
+    waitFor: (s) => s.closeUpKind === 'segment',
+    advanceOn: (s) => s.closeUpKind !== 'segment' || s.closeUpStep >= PANEL_FOUND,
   },
   {
     // THE payoff, and the step this scenario was missing. The arc walk consumes
     // block PREFIXES — one to three characters — so the grid can never reach its
     // right-hand column while it runs: it tops out around "3 of 5 matched" and
     // looks stuck, which is exactly what a reader reports as "it never gets
-    // to (5,1)". The word is finished on the panel's LAST step, when the block
-    // is read and its terms are completed one at a time, and that is the only
-    // view that lands on an accepting state.
+    // to (5,1)". The word is finished on the panel's FOUND step — the camera
+    // dives back into the term-index tile for it — when the block has been
+    // read and its terms are completed one at a time, and that is the only
+    // view that lands on an accepting state. The postings and done steps that
+    // follow are the same tour's tail; `held` parks the panel here.
     //
     // Waits for the panel's own stepper to arrive there (closeUpStep), because
     // pointing at the grid before the spell-out starts describes an empty
-    // right-hand column. Deliberately NOT held: App computes `held` as
-    // `cta && !advanceOn`, and the panel has already parked itself (its clock
-    // stops at the last step) while the spell-out reveal is gated on `active`
-    // rather than the clock — so the word finishes under the tip, which is the
-    // thing being pointed at. The advanceOn is the escape hatch for a reader
-    // who closes the panel instead.
+    // right-hand column. It IS held, and that is a change the tiles forced: the
+    // found step used to be the panel's last, so the panel parked itself there
+    // and the tip could sit on a stopped clock. Now postings and a closing
+    // overview follow it, so an unheld panel plays straight past the payoff —
+    // and since the camera leaves the term-index tile to do it, the automaton
+    // this tip points at unmounts and the tip silently disappears (a tip whose
+    // target is gone renders nothing; see useTargetRect in Walkthrough.jsx).
+    // Holding freezes the STEP clock only: the spell-out reveal is gated on the
+    // camera having landed, not on the clock, so the word still finishes under
+    // the tip. The advanceOn is the escape hatch for a reader who closes the
+    // panel instead.
     id: 'the-payoff',
     target: '[data-tour="automaton"]',
     // Beside the close-up rather than on top of the FST panel — the grid is the
@@ -217,9 +257,10 @@ const STEPS = [
     placement: 'right',
     noDim: true,
     liveNarration: true,
+    holdPanel: true,
     title: 'Watch it finish the word',
-    body: 'The walk above only ever ate block PREFIXES — a character or three — which is why the grid never got near its right-hand edge and looked stuck partway across. The rest of the word is spelled out now, here on the last step, as the block is read and its terms are completed one at a time. Follow the lit states rightwards: “search” lands on an ACCEPTING state, five characters matched for one edit spent, and that is where the verdict actually comes from.',
-    waitFor: (s) => s.closeUpKind === 'dictionary' && s.closeUpStep >= s.closeUpLast,
+    body: 'The walk above only ever ate block PREFIXES — a character or three — which is why the grid never got near its right-hand edge and looked stuck partway across. The rest of the word is spelled out now, back on this tile, as the block that was read has its terms completed one at a time. Follow the lit states rightwards: “search” lands on an ACCEPTING state, five characters matched for one edit spent, and that is where the verdict actually comes from. Press Got it, then let the panel play on: the terms it just accepted are the ones whose posting lists get read next.',
+    waitFor: (s) => s.closeUpKind === 'segment' && s.closeUpStep >= PANEL_FOUND,
     advanceOn: (s) => s.closeUpDepth === 0,
     cta: 'Got it',
   },

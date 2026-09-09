@@ -7,35 +7,38 @@ import {
   intersectTrace,
 } from '../../automaton'
 import { parsePattern, patternLabel } from '../../wildcard'
-import { AUTOMATON_STEP_MS, BLOCK_READ_MS, CU_DWELL_MS } from '../../timing'
+import { AUTOMATON_STEP_MS, BLOCK_READ_MS } from '../../timing'
 import {
   ArcGraph,
   AutomatonGrid,
   BlockColumn,
   hexAddr,
+  scrollTileTo,
   useReveal,
 } from '../shared'
 
-// The deepest zoom, and deliberately a narrow one: how the index finds what a
+// The term-dictionary half of the segment close-up: how the index finds what a
 // query is asking for without holding the term dictionary in memory.
 //
-// This is ONE PICTURE, not a slide deck. The structures are all on screen for
-// every step; a step only changes what is lit up on them. The same approach
-// coordMerge.jsx takes with its persistent grid, and for the same reason: the
-// layout is the lesson.
+// This module is no longer a stage of its own. `stages/segment.jsx` owns the
+// panel — four tiles (term index, term blocks, postings, stored fields) and a
+// camera that dives into one at a time — and this file supplies the first two
+// tiles: `deriveDictionary` runs the models once per build, `FstTile` draws the
+// in-memory side (the .tip FST, the compiled query beside it in fuzzy mode, and
+// the walk readout) and `BlocksTile` the on-disk .tim strip with its scan. The
+// two used to sit on one scroller as ONE PICTURE; that rule now holds within a
+// tile — a tile's content never swaps per step, a step only changes what is lit
+// on it and which tile the camera is on — and SPEC.md records the change.
 //
 // The SAME picture serves every kind of query, because a plain term is just the
 // degenerate case of a pattern — an automaton with exactly one acceptable
 // reading. Every mode drives ONE replay with one set of rules: green is an arc
 // the walk followed, red is one it refused on sight (with everything behind it
 // dimmed and skipped unread), and the cursor pans to the decision being made.
-// The geometry is one stack for every mode too — the split of in-memory
-// structures on top, the walk readout, then the .tim block column as a
-// full-width strip of what stays on disk:
 //
 //   term mode     the term's own automaton follows one path; one block is read.
 //                 The COST numbers come from seekTrace, not the intersection —
-//                 see the note in build().
+//                 see the note in deriveDictionary().
 //   pattern mode  the pattern's automaton follows some arcs and prunes others;
 //                 the surviving blocks are read.
 //   fuzzy mode    the same walk, but the automaton is DRAWN beside the FST and
@@ -45,7 +48,7 @@ import {
 // interesting question is which arcs survived, and the FST alone answers it. For
 // an edit-distance machine the interesting question is which (characters
 // matched, edits spent) states are still alive — a SET, changing every
-// character, that nothing in the FST can show you. So in fuzzy mode the split
+// character, that nothing in the FST can show you. So in fuzzy mode the tile
 // holds the two things that are actually in memory: the term index and the
 // compiled query. The RAM/disk distinction is still drawn, still labelled.
 //
@@ -54,37 +57,15 @@ import {
 // had its own visual language too (green node fills, a dashed dead-end stub);
 // that was folded into the one arc replay for the same reason.
 
-const STEPS = [
-  {
-    key: 'index',
-    title: '1 · A small index over a big dictionary',
-    blurb:
-      'Above is the whole term index, and it lives in memory. Beneath it are the blocks of terms, and they stay on disk. The point of the thing in memory is to avoid reading the things on disk — because at real scale the dictionary is far too large to keep resident.',
-  },
-  {
-    key: 'walk',
-    title: '2 · Follow the query through the index',
-    blurb: null, // set per mode in build()
-  },
-  {
-    key: 'read',
-    title: '3 · Only what survives leaves the disk',
-    blurb: null,
-  },
-  {
-    key: 'found',
-    title: '4 · What that bought you',
-    blurb: null,
-  },
-]
-
+// The per-mode copy for the dictionary steps. segment.jsx owns the step list
+// (overview · walk · read · found · postings · done) and looks these up by key.
 const TERM_BLURBS = {
   walk:
     'One exact term is the simplest machine there is: at every node, precisely one arrow can still spell it. Watch that arrow light green and every sibling die red on sight — nothing behind a red arrow is ever looked at. Whenever the walk lands on a node carrying an address, it remembers it: the last block that could still contain the term. All of this happens in memory.',
   read:
     'The arrows ran out, so the address the walk was carrying is the answer: the only block that can hold this term. It is read, and its rows are scanned in order. Every other block below is untouched.',
   found:
-    'The row gives the term, how many documents contain it, and where its posting list starts in .doc. Note what never happened: the terms themselves were never loaded. The index that found it is the small graph above, and it never left memory.',
+    'The row gives the term, how many documents contain it, and where its posting list starts in .doc — the address the next tile is opened at. Note what never happened: the dictionary itself was never loaded. The index that found the row is the small graph in memory, and it never left it.',
 }
 
 const PATTERN_BLURBS = {
@@ -93,7 +74,7 @@ const PATTERN_BLURBS = {
   read:
     'Only the blocks the walk actually reached are read. Everything greyed out below was eliminated by the walk above — not by a shortcut or a guess, but because the pattern provably cannot match anything inside it.',
   found:
-    'The terms that survived are the expansion: from here the wildcard is an ordinary OR over them. And the cost was decided entirely by where the pattern let the walk go.',
+    'The terms that survived are the expansion: from here the wildcard is an ordinary OR over them — one posting list per term, read next. And the cost was decided entirely by where the pattern let the walk go.',
 }
 
 const FUZZY_BLURBS = {
@@ -107,9 +88,11 @@ const FUZZY_BLURBS = {
     'One thing the walk above could not show you: it only ever consumed BLOCK PREFIXES, a character or three, so it never reached the right-hand edge of the grid. The word gets finished here, when the block is read — watch the machine spell out the rest of the term it matched and land on an accepting state. That is where the verdict actually comes from. And note what it compared to get there: spelling. It has no idea what any of these words mean.',
 }
 
-const BLURBS = { term: TERM_BLURBS, pattern: PATTERN_BLURBS, fuzzy: FUZZY_BLURBS }
+export const DICT_BLURBS = { term: TERM_BLURBS, pattern: PATTERN_BLURBS, fuzzy: FUZZY_BLURBS }
 
-export function build({ shard, segId, rows, term, patterns, anchor }) {
+// Everything the two dictionary tiles draw, derived once per build. Pure apart
+// from the models it calls; segment.jsx hands the result to the tiles as props.
+export function deriveDictionary({ shard, segId, rows, term, patterns }) {
   const index = buildTermIndex(rows)
   const pattern = patterns?.find((p) => p.kind !== 'term') ?? null
   const mode = pattern ? (pattern.kind === 'fuzzy' ? 'fuzzy' : 'pattern') : 'term'
@@ -136,9 +119,9 @@ export function build({ shard, segId, rows, term, patterns, anchor }) {
   // reach an accepting state on its own; on this data `serch~` never gets past
   // "3 characters matched" of 5. The word is finished later, when a block is
   // read and its terms are tested one by one, and THAT is where the machine
-  // lands on the right-hand column and accepts. Step 4 replays it for the term
-  // that matched, because otherwise the grid looks stuck partway across and the
-  // reader is left wondering how it ever decided anything.
+  // lands on the right-hand column and accepts. The found step replays it for
+  // the term that matched, because otherwise the grid looks stuck partway across
+  // and the reader is left wondering how it ever decided anything.
   const matched = pattern ? hits.visits.find((v) => v.action === 'accept') ?? null : null
 
   // Which visits the walk step replays: every arc DECISION, followed or pruned.
@@ -149,110 +132,86 @@ export function build({ shard, segId, rows, term, patterns, anchor }) {
   // One replay, one set of rules, whatever the query.
   const walkVisits = hits.visits.filter((v) => v.action === 'follow' || v.action === 'prune')
 
-  const units = Math.max(1, walkVisits.length)
-  const tick = AUTOMATON_STEP_MS
-
   // What the read step opens and replays, per mode — see buildReads.
   const reads = buildReads(index, mode, trace, hits)
 
-  const steps = STEPS.map((s) => ({
-    ...s,
-    blurb: BLURBS[mode][s.key] ?? s.blurb,
-  }))
-  const at = Object.fromEntries(steps.map((s, i) => [s.key, i]))
-  const dwell = (i) => {
-    // Floored: a follows-only pattern walk can be three arcs long, which would
-    // otherwise hurry the step past its own blurb.
-    if (i === at.walk) return Math.max(CU_DWELL_MS, Math.min(units, 40) * tick + 900)
-    if (i === at.read) return Math.max(CU_DWELL_MS, Math.min(reads.rowUnits, 40) * BLOCK_READ_MS + 900)
-    if (i === at.found && mode === 'fuzzy' && matched)
-      return Math.max(CU_DWELL_MS, matched.path.steps.length * tick + 1200)
-    return CU_DWELL_MS
-  }
-  // How many sub-units each step's replay has — what the mini-stepper's
-  // Prev/Next scrub through one at a time. Same shape as `dwell`: a fresh
-  // closure on every re-derive, so the shell must not put it in a dep array.
-  const stepUnits = (i) => {
-    if (i === at.walk) return units
-    if (i === at.read) return reads.rowUnits
-    if (i === at.found && mode === 'fuzzy' && matched) return matched.path.steps.length
-    return 1
-  }
+  // The terms this segment resolved the query to: what the postings tile walks.
+  const matchedTerms =
+    mode === 'term' ? (trace.found ? [trace.meta.term] : []) : [...hits.matched].sort()
 
-  const looking = mode === 'term' ? `“${term}”` : `“${pattern.raw}”`
   return {
-    key: `dictionary-${shard.id}-${segId}-${mode === 'term' ? term : pattern.raw}`,
-    title: (
-      <>
-        {segId} · the term index
-        <span className="si-sub"> — finding {looking} without loading the dictionary</span>
-      </>
-    ),
-    sub: `${segId} · .tip in memory, .tim on disk`,
-    steps,
-    dwell,
-    units: stepUnits,
-    // What is happening RIGHT NOW, for a guided step that walks the reader
-    // through the intersection. Fuzzy only: it is the automaton beside the
-    // index that makes "why did it go that way" answerable at all.
-    narrate:
-      mode === 'fuzzy'
-        ? (i, subAt) => {
-            if (i === at.walk) {
-              const n = subAt ?? walkVisits.length
-              return n <= 0
-                ? sayStart(dfa)
-                : sayDecision(dfa, walkVisits[n - 1], walkVisits[n - 2] ?? null)
-            }
-            if (i === at.read) {
-              const n = subAt ?? reads.order.length
-              const row = reads.order[Math.max(0, n - 1)]
-              if (!row) return null
-              return {
-                kind: row.hit ? 'accept' : 'follow',
-                text:
-                  (n <= 1
-                    ? `Only the ${hits.blocksLoaded} of ${hits.blocksTotal} blocks the walk ` +
-                      `reached come off the disk; the rest died with the arrows above. Their ` +
-                      `terms are now tested one at a time. `
-                    : '') +
-                  `${q(row.term)} — ` +
-                  `${row.hit ? 'within one edit of the query, so it matches' : 'more than one edit away, so it does not'}.`,
-              }
-            }
-            if (i === at.found && matched) {
-              const steps = matched.path.steps
-              const n = Math.max(1, Math.min(subAt ?? steps.length, steps.length))
-              const st = steps[n - 1]
-              const done = n >= steps.length
-              const x = explainDecision(dfa, { dfaFrom: st.from, dfaTo: st.to, label: st.ch })
-              return {
-                kind: done ? (matched.path.accepts ? 'accept' : 'prune') : 'follow',
-                text:
-                  (n <= 1
-                    ? `The arc walk only ate block prefixes — ${q(matched.path.prefix)} — so the ` +
-                      `word is finished here, against the block that was read. `
-                    : '') +
-                  `Feeding ${q(st.ch)} of ${q(matched.term)}: ` +
-                  // sayWhy opens a sentence; here it continues one.
-                  (x ? sayWhy(x).charAt(0).toLowerCase() + sayWhy(x).slice(1) : '') +
-                  (done
-                    ? matched.path.accepts
-                      ? ` That is the last character, and the machine lands on an ACCEPTING state — ` +
-                        `${q(matched.term)} is within one edit of the query. This is the only view ` +
-                        `that ever reaches the right-hand column.`
-                      : ` That is the last character, and no accepting state was reached.`
-                    : ` ${matched.path.rest.length - n} to go.`),
-              }
-            }
-            return null
-          }
-        : null,
-    source: anchor,
-    className: 'cu-panel',
-    Stage: DictionaryStage,
-    stageProps: { index, mode, trace, hits, dfa, pattern, term, at, tick, walkVisits, matched, reads },
+    index,
+    mode,
+    pattern,
+    term,
+    dfa,
+    hits,
+    trace,
+    matched,
+    walkVisits,
+    units: Math.max(1, walkVisits.length),
+    tick: AUTOMATON_STEP_MS,
+    reads,
+    matchedTerms,
+    blurbs: DICT_BLURBS[mode],
+    looking: mode === 'term' ? `“${term}”` : `“${pattern.raw}”`,
   }
+}
+
+// What is happening RIGHT NOW, for a guided step that walks the reader through
+// the intersection. Fuzzy only: it is the automaton beside the index that makes
+// "why did it go that way" answerable at all. `at` maps step keys to indices.
+export function narrateDictionary(d, at, i, subAt) {
+  if (d.mode !== 'fuzzy') return null
+  const { dfa, walkVisits, reads, hits, matched } = d
+  if (i === at.walk) {
+    const n = subAt ?? walkVisits.length
+    return n <= 0
+      ? sayStart(dfa)
+      : sayDecision(dfa, walkVisits[n - 1], walkVisits[n - 2] ?? null)
+  }
+  if (i === at.read) {
+    const n = subAt ?? reads.order.length
+    const row = reads.order[Math.max(0, n - 1)]
+    if (!row) return null
+    return {
+      kind: row.hit ? 'accept' : 'follow',
+      text:
+        (n <= 1
+          ? `Only the ${hits.blocksLoaded} of ${hits.blocksTotal} blocks the walk ` +
+            `reached come off the disk; the rest died with the arrows above. Their ` +
+            `terms are now tested one at a time. `
+          : '') +
+        `${q(row.term)} — ` +
+        `${row.hit ? 'within one edit of the query, so it matches' : 'more than one edit away, so it does not'}.`,
+    }
+  }
+  if (i === at.found && matched) {
+    const steps = matched.path.steps
+    const n = Math.max(1, Math.min(subAt ?? steps.length, steps.length))
+    const st = steps[n - 1]
+    const done = n >= steps.length
+    const x = explainDecision(dfa, { dfaFrom: st.from, dfaTo: st.to, label: st.ch })
+    return {
+      kind: done ? (matched.path.accepts ? 'accept' : 'prune') : 'follow',
+      text:
+        (n <= 1
+          ? `The arc walk only ate block prefixes — ${q(matched.path.prefix)} — so the ` +
+            `word is finished here, against the block that was read. `
+          : '') +
+        `Feeding ${q(st.ch)} of ${q(matched.term)}: ` +
+        // sayWhy opens a sentence; here it continues one.
+        (x ? sayWhy(x).charAt(0).toLowerCase() + sayWhy(x).slice(1) : '') +
+        (done
+          ? matched.path.accepts
+            ? ` That is the last character, and the machine lands on an ACCEPTING state — ` +
+              `${q(matched.term)} is within one edit of the query. This is the only view ` +
+              `that ever reaches the right-hand column.`
+            : ` That is the last character, and no accepting state was reached.`
+          : ` ${matched.path.rest.length - n} to go.`),
+    }
+  }
+  return null
 }
 
 // The read step, folded into one shape for every mode: which blocks open in
@@ -426,38 +385,21 @@ function sayStart(dfa) {
   }
 }
 
-function DictionaryStage({
-  step,
-  sub,
-  active,
-  index,
-  mode,
-  trace,
-  hits,
-  dfa,
-  pattern,
-  term,
-  at,
-  tick,
-  walkVisits,
-  matched,
-  reads,
-}) {
-  // One counter per replay. `sub` is the mini-stepper's manual position: when
-  // it is non-null the user is scrubbing, each reveal's `on` goes false and it
-  // parks at the end (useReveal's off-semantics, same as behind a nested zoom)
-  // while the view reads `sub` instead.
+// The in-memory tile: the .tip FST (and, for a fuzzy, the compiled query beside
+// it) with the walk readout beneath. `live` is true only while the camera has
+// landed on this tile and the panel is the active close-up — a replay that ran
+// while the tile was still springing in would be half over before it could be
+// seen. `sub` is the mini-stepper's manual position: when it is non-null the
+// user is scrubbing, each reveal's `on` goes false and it parks at the end
+// (useReveal's off-semantics) while the view reads `sub` instead.
+export function FstTile({ d, step, sub, live, at }) {
+  const { index, mode, trace, hits, dfa, pattern, term, tick, walkVisits, matched } = d
   const total = walkVisits.length
-  const walked = useReveal(step === at.walk && active && sub == null, total, tick)
-  const rows = useReveal(
-    step === at.read && active && sub == null,
-    reads.rowUnits,
-    BLOCK_READ_MS,
-  )
-  // Step 4, fuzzy: the machine finishing the word it matched, one character at
-  // a time, until it lands on an accepting state.
+  const walked = useReveal(step === at.walk && live && sub == null, total, tick)
+  // The found step, fuzzy: the machine finishing the word it matched, one
+  // character at a time, until it lands on an accepting state.
   const spelledClock = useReveal(
-    step === at.found && active && mode === 'fuzzy' && !!matched && sub == null,
+    step === at.found && live && mode === 'fuzzy' && !!matched && sub == null,
     matched?.path.steps.length ?? 0,
     tick,
   )
@@ -465,7 +407,6 @@ function DictionaryStage({
   const walking = step >= at.walk
   const reading = step >= at.read
   const shown = step === at.walk ? (sub ?? walked) : Infinity
-  const rowsShown = step === at.read ? (sub ?? rows) : Infinity
   const spelled = sub ?? spelledClock // only read on the found step
 
   // What the picture highlights: ONE replay for every mode. The walk lights the
@@ -527,121 +468,128 @@ function DictionaryStage({
   let lev = null
   if (mode === 'fuzzy' && walking) {
     if (step === at.walk) lev = levView(dfa, revealed)
-    else if (matched && step === at.found) lev = levTermView(dfa, matched, spelled)
+    else if (matched && step >= at.found) lev = levTermView(dfa, matched, spelled)
     else lev = levBlockView(dfa, hits)
   }
 
-  // Bring each step's subject into view. The FST panel is capped at 340px but
-  // now spans the full width in every mode, so the .tim blocks start below the
-  // fold — and the read step is precisely the one whose lesson is which of them
-  // left the disk. Same rule as ArcGraph's pan to the cursor: instant, and only
-  // when the STEP changes, so it never fights the reader's own scrolling.
-  const scrollRef = useRef(null)
-  useEffect(() => {
-    const el = scrollRef.current
-    if (!el || !active) return
-    const to = (target) => {
-      if (!target) return
-      el.scrollTop += target.getBoundingClientRect().top - el.getBoundingClientRect().top - 12
-    }
-    if (step === at.read || (step === at.found && mode !== 'fuzzy'))
-      to(el.querySelector('.cu-bcol-item.expanded') ?? el.querySelector('.cu-disk-strip'))
-    // Fuzzy's payoff is the grid up in the split; every other mode's is the
-    // block that was read, which stays on screen from the read step on.
-    else el.scrollTo({ top: 0, behavior: 'auto' })
-  }, [step, active, at.read, at.found, mode])
+  return (
+    <>
+      <div className={'cu-split' + (mode === 'fuzzy' ? ' fuzzy' : '')}>
+        <section className="cu-side ram" data-tour="fst">
+          <header className="cu-side-head">
+            <span className="cu-side-title">in memory · .tip</span>
+            <span className="cu-side-sub">the term index</span>
+          </header>
 
-  const focusFp = mode === 'term' && walking ? trace.block?.fp ?? null : null
+          <ArcGraph fst={index.fst} index={index} {...arcProps} />
+
+          <footer className="cu-side-foot">
+            <b>{index.fst.fstStates}</b> states ·{' '}
+            <b>{index.fst.states.reduce((n, s) => n + s.arcs.length, 0)}</b> arcs
+            <i>never leaves memory</i>
+          </footer>
+        </section>
+        {mode === 'fuzzy' && (
+          <section className="cu-side ram" data-tour="automaton">
+            <header className="cu-side-head">
+              <span className="cu-side-title">in memory · the query</span>
+              <span className="cu-side-sub">{patternLabel(pattern)}</span>
+            </header>
+            <AutomatonGrid
+              grid={dfa.grid}
+              pattern={pattern}
+              live={lev?.live}
+              entered={lev?.entered}
+              taken={lev?.taken}
+              dead={!!lev?.dead}
+            />
+            <footer className="cu-side-foot">
+              <b>{dfa.states.length}</b> states after determinizing
+              <i>never leaves memory</i>
+            </footer>
+          </section>
+        )}
+      </div>
+
+      <WalkReadout
+        mode={mode}
+        lev={lev}
+        pattern={pattern}
+        dfa={dfa}
+        walking={walking}
+        done={step > at.walk}
+        hits={hits}
+        trace={trace}
+        term={term}
+        index={index}
+        visits={revealed}
+      />
+    </>
+  )
+}
+
+// The on-disk tile: every .tim block as a strip, the one(s) the walk reached
+// opened in place on the read step with their rows replayed in scan order, and
+// the walk's totals beneath. `postings` (src/postings.js) lets an opened row
+// name the real .doc address its term points at — the hop the next tile opens.
+export function BlocksTile({ d, step, sub, live, at, postings }) {
+  const { index, mode, trace, hits, dfa, pattern, term, reads } = d
+  const rows = useReveal(step === at.read && live && sub == null, reads.rowUnits, BLOCK_READ_MS)
+  const reading = step >= at.read
+  const rowsShown = step === at.read ? (sub ?? rows) : Infinity
+
+  // Bring the opened block into view once the tile has landed: the strip can be
+  // longer than the tile, and the read step's lesson is which block left the
+  // disk. Instant, and only on a step change, so it never fights the reader.
+  const ref = useRef(null)
+  useEffect(() => {
+    if (!live || !reading) return
+    return scrollTileTo(ref.current, '.cu-bcol-item.expanded')
+  }, [step, live, reading])
+
+  const focusFp = mode === 'term' ? trace.block?.fp ?? null : null
   const loadedFps =
     mode !== 'term' && reading
       ? new Set(hits.visits.filter((v) => v.action === 'load').map((v) => v.fp))
       : null
 
-  const fstSide = (
-    <section className="cu-side ram" data-tour="fst">
-      <header className="cu-side-head">
-        <span className="cu-side-title">in memory · .tip</span>
-        <span className="cu-side-sub">the term index</span>
-      </header>
-
-      <ArcGraph fst={index.fst} index={index} {...arcProps} />
-
-      <footer className="cu-side-foot">
-        <b>{index.fst.fstStates}</b> states ·{' '}
-        <b>{index.fst.states.reduce((n, s) => n + s.arcs.length, 0)}</b> arcs
-        <i>never leaves memory</i>
-      </footer>
-    </section>
-  )
-
-  const diskSide = (
-    <section className="cu-side disk cu-disk-strip">
-      <header className="cu-side-head">
-        <span className="cu-side-title">on disk · .tim</span>
-        <span className="cu-side-sub">
-          {index.blocks.length} blocks
-          {reading && <> · {mode === 'term' ? trace.blocksRead : hits.blocksLoaded} read</>}
-        </span>
-      </header>
-
-      <BlockColumn
-        index={index}
-        focusFp={focusFp}
-        expandedFps={reading ? reads.expandedFps : null}
-        loadedFps={loadedFps}
-        scans={reads.scans}
-        revealed={rowsShown}
-      />
-    </section>
-  )
-
-  // ONE geometry for every mode: the in-memory structures in the split on top
-  // (the automaton panel beside the FST is the only fuzzy-specific piece), the
-  // walk readout, then the .tim strip of what stays on disk. The layout changes
-  // with the MODE, never with the step.
   return (
     <>
-      <div className="si-scroll cu-scroll" ref={scrollRef}>
-        <div className={'cu-split' + (mode === 'fuzzy' ? ' fuzzy' : '')}>
-          {fstSide}
-          {mode === 'fuzzy' && (
-            <section className="cu-side ram" data-tour="automaton">
-              <header className="cu-side-head">
-                <span className="cu-side-title">in memory · the query</span>
-                <span className="cu-side-sub">{patternLabel(pattern)}</span>
-              </header>
-              <AutomatonGrid
-                grid={dfa.grid}
-                pattern={pattern}
-                live={lev?.live}
-                entered={lev?.entered}
-                taken={lev?.taken}
-                dead={!!lev?.dead}
-              />
-              <footer className="cu-side-foot">
-                <b>{dfa.states.length}</b> states after determinizing
-                <i>never leaves memory</i>
-              </footer>
-            </section>
-          )}
-        </div>
+      <section className="cu-side disk cu-disk-strip" ref={ref}>
+        <header className="cu-side-head">
+          <span className="cu-side-title">on disk · .tim</span>
+          <span className="cu-side-sub">
+            {index.blocks.length} blocks
+            {reading && <> · {mode === 'term' ? trace.blocksRead : hits.blocksLoaded} read</>}
+          </span>
+        </header>
 
+        <BlockColumn
+          index={index}
+          focusFp={focusFp}
+          expandedFps={reading ? reads.expandedFps : null}
+          loadedFps={loadedFps}
+          scans={reads.scans}
+          revealed={rowsShown}
+          postings={postings}
+        />
+      </section>
+
+      {reading && (
         <WalkReadout
           mode={mode}
-          lev={lev}
+          lev={null}
           pattern={pattern}
           dfa={dfa}
-          walking={walking}
-          done={step > at.walk}
+          walking
+          done
           hits={hits}
           trace={trace}
           term={term}
           index={index}
-          visits={revealed}
+          visits={[]}
         />
-
-        {diskSide}
-      </div>
+      )}
     </>
   )
 }

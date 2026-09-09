@@ -2,13 +2,22 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { NODES, SHARD_PLACEMENT, COORDINATOR, shardsOnNode } from '../cluster'
 import { PEEK_OPEN_MS, PEEK_CLOSE_MS } from '../timing'
+import { fetchShards } from '../closeups'
 import DocPeek from './DocPeek'
 
 const copyKey = (shard, role) => `${shard}:${role}`
 
 // The centre stage: a coordinator/request bar on top, then the 3-node cluster.
 // Highlights and badges are driven by the current operation + step.
-export default function ClusterStage({ cluster, extra, op, playing, onZoom, onCoordZoom }) {
+export default function ClusterStage({
+  cluster,
+  extra,
+  op,
+  playing,
+  onZoom,
+  onCoordZoom,
+  onFetchZoom,
+}) {
   const type = op?.type
   const step = op?.step ?? -1
   const inflight = extra.inflight
@@ -59,6 +68,9 @@ export default function ClusterStage({ cluster, extra, op, playing, onZoom, onCo
       for (const h of hits) matched.add(`${sid}:${h.docId}`)
   }
   const servingRole = (sid) => search?.serving?.[sid]?.role
+  // The fetch phase asks only the shards holding a winner of the cut — the same
+  // slice SearchFlight flies its GET _source to.
+  const fetching = type === 'search' && step === 4 && search ? fetchShards(search) : {}
 
   // Suppress the in-flight doc on the replica copy until it has been replicated.
   const suppressId =
@@ -143,7 +155,9 @@ export default function ClusterStage({ cluster, extra, op, playing, onZoom, onCo
                   matched={matched}
                   isServing={isServing}
                   scanning={isServing && step === 2}
+                  fetching={isServing && !!fetching[shard]}
                   onZoom={onZoom}
+                  onFetchZoom={onFetchZoom}
                   mergeSelecting={
                     type === 'merge' && step === 0 && extra.merge?.shards.includes(shard)
                   }
@@ -169,7 +183,9 @@ function ShardCard({
   matched,
   isServing,
   scanning,
+  fetching,
   onZoom,
+  onFetchZoom,
   mergeSelecting,
   peekProps,
 }) {
@@ -203,6 +219,16 @@ function ShardCard({
             }
             title="Zoom into this shard's local search"
             onClick={() => onZoom?.(shard.id)}
+          >
+            🔍
+          </button>
+        )}
+        {fetching && (
+          <button
+            className="magnify-btn"
+            data-tour="fetch-magnify"
+            title="Zoom into this shard's fetch: the winners' _source read off disk"
+            onClick={() => onFetchZoom?.(shard.id)}
           >
             🔍
           </button>
