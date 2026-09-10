@@ -19,6 +19,7 @@ import {
   SHARD_PLACEMENT,
 } from './cluster'
 import { lastStep, OP_LABELS, opDocs, opNote, stepsFor } from './ops'
+import { SEARCH_SIZE } from './constants'
 import { useOpLifecycle } from './useOpLifecycle'
 import ClusterStage from './components/ClusterStage'
 import IndexOverlay from './components/IndexOverlay'
@@ -401,7 +402,15 @@ export default function App() {
   function startSearch() {
     if (!canSearch) return
     setResultsPhase('pending')
-    start('search', { query: query.trim(), routing: routing.trim() || null })
+    // `from` / `size` are the query's result window. Elasticsearch gives every
+    // shard the same `from + size` it will cut the merged list to, so they ride
+    // on the payload rather than living as separate display caps.
+    start('search', {
+      query: query.trim(),
+      routing: routing.trim() || null,
+      from: 0,
+      size: SEARCH_SIZE,
+    })
   }
 
   // Seed a ready-to-search cluster directly from a list of docs: route each one,

@@ -129,7 +129,7 @@ export default function ClusterStage({
               {node.id === COORDINATOR &&
                 type === 'search' &&
                 (step === 3 || step === 4) &&
-                search?.merged.length > 0 && (
+                search?.totalHits > 0 && (
                   <button
                     className="magnify-btn coord"
                     data-tour="coord-magnify"

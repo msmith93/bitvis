@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { MAX_GATHER_IDS, MAX_FETCH_WINNERS } from '../constants'
+import { MAX_GATHER_IDS } from '../constants'
 import FlyingTokens, { selectorRect } from './tokenFlight'
+import { computeCoordinatorMerge } from '../ops/search'
 import { FETCH_REQUEST_MS } from '../timing'
 
 const truncate = (s, n = 24) => (s && s.length > n ? s.slice(0, n - 1) + '…' : s || '—')
@@ -55,7 +56,7 @@ export default function SearchFlight({ op, search, docs }) {
           next.push({ key: `${sig}-${id}`, from: coord, to, tokens: termTokens })
       }
     } else if (step === 3) {
-      for (const [id, hits] of Object.entries(search.perShard)) {
+      for (const [id, hits] of Object.entries(search.returned)) {
         if (!hits.length) continue
         const from = servingRect(id)
         if (!from || !coord) continue
@@ -67,8 +68,7 @@ export default function SearchFlight({ op, search, docs }) {
         next.push({ key: `${sig}-${id}`, from, to: coord, tokens })
       }
     } else if (step === 4) {
-      const byShard = {}
-      for (const w of search.merged.slice(0, MAX_FETCH_WINNERS)) (byShard[w.shard] ||= []).push(w)
+      const { byShard } = computeCoordinatorMerge(search)
       for (const [id, ws] of Object.entries(byShard)) {
         const from = servingRect(id)
         if (!from || !coord) continue

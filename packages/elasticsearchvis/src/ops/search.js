@@ -1,5 +1,5 @@
 import { docRootId, routeShard, selectServingCopy } from '../cluster'
-import { MAX_GATHER_IDS, MAX_FETCH_WINNERS, LOCAL_TOPK } from '../constants'
+import { MAX_GATHER_IDS, SEARCH_SIZE } from '../constants'
 import { segmentInvertedIndex } from '../invertedIndex'
 import { FETCH_REQUEST_MS, flightMs, FLIGHT_PAD_MS } from '../timing'
 import {
@@ -172,6 +172,12 @@ function dictionaryCost(shards, docs, patterns) {
 function computeSearch(cluster, op) {
   const patterns = parseQuery(op.payload.query)
   const routing = op.payload.routing || null
+  // The result window, exactly as a real query carries it. Elasticsearch sizes
+  // each shard's priority queue at `from + size` AND cuts the merged list to the
+  // same window, so this one number drives both ends of query-then-fetch.
+  const from = op.payload.from ?? 0
+  const size = op.payload.size ?? SEARCH_SIZE
+  const window = from + size
   // A routing key hashes to exactly one shard — the only shard that can hold a
   // doc indexed with that key, so it is the only shard worth asking.
   const routedShard = routing ? routeShard(routing) : null
@@ -181,7 +187,8 @@ function computeSearch(cluster, op) {
       : cluster.shards.filter((s) => s.id === routedShard)
 
   const serving = {} // shardId -> { node, role }   (queried shards only)
-  const perShard = {} // shardId -> [{ docId, score }]
+  const perShard = {} // shardId -> [{ docId, score }]  every local match
+  const returned = {} // shardId -> [{ docId, score }]  the top `window` it SENDS
   // What the query actually had to look at: Lucene docs, against the
   // Elasticsearch documents they add up to. Identical on a flat dataset; on a
   // nested one the first number is the multiplier, and it is paid on every query.
@@ -215,11 +222,23 @@ function computeSearch(cluster, op) {
     const hits = joinToRoots(luceneHits, cluster.docs)
     hits.sort((a, b) => b.score - a.score || a.docId.localeCompare(b.docId))
     perShard[shard.id] = hits
+    // A shard answers with its local top `from + size` and nothing else — the
+    // rest never leaves it. `perShard` is kept whole because the stage still
+    // highlights every matching doc, and the shard close-up's eviction demo is
+    // only a lesson if the losers are visibly matches.
+    returned[shard.id] = hits.slice(0, window)
   }
 
-  const merged = Object.entries(perShard)
+  // The coordinator only ever sees what the shards sent: at most
+  // numShards * (from + size) candidates, however many actually matched.
+  const merged = Object.entries(returned)
     .flatMap(([sid, hits]) => hits.map((h) => ({ ...h, shard: Number(sid) })))
     .sort((a, b) => b.score - a.score || a.docId.localeCompare(b.docId))
+
+  // `hits.total` is every matching document, summed across shards — NOT the size
+  // of the returned window. (`track_total_hits` is not modelled: at this scale
+  // the count is always exact, so a cap would be a control that never fires.)
+  const totalHits = Object.values(perShard).reduce((n, hits) => n + hits.length, 0)
 
   return {
     terms: patterns.map((p) => p.raw), // display strings (patterns kept verbatim)
@@ -234,8 +253,14 @@ function computeSearch(cluster, op) {
     rootsScanned,
     cost: dictionaryCost(queried, cluster.docs, patterns),
     serving,
+    from,
+    size,
+    window,
     perShard,
+    returned,
     merged,
+    totalHits,
+    maxScore: merged.length ? merged[0].score : null,
   }
 }
 
@@ -246,15 +271,15 @@ function searchFlightSize(search, step) {
   if (step === 0 || step === 1) return search.terms.length // query / fan-out flights
   if (step === 3) {
     // one flight per shard with hits, up to MAX_GATHER_IDS id chips each
-    const sizes = Object.values(search.perShard).map((hits) =>
+    const sizes = Object.values(search.returned).map((hits) =>
       Math.min(hits.length, MAX_GATHER_IDS),
     )
     return Math.max(0, ...sizes)
   }
   if (step === 4) {
-    // top winners grouped by shard, one flight per shard
+    // the window's winners grouped by shard, one flight per shard
     const byShard = {}
-    for (const w of search.merged.slice(0, MAX_FETCH_WINNERS))
+    for (const w of computeCoordinatorMerge(search).winners)
       byShard[w.shard] = (byShard[w.shard] || 0) + 1
     return Math.max(0, ...Object.values(byShard))
   }
@@ -521,23 +546,26 @@ export const COORD_MERGE_STEPS = [
 // use the same slice + grouping as SearchFlight's fetch step so the close-up
 // always agrees with the main stage. A routed query simply arrives with one
 // shard's list instead of three.
-export function computeCoordinatorMerge(search, n = MAX_FETCH_WINNERS) {
-  const arrivals = Object.entries(search.perShard).map(([sid, hits]) => ({
+export function computeCoordinatorMerge(search) {
+  const from = search.from ?? 0
+  const size = search.size ?? SEARCH_SIZE
+  // The lanes show what each shard SENT, which is already its local top window.
+  const arrivals = Object.entries(search.returned).map(([sid, hits]) => ({
     shard: Number(sid),
     ...search.serving[sid],
     hits,
   }))
-  const winners = search.merged.slice(0, n)
-  const cut = search.merged.slice(n)
+  const winners = search.merged.slice(from, from + size)
+  const cut = [...search.merged.slice(0, from), ...search.merged.slice(from + size)]
   const byShard = {}
   for (const w of winners) (byShard[w.shard] ||= []).push(w)
-  return { arrivals, merged: search.merged, winners, cut, byShard, n }
+  return { arrivals, merged: search.merged, winners, cut, byShard, from, size, n: size }
 }
 
 // The shard-local query phase, as data for the inspector's stepped close-up. Pure
 // like computeSearch, and uses the SAME scoring as computeSearch so the numbers
 // here match the cluster-level results panel.
-export function computeShardSearch(shard, patterns, docs, k = LOCAL_TOPK) {
+export function computeShardSearch(shard, patterns, docs, k = SEARCH_SIZE) {
   const segments = shard.segments
     .filter((seg) => seg.searchable)
     .map((seg) => {

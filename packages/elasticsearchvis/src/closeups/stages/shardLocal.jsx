@@ -14,7 +14,6 @@ import {
   INSPECTOR_FLIGHT_PAD_MS,
   QUERY_SCAN_MS,
 } from '../../timing'
-import { LOCAL_TOPK } from '../../constants'
 import { useReveal } from '../shared'
 import { AnatomyCard, DocChip } from '../anatomy'
 
@@ -37,7 +36,7 @@ import { AnatomyCard, DocChip } from '../anatomy'
 // budget can be computed without rendering. Pure.
 function deriveShardLocal({ shard, search, docs }) {
   const patterns = search.patterns
-  const local = computeShardSearch(shard, patterns, docs, LOCAL_TOPK)
+  const local = computeShardSearch(shard, patterns, docs, search.window)
   // Does this shard actually hold nested blocks? Only then is there a join to
   // draw — on flat data every Lucene doc is already its own document.
   const blocks = shard.segments.some(

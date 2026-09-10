@@ -6,8 +6,9 @@
 // Gather phase: at most this many doc-id chips fly per shard.
 export const MAX_GATHER_IDS = 6
 
-// Fetch phase: full _source flies only for the top winners of the merged ranking.
-export const MAX_FETCH_WINNERS = 5
-
-// Shard-local priority-queue size in the close-up (real Lucene default is 10).
-export const LOCAL_TOPK = 3
+// The query's default `size`. Elasticsearch sizes a shard's priority queue at
+// exactly `from + size` and the coordinator returns that same window, so this is
+// ONE number for both ends of query-then-fetch — not a shard cap and a separate
+// fetch cap. It rides on the search op's payload (App.jsx's startSearch), which
+// is where a real query carries it.
+export const SEARCH_SIZE = 3

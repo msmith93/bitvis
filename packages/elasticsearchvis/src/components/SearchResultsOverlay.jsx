@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { MAX_FETCH_WINNERS } from '../constants'
+import { computeCoordinatorMerge } from '../ops/search'
 import { SourceField, sourceEntries } from './sourceView'
 
 // What the client actually gets back once a search op has run its scatter-gather
-// to completion: the true hit count plus the top MAX_FETCH_WINNERS ranked
-// results (the only ones the fetch phase pulled full _source for), each row
-// expandable to the document's `_source`. Built from the SAME `search`
-// (extra.search) the results panel already renders, so this can never disagree
-// with what the stage just showed happening.
+// to completion: the true hit count plus the query's result window (the only
+// hits the fetch phase pulled full _source for), each row expandable to the
+// document's `_source`. Built from the SAME `search` (extra.search) the results
+// panel already renders, so this can never disagree with what the stage just
+// showed happening.
 //
 // The row body is `_source` — the original JSON, returned verbatim and IDENTICAL
 // under `object` and `nested` mapping (sub-objects paired either way). The
@@ -23,12 +23,12 @@ export default function SearchResultsOverlay({ open, query, search, docs, onClos
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
 
-  const merged = open && search ? search.merged : null
-  // The fetch phase only pulled full _source for the top winners of the merged
-  // ranking (MAX_FETCH_WINNERS), so those are the only hits the client actually
-  // gets back — the summary still reports the true total that matched.
-  const hits = merged ? merged.slice(0, MAX_FETCH_WINNERS) : null
-  const total = merged ? merged.length : 0
+  // The fetch phase only pulled full _source for the coordinator's window, so
+  // those are the only hits the client actually gets back. `totalHits` is the
+  // separate count of everything that matched — `merged` is now just the
+  // candidates the shards sent, so its length is NOT the total.
+  const hits = open && search ? computeCoordinatorMerge(search).winners : null
+  const total = open && search ? search.totalHits : 0
 
   return (
     <AnimatePresence>

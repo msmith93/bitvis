@@ -906,6 +906,56 @@ section('8 · the postings and stored-fields tiles agree with the levels above')
     check(`${name} "${query}": ${co.winners.length} winners each resolve to one (segment, ordinal) on a serving shard`,
       co.winners.length > 0 && bad.length === 0, bad.join('; '))
   }
+
+  // 5. ONE result window. A shard's priority queue is sized at `from + size` and
+  //    the coordinator cuts the merged list to the SAME window — the two used to
+  //    be separate constants (3 and 5) on code paths that never met, so a doc
+  //    the shard close-up showed being evicted still reached the response.
+  //    `totalHits` is the count of everything that matched, which is NOT
+  //    `merged.length` any more: merged only holds what the shards sent.
+  for (const [name, c, query, size] of [
+    ['sample', SAMPLE, 'search', undefined],
+    ['sample size=1', SAMPLE, 'search', 1],
+    ['catalog-nested', NESTED, NESTED_QUERIES[2], undefined],
+  ]) {
+    const payload = { query, routing: null, ...(size == null ? {} : { from: 0, size }) }
+    const search = searchOp.extra(c, { type: 'search', step: 4, payload }).search
+    const co = computeCoordinatorMerge(search)
+    const win = search.window
+
+    const overflow = Object.entries(search.returned).filter(([, hits]) => hits.length > win)
+    check(`${name}: no shard returns more than from + size (${win})`,
+      overflow.length === 0,
+      overflow.map(([sid, h]) => `shard ${sid} sent ${h.length}`).join('; '))
+
+    check(`${name}: the coordinator returns at most size (${search.size}), got ${co.winners.length}`,
+      co.winners.length <= search.size)
+
+    const sent = new Set(Object.values(search.returned).flat().map((h) => h.docId))
+    const strays = co.winners.filter((w) => !sent.has(w.docId))
+    check(`${name}: every winner was actually sent by a shard`,
+      strays.length === 0, strays.map((w) => w.docId).join(' '))
+
+    const summed = Object.values(search.perShard).reduce((n, h) => n + h.length, 0)
+    check(`${name}: totalHits (${search.totalHits}) counts every match, not the window`,
+      search.totalHits === summed && search.totalHits >= search.merged.length)
+
+    check(`${name}: winners + cut partition the merged candidates`,
+      co.winners.length + co.cut.length === search.merged.length)
+
+    // The identity this bug was: the shard close-up and the cluster model must
+    // agree on what a shard sends, though they get there by different code.
+    const drift = []
+    for (const [sid, hits] of Object.entries(search.returned)) {
+      const shard = c.shards.find((s) => s.id === Number(sid))
+      const local = computeShardSearch(shard, search.patterns, c.docs, win)
+      const a = local.topk.map((h) => h.docId).join(',')
+      const b = hits.map((h) => h.docId).join(',')
+      if (a !== b) drift.push(`shard ${sid}: close-up [${a}] vs model [${b}]`)
+    }
+    check(`${name}: the shard close-up's top-k IS what the model says the shard sent`,
+      drift.length === 0, drift.join('; '))
+  }
 }
 
 console.log()
