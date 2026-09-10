@@ -144,6 +144,64 @@ export const SAMPLE_DOCS = [
   { title: 'Monitoring a cluster', body: 'watch heap pressure, queue depth and merge throughput to spot trouble early.' },
 ]
 
+// A deliberately LARGE set — 128 documents — whose only job is to overflow the
+// query's `size`. Every document contains the term "search" (and most contain
+// "data" / "lucene" / "cluster"), so a plain `search` or a fuzzy `seearch~`
+// matches far more than the default size of 3 on every shard: the per-shard
+// priority-queue eviction AND the coordinator's final cut are both obvious,
+// which they are not on the 32-doc set above. Generated rather than
+// hand-written — the point is volume and shared vocabulary, not curated prose —
+// and referenced by nothing in the scenarios or scripts/check-models.mjs.
+const LARGE_TOPICS = [
+  ['Distributed search', 'a search request fans out to every shard and the partial results merge into one ranked list'],
+  ['Inverted index', 'an inverted index maps each term to the documents that contain it, which is what makes search fast'],
+  ['Lucene segments', 'Lucene keeps searchable data in immutable segments built from an inverted index'],
+  ['Refresh and visibility', 'a refresh turns buffered writes into a new searchable segment about a second after they arrive'],
+  ['Translog durability', 'the translog records every write so a crash can replay the operations a search has not seen yet'],
+  ['Segment merging', 'merging folds many small segments into fewer large ones and drops the documents marked deleted'],
+  ['Relevance scoring', 'BM25 ranks each document by term frequency and inverse document frequency before the top hits return'],
+  ['Priority queue', 'each shard keeps only its highest-scoring hits in a small priority queue and evicts the rest'],
+  ['Query then fetch', 'the query phase collects ids and scores from every shard, then the fetch phase pulls the winning documents'],
+  ['Coordinating node', 'a coordinating node fans the search out, gathers the replies and merges them into one page'],
+  ['Routing keys', 'a routing key sends every related document to the same shard so a search can go straight there'],
+  ['Replica allocation', 'replicas are placed on different nodes so a search still succeeds when one node fails'],
+  ['Analyzers and tokens', 'an analyzer lowercases the text and splits it into the tokens a search will look up'],
+  ['Field mappings', 'a mapping declares whether a field is text, keyword, date or numeric, which changes how search treats it'],
+  ['Bulk indexing', 'a bulk request batches many documents into one round trip so the data is searchable sooner'],
+  ['Aggregations', 'aggregations summarise millions of rows without returning them, alongside the search hits'],
+  ['Filter caching', 'a filter cache remembers which documents matched a clause so a repeated search stays cheap'],
+  ['Shard sizing', 'oversharding wastes heap while undersharding limits how much a search can parallelise'],
+  ['Index lifecycle', 'a lifecycle policy rolls an index over, shrinks it, then deletes the oldest data from search'],
+  ['Snapshot and restore', 'a snapshot copies segments to a repository so the searchable data can be restored later'],
+  ['Ingest pipelines', 'an ingest pipeline enriches a document before it is written and becomes searchable'],
+  ['Circuit breakers', 'a circuit breaker rejects a search that would exhaust the heap rather than let the node crash'],
+  ['Near real time', 'a document becomes searchable about a second after it is indexed, not the instant it is written'],
+  ['Doc values', 'doc values store a column of a field on disk for sorting and aggregating the search results'],
+  ['Highlighting', 'highlighting marks the query terms inside each document the search returns'],
+  ['Pagination', 'from and size page through a search result one window at a time'],
+  ['Search after', 'search after walks deep result sets a page at a time without holding a cursor open'],
+  ['Text versus keyword', 'a text field is analysed for search while a keyword field matches the whole value exactly'],
+  ['Cluster health', 'green, yellow and red describe how many shards are allocated to serve search and store data'],
+  ['Shard rebalancing', 'the allocator moves shards between nodes to keep disk and search load even across the cluster'],
+  ['Term dictionary', 'each segment sorts its terms so a prefixed search can seek straight to the range it needs'],
+  ['Fuzzy matching', 'a fuzzy search matches every term within an edit distance of the query, not just the exact one'],
+]
+const LARGE_CLOSERS = [
+  'search runs on every shard, then the coordinator merges what each one sent back',
+  'the same search term turns up in segments across all three shards',
+  'search scales out as nodes are added to the cluster',
+  'a search is analysed, looked up per segment, then scored against the inverted index',
+  'only the top hits of a search survive the priority queue on each shard',
+  'search reads the data in immutable segments and never blocks a write',
+]
+export const LARGE_SAMPLE_DOCS = Array.from({ length: 128 }, (_, i) => {
+  const [name, lead] = LARGE_TOPICS[i % LARGE_TOPICS.length]
+  return {
+    title: `${name} (${i + 1})`,
+    body: `${lead}; ${LARGE_CLOSERS[i % LARGE_CLOSERS.length]}.`,
+  }
+})
+
 // A second sample set for the routing scenario: every document carries an
 // explicit routing key, so the shard comes from hash(routing) instead of
 // hash(_id) — which is why all of a tenant's data ends up co-located on one
@@ -316,6 +374,16 @@ export const DATASETS = [
     blurb: 'The same 12 products with variants mapped nested — every variant becomes its own hidden Lucene doc.',
     docs: CATALOG_DOCS,
     mapping: ['variants'],
+    colorBy: (d, i) => i,
+  },
+  // Volume, on purpose: enough matches per shard that the default size of 3
+  // truncates the results at both the shard and the coordinator, where the
+  // 32-doc set leaves every shard's queue under the limit.
+  {
+    id: 'large-sample',
+    label: 'Larger sample docs',
+    blurb: '128 documents about search — every shard holds far more than the default size of 3, so the top-hits cut is visible.',
+    docs: LARGE_SAMPLE_DOCS,
     colorBy: (d, i) => i,
   },
 ]

@@ -199,7 +199,12 @@ which lets the stepper scrub any operation forwards and backwards.
   4 — `stages/shardFetch.jsx`, which turns each id back into a segment +
   ordinal), and `segment` (inside one segment, nested under `shard` or
   `fetch`, with `phase: 'query' | 'fetch'`). **Adding a zoom = one module plus
-  one case in the registry.** Three things to respect:
+  one case in the registry.** A `steps` entry is `{ key, title, blurb }` plus an
+  optional `link: { label, url }`, rendered under the blurb by the shared
+  `components/DocLinks.jsx` (the same component App's "What's happening" panel
+  uses for `opDocs`). It is for a step that has to admit a simplification and
+  owes the real story a pointer — `search.js`'s `topk` step and WAND are the
+  case it exists for; don't scatter it. Three things to respect:
   - App holds ONE `closeUps` array (the stack, innermost last), not a flag per
     zoom. Only the top is `active`: the shell runs a clock only for it, and stages
     read `active` to park their own timers (that is how the shard stage's probe

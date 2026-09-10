@@ -355,7 +355,7 @@ function ResultsLane({ step, at, local, docs, revealed }) {
     intersect: 'Every clause must hit the same Lucene doc',
     join: 'Lucene docs → Elasticsearch documents',
     score: 'Score each candidate (term-frequency stand-in)',
-    topk: `Top-k priority queue (k = ${local.k}, a min-heap)`,
+    topk: `Top hits priority queue (size = ${local.size}, a min-heap)`,
     return: 'Local top hits → coordinator',
   }
 
@@ -439,8 +439,8 @@ function ResultsLane({ step, at, local, docs, revealed }) {
   if (mode === 'candidates') items = local.candidates.map((id) => ({ docId: id }))
   else if (mode === 'score') items = local.scored
   else if (mode === 'topk') {
-    items = local.scored.slice(0, local.k)
-    evicted = local.scored.slice(local.k)
+    items = local.scored.slice(0, local.size)
+    evicted = local.scored.slice(local.size)
   } else items = local.topk
 
   return (

@@ -31,6 +31,7 @@ import Stepper from './components/Stepper'
 import CookieBanner from './components/CookieBanner'
 import HomeLink from './components/HomeLink'
 import MobileWarning from './components/MobileWarning'
+import DocLinks from './components/DocLinks'
 import Walkthrough from './components/Walkthrough'
 import ScenarioPicker from './components/ScenarioPicker'
 import ThemeToggle from './components/ThemeToggle'
@@ -135,6 +136,7 @@ export default function App() {
   const [nestedPath, setNestedPath] = useState(false)
   const [query, setQuery] = useState(EXAMPLE_QUERIES[0])
   const [routing, setRouting] = useState('') // optional _routing on the search
+  const [searchSize, setSearchSize] = useState(SEARCH_SIZE) // result-window `size`, advanced
 
   // Which seeded dataset is seeded, if any. Scenarios read this to detect the
   // load click they scripted and advance rather than stalling. Cleared on Reset.
@@ -409,7 +411,7 @@ export default function App() {
       query: query.trim(),
       routing: routing.trim() || null,
       from: 0,
-      size: SEARCH_SIZE,
+      size: Number(searchSize) || SEARCH_SIZE,
     })
   }
 
@@ -650,16 +652,38 @@ export default function App() {
                 ))}
             </div>
 
-            {/* Optional _routing on the query: hash this instead of scattering. */}
-            <div className="routing-row">
-              <label className="routing-label">routing key</label>
-              <input
-                type="text"
-                value={routing}
-                onChange={(e) => setRouting(e.target.value)}
-                placeholder="none — ask every shard"
-              />
-            </div>
+            {/* ---- advanced: routing key + result-window size ----
+                Collapsed by default: an ordinary search needs neither. Opens
+                itself once either has been set away from its default. */}
+            <details
+              className="adv"
+              open={!!routing.trim() || Number(searchSize) !== SEARCH_SIZE}
+            >
+              <summary>Advanced — routing &amp; size</summary>
+
+              {/* Optional _routing on the query: hash this instead of scattering. */}
+              <label className="field">
+                <span>routing key</span>
+                <input
+                  type="text"
+                  value={routing}
+                  onChange={(e) => setRouting(e.target.value)}
+                  placeholder="none — ask every shard"
+                />
+              </label>
+
+              {/* The result window. Every shard is given this same `from + size`
+                  and the coordinator cuts the merged list to it. */}
+              <label className="field">
+                <span>size</span>
+                <input
+                  type="number"
+                  min="1"
+                  value={searchSize}
+                  onChange={(e) => setSearchSize(e.target.value)}
+                />
+              </label>
+            </details>
           </div>
         </div>
 
@@ -824,22 +848,3 @@ function docOrder(id) {
   return Number.isNaN(n) ? 0 : n
 }
 
-// A short list of official-docs links under an explanation, for readers who want
-// to go past the walkthrough. Opens in a new tab — the simulation keeps its
-// state.
-function DocLinks({ title, links }) {
-  return (
-    <div className="explain-docs">
-      <span className="explain-docs-title">{title}</span>
-      <ul>
-        {links.map((l) => (
-          <li key={l.url}>
-            <a href={l.url} target="_blank" rel="noopener noreferrer">
-              {l.label}
-            </a>
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}

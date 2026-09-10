@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import Stepper from '../components/Stepper'
+import DocLinks from '../components/DocLinks'
 import { rectCenter, selectorRect } from '../components/tokenFlight'
 import { INSPECTOR_DWELL_MS } from '../timing'
 
@@ -216,6 +217,11 @@ function Panel({
         <div className="si-explain">
           <h4>{current.title}</h4>
           <p>{current.blurb}</p>
+          {/* A step may carry one `link: { label, url }` — further reading for
+              the reader standing in front of the thing it explains. Used where a
+              step has to admit a simplification and owes the real story a
+              pointer; the panel keeps its state, since the link opens a tab. */}
+          {current.link && <DocLinks title="Read more" links={[current.link]} />}
         </div>
 
         {/* The stage returns a FRAGMENT, so its pinned strips (.si-querybox) and

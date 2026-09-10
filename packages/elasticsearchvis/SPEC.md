@@ -782,6 +782,18 @@ Documented so reviewers can verify the teaching stays honest:
 - Primary + replica are modeled as one logical shard rendered on two nodes (no
   replica lag; replica merges shown in lockstep with the primary).
 - Relevance score is term-frequency, a stand-in for BM25.
+- **The shard scores EVERY match, then slices; Lucene prunes.** Real Lucene runs
+  WAND / Block-Max WAND: an upper bound per term (and per 128-doc block) is
+  compared against the priority queue's current lowest score, and documents that
+  cannot beat it are skipped without being scored. This app has no such pruning
+  and cannot honestly show it — the pruning lives on the GAP between a rare
+  term's bound and a common term's, and that gap is IDF, which the
+  term-frequency score above does not have. With tf alone the bounds run
+  BACKWARDS (a term in every document would carry the highest bound), so drawing
+  the algorithm would teach the opposite of the truth. The `topk` step therefore
+  names the simplification in its blurb and links Elastic's "Magic WAND" post
+  rather than animating it. Related: the `.doc` encoding zoom that would have
+  carried `advance`/skip-lists is removed above, and stays removed.
 - **A nested block's score SUMS its matching children.** Elasticsearch's nested
   query defaults to `score_mode: avg`; summing is chosen because it leaves a
   one-child block's score exactly what it was, which is what keeps the tuned

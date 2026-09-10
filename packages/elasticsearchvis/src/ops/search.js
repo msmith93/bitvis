@@ -398,8 +398,21 @@ const PLAIN_LOCAL_STEPS = [
   {
     key: 'topk',
     title: '5 · Keep the top hits',
+    // The one step whose SIMPLIFICATION is worth naming out loud. This app
+    // scores every candidate and then slices (computeSearch, above); Lucene
+    // prunes instead, and a reader who knows that is owed the reason this
+    // picture can't show it. The reason is the tf-only score: WAND's pruning
+    // lives on the GAP between a rare term's upper bound and a common term's,
+    // and that gap is IDF. Without it the bounds here run backwards — a term in
+    // every document would carry the highest bound — so an animation of the
+    // real algorithm would teach the opposite of the truth. Prose and a link,
+    // deliberately, rather than a zoom. See SPEC.md's flagged simplifications.
     blurb:
-      'A fixed-size priority queue keeps only the k highest-scoring docs; lower scores are evicted as better ones arrive. This is the shard’s local ranking.',
+      'A fixed-size priority queue keeps only the size highest-scoring docs; lower scores are evicted as better ones arrive. This is the shard’s local ranking. Scoring every candidate first, as this app does, is a simplification: real Lucene runs WAND / Block-Max WAND, which keeps an upper bound on what each term can still contribute, compares it against the queue’s current lowest score, and skips past documents that cannot beat it — so most matches are never scored at all. The pruning is driven by the gap between a rare term’s bound and a common term’s, which comes from BM25’s inverse document frequency; the term-frequency stand-in used here has no such spread, so nothing here could be pruned.',
+    link: {
+      label: 'Magic WAND: faster retrieval of top hits',
+      url: 'https://www.elastic.co/blog/faster-retrieval-of-top-hits-in-elasticsearch-with-block-max-wand',
+    },
   },
   {
     key: 'return',
@@ -565,7 +578,7 @@ export function computeCoordinatorMerge(search) {
 // The shard-local query phase, as data for the inspector's stepped close-up. Pure
 // like computeSearch, and uses the SAME scoring as computeSearch so the numbers
 // here match the cluster-level results panel.
-export function computeShardSearch(shard, patterns, docs, k = SEARCH_SIZE) {
+export function computeShardSearch(shard, patterns, docs, size = SEARCH_SIZE) {
   const segments = shard.segments
     .filter((seg) => seg.searchable)
     .map((seg) => {
@@ -629,7 +642,7 @@ export function computeShardSearch(shard, patterns, docs, k = SEARCH_SIZE) {
     }))
     .sort((a, b) => b.score - a.score || a.docId.localeCompare(b.docId))
 
-  const topk = scored.slice(0, k).map(({ docId, score }) => ({ docId, score }))
+  const topk = scored.slice(0, size).map(({ docId, score }) => ({ docId, score }))
   const matchedTerms = [...new Set(segments.flatMap((s) => s.scan.matched))].sort((a, b) =>
     a.localeCompare(b),
   )
@@ -646,7 +659,7 @@ export function computeShardSearch(shard, patterns, docs, k = SEARCH_SIZE) {
     joinRows,
     scored,
     topk,
-    k,
+    size,
     matchedTerms,
     examined,
     dictTotal,

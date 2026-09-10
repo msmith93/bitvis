@@ -165,6 +165,7 @@ label.field span {
   margin-bottom: 4px;
 }
 input[type='text'],
+input[type='number'],
 textarea {
   width: 100%;
   background: var(--panel);
@@ -1117,6 +1118,15 @@ textarea:focus {
   line-height: 1.5;
   color: var(--accent-soft);
   min-height: 4.5em;
+}
+/* .explain-docs is sized for the roomier App panel; inside the close-up's
+   explain box the same block reads as too much air. */
+.si-explain .explain-docs {
+  margin-top: 10px;
+  padding-top: 10px;
+}
+.si-explain .explain-docs a {
+  font-size: 12px;
 }
 .si-stage {
   min-height: 170px;
@@ -2184,22 +2194,6 @@ textarea:focus {
   line-height: 1.4;
 }
 
-/* ---------------- Routing controls ---------------- */
-.routing-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-}
-.routing-row input {
-  flex: 1;
-}
-.routing-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--muted);
-}
 .preset-chip.on {
   border-color: var(--accent-text);
   color: var(--text);
