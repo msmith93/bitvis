@@ -92,7 +92,9 @@ const STEPS = [
     // top-left corner would land on — nudge the tip clear so the 🔍 stays clickable.
     offset: { x: 40 },
     title: 'And one level deeper — this is the one',
-    waitFor: (s) => s.closeUpKind === 'shard',
+    // The segment 🔍 only shows once the shard panel is on the term-lookup step
+    // (through postings); wait for it to get there, then holdPanel freezes it.
+    waitFor: (s) => s.closeUpKind === 'shard' && s.closeUpStep >= 1,
     holdPanel: true,
     body: 'Click the 🔍 next to the segment’s name. The segment opens as four tiles — its term index, its term blocks, its postings and its stored fields — and the first of them is where a typo gets resolved.',
     advanceOn: (s) => s.closeUpKind === 'segment',

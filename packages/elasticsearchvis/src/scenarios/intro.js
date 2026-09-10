@@ -156,7 +156,7 @@ const STEPS = [
 
 export default {
   id: 'intro',
-  label: 'Guided intro tour',
+  label: 'Guided Intro Tour',
   blurb: 'Index a document, refresh it, and run your first scatter-gather search.',
   steps: STEPS,
   setup: (actions) => actions.reset(),

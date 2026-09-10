@@ -61,11 +61,11 @@ import {
 // (overview · walk · read · found · postings · done) and looks these up by key.
 const TERM_BLURBS = {
   walk:
-    'One exact term is the simplest machine there is: at every node, precisely one arrow can still spell it. Watch that arrow light green and every sibling die red on sight — nothing behind a red arrow is ever looked at. Whenever the walk lands on a node carrying an address, it remembers it: the last block that could still contain the term. All of this happens in memory.',
+    'We\'ll follow one exact term match as it traverses the term index. The term index is stored as a Finite State Transducer. Each node represents an address to a block of terms that all share the same prefix. Each step to the right of the root node represents one more letter in the shared prefix. Lucene walks along the tree until reaching an node that has no children extended from an edge representing the next letter in the term. At this point, the term address in the node is returned.',
   read:
-    'The arrows ran out, so the address the walk was carrying is the answer: the only block that can hold this term. It is read, and its rows are scanned in order. Every other block below is untouched.',
+    'The arrows ran out, so the address the walk was carrying is the answer. This is the only block that can hold this term.',
   found:
-    'The row gives the term, how many documents contain it, and where its posting list starts in .doc — the address the next tile is opened at. Note what never happened: the dictionary itself was never loaded. The index that found the row is the small graph in memory, and it never left it.',
+    'The row gives the term, how many documents contain it, and where its posting list starts in .doc — the address the next tile is opened at.',
 }
 
 const PATTERN_BLURBS = {
@@ -155,6 +155,12 @@ export function deriveDictionary({ shard, segId, rows, term, patterns }) {
     matchedTerms,
     blurbs: DICT_BLURBS[mode],
     looking: mode === 'term' ? `“${term}”` : `“${pattern.raw}”`,
+    // Which tour step actually pulls the block(s) off the disk. For a plain term
+    // the FST walk ends with the address in hand (still in memory) on the `read`
+    // step, and the dive into .tim to read the block is the NEXT step, `found`.
+    // A pattern/fuzzy keeps the read on `read` — a fuzzy's `found` is the
+    // automaton spelling the matched word out, which lives on the .tip tile.
+    blockReadStep: mode === 'term' ? 'found' : 'read',
   }
 }
 
@@ -405,7 +411,9 @@ export function FstTile({ d, step, sub, live, at }) {
   )
 
   const walking = step >= at.walk
-  const reading = step >= at.read
+  // "The block has been read, so we now know which nodes led to a match." For a
+  // plain term that is the `found` step; for a pattern/fuzzy it is `read`.
+  const reading = step >= at[d.blockReadStep]
   const shown = step === at.walk ? (sub ?? walked) : Infinity
   const spelled = sub ?? spelledClock // only read on the found step
 
@@ -422,6 +430,16 @@ export function FstTile({ d, step, sub, live, at }) {
     else pruned.add(key)
   }
   const last = revealed[revealed.length - 1] ?? null
+
+  // On the plain-term "address found" step the walk is over and the picture's
+  // subject is the ONE node that carried the answer address — the deepest .tim
+  // pointer the walk passed. Pan there (and ring it), rather than leaving the
+  // camera wherever the last arc decision happened to be after the walk's
+  // depth-first backtracking.
+  const addrNode =
+    mode === 'term' && step === at.read && trace?.fst?.blockFp != null
+      ? (index.fst.states.find((s) => s.out === trace.fst.blockFp)?.id ?? null)
+      : null
 
   // Which nodes get the "its block held a match" halo — only once the blocks
   // have been read; before that the walk genuinely does not know. Term mode
@@ -452,9 +470,10 @@ export function FstTile({ d, step, sub, live, at }) {
         dimmed: subtreeOf(index.fst, revealed.filter((v) => v.action === 'prune')),
         // The ring marks where the walk IS; the pan follows what the step is
         // ABOUT. For a prune those are different nodes, and the far end is the
-        // one worth looking at.
-        cursor: last ? (last.action === 'follow' ? last.fstTo : last.fstFrom) : index.fst.root,
-        focus: last ? last.fstTo : index.fst.root,
+        // one worth looking at. On the "address found" step both are the node
+        // holding the answer address.
+        cursor: addrNode ?? (last ? (last.action === 'follow' ? last.fstTo : last.fstFrom) : index.fst.root),
+        focus: addrNode ?? (last ? last.fstTo : index.fst.root),
         matches,
       }
     : { matches }
@@ -518,6 +537,7 @@ export function FstTile({ d, step, sub, live, at }) {
         dfa={dfa}
         walking={walking}
         done={step > at.walk}
+        blockRead={reading}
         hits={hits}
         trace={trace}
         term={term}
@@ -534,17 +554,41 @@ export function FstTile({ d, step, sub, live, at }) {
 // name the real .doc address its term points at — the hop the next tile opens.
 export function BlocksTile({ d, step, sub, live, at, postings }) {
   const { index, mode, trace, hits, dfa, pattern, term, reads } = d
-  const rows = useReveal(step === at.read && live && sub == null, reads.rowUnits, BLOCK_READ_MS)
-  const reading = step >= at.read
-  const rowsShown = step === at.read ? (sub ?? rows) : Infinity
+  // `read` on the .tim tile is the block-read step for a pattern/fuzzy; for a
+  // plain term it is `found` (its `read` step stays on the .tip tile with the
+  // address in hand). d.blockReadStep names whichever it is.
+  const readAt = at[d.blockReadStep]
+  const rows = useReveal(step === readAt && live && sub == null, reads.rowUnits, BLOCK_READ_MS)
+  const reading = step >= readAt
+  const rowsShown = step === readAt ? (sub ?? rows) : Infinity
 
-  // Bring the opened block into view once the tile has landed: the strip can be
-  // longer than the tile, and the read step's lesson is which block left the
-  // disk. Instant, and only on a step change, so it never fights the reader.
+  // Jump to the address the walk picked once the camera has landed on this
+  // tile — the same idea as the shard view scrolling the matched term into
+  // view, and as the FST panel panning to its cursor. Two scrolls: the panel
+  // brings the whole .tim strip into view, then the block column (its own
+  // scroller) centres the block the walk read / is about to read. Instant, and
+  // re-derived on a step change only, so it never fights the reader.
   const ref = useRef(null)
   useEffect(() => {
-    if (!live || !reading) return
-    return scrollTileTo(ref.current, '.cu-bcol-item.expanded')
+    if (!live) return
+    const target = '.cu-bcol-item.expanded, .cu-bcol-item.focus'
+    const cancelPanel = scrollTileTo(ref.current, target, { centre: true })
+    const col = ref.current?.querySelector('.cu-bcol')
+    let raf
+    if (col) {
+      raf = requestAnimationFrame(() => {
+        const t = col.querySelector('.cu-bcol-item.expanded') || col.querySelector('.cu-bcol-item.focus')
+        if (!t) return
+        const r = t.getBoundingClientRect()
+        const b = col.getBoundingClientRect()
+        if (r.top >= b.top && r.bottom <= b.bottom) return
+        col.scrollTop += r.top - b.top - b.height / 2 + r.height / 2
+      })
+    }
+    return () => {
+      cancelPanel?.()
+      if (raf) cancelAnimationFrame(raf)
+    }
   }, [step, live, reading])
 
   const focusFp = mode === 'term' ? trace.block?.fp ?? null : null
@@ -778,7 +822,7 @@ function levBlockView(dfa, hits) {
 // A fuzzy carries its live state set here; a glob carries what it accepts; a
 // term carries the block address the walk is holding. Once the walk is over it
 // totals up instead (term totals come from the seek — see build()).
-function WalkReadout({ mode, lev, pattern, dfa, walking, done, hits, trace, term, index, visits }) {
+function WalkReadout({ mode, lev, pattern, dfa, walking, done, blockRead = true, hits, trace, term, index, visits }) {
   // Fuzzy, found step: the machine finishing a word, rather than a cursor
   // mid-walk.
   if (lev?.spelling) {
@@ -823,6 +867,30 @@ function WalkReadout({ mode, lev, pattern, dfa, walking, done, hits, trace, term
   }
 
   if (!walking) return null
+
+  // The walk is over but nothing has left the disk yet — the plain-term `read`
+  // step ("Term address is found"), where the answer is a single .tim address
+  // still held in memory. Reading it is the next step, so the block-read totals
+  // below would be a spoiler here.
+  if (done && !blockRead) {
+    const addr = mode === 'term' && trace.block ? hexAddr(trace.block.fp) : null
+    return (
+      <div className="cu-isect exact">
+        <div className="cu-isect-cell">
+          <span className="cu-isect-k">walk</span>
+          <b>complete</b>
+        </div>
+        <div className="cu-isect-cell grow">
+          <span className="cu-isect-k">address in hand · the one block that can hold the term</span>
+          <b className="cu-isect-prefix">{addr ? `remember ${addr}` : 'nothing to read'}</b>
+        </div>
+        <div className="cu-isect-verdict exact">
+          nothing off the disk yet
+          <i>reading that block is the next step</i>
+        </div>
+      </div>
+    )
+  }
 
   // Once the walk is over there is no cursor to report, and leaving the last
   // verdict standing reads as a failure notice above a perfectly good result.

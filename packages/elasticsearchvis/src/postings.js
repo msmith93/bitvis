@@ -52,6 +52,10 @@ export function buildPostings(seg, rows, docs) {
       .filter((id) => ordOf.has(id))
       .map((id) => ({ ord: ordOf.get(id), id, freq: termFreq(docs[id], row.term) }))
       .sort((a, b) => a.ord - b.ord)
+    // docFreq is the list's length, but it is NOT stored in .doc — it is a
+    // per-term statistic in the .tim term metadata (that is the whole point of
+    // storing it: a scorer reads it without walking the list). Kept here as a
+    // derived quantity the checks pin and the .tim tile renders.
     byTerm.set(row.term, { term: row.term, fp, docFreq: entries.length, entries })
     order.push(row.term)
     // Each posting is drawn as a (ordinal, freq) pair; four bytes apiece is a

@@ -83,13 +83,16 @@ const STEPS = [
     // top-left corner would land on — nudge the tip clear so the 🔍 stays clickable.
     offset: { x: 40 },
     title: 'Zoom 2: into the segment',
-    // Only while the shard panel is the top of the stack — the 🔍 lives on it.
-    waitFor: (s) => s.closeUpKind === 'shard',
+    // Only while the shard panel is the top of the stack AND it has reached the
+    // term-lookup step — the segment 🔍 only lives on the lookup → postings
+    // steps now, so hold off until the panel is inside that window (holdPanel
+    // then freezes it there).
+    waitFor: (s) => s.closeUpKind === 'shard' && s.closeUpStep >= 1,
     // Freezes the shard panel's clock while this tip is up, so the reader isn't
     // being told to "watch how few blocks get read" over a background that has
     // already moved on to scoring candidates.
     holdPanel: true,
-    body: 'Scroll down to “Segment anatomy” and click the 🔍 next to the segment’s name. The segment opens as four tiles and the panel dives into them in the order a query reads them: the term index (in memory), the blocks it points at (on disk), then the postings. Watch how few blocks get read.',
+    body: 'Zoom into the segment by clicking the 🔍 icon to see the full segment anatomy.',
     advanceOn: (s) => s.closeUpKind === 'segment',
   },
   {

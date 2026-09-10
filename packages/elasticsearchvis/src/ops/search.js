@@ -267,6 +267,18 @@ export default {
   steps: STEPS,
   // no derive(): search never changes the cluster.
 
+  // Further reading, shown under the explanation in "What's happening".
+  docs: [
+    {
+      label: 'Basic read model',
+      url: 'https://www.elastic.co/docs/deploy-manage/distributed-architecture/reading-and-writing-documents',
+    },
+    {
+      label: 'Near real-time search',
+      url: 'https://www.elastic.co/docs/manage-data/data-store/near-real-time-search',
+    },
+  ],
+
   extra(cluster, op) {
     return { search: computeSearch(cluster, op) }
   },

@@ -18,13 +18,11 @@ import {
   shardWillMerge,
   SHARD_PLACEMENT,
 } from './cluster'
-import { lastStep, OP_LABELS, opNote, stepsFor } from './ops'
+import { lastStep, OP_LABELS, opDocs, opNote, stepsFor } from './ops'
 import { useOpLifecycle } from './useOpLifecycle'
 import ClusterStage from './components/ClusterStage'
 import IndexOverlay from './components/IndexOverlay'
-import InvertedIndexTable from './components/InvertedIndexTable'
 import SearchFlight from './components/SearchFlight'
-import SearchResultsPanel from './components/SearchResultsPanel'
 import SearchResultsOverlay from './components/SearchResultsOverlay'
 import { CloseUp, buildCloseUp, closeUpAnchor, closeUpStillValid } from './closeups'
 import DeleteDocOverlay from './components/DeleteDocOverlay'
@@ -49,6 +47,19 @@ import {
 // EUI's colorblind-safe visualization palette — categorical, and deliberately
 // none of them is the teal accent, so a doc chip never reads as UI chrome.
 const DOC_COLORS = ['#54b399', '#6092c0', '#d36086', '#9170b8', '#d6bf57', '#e7664c']
+
+// Shown under the idle "Ready" panel — where to read about the lifecycle this
+// app walks through. Per-operation links live on the op modules (`opDocs`).
+const OVERVIEW_DOCS = [
+  {
+    label: 'Reading and writing documents',
+    url: 'https://www.elastic.co/docs/deploy-manage/distributed-architecture/reading-and-writing-documents',
+  },
+  {
+    label: 'Near real-time search',
+    url: 'https://www.elastic.co/docs/manage-data/data-store/near-real-time-search',
+  },
+]
 
 export default function App() {
   const {
@@ -478,6 +489,8 @@ export default function App() {
   const currentStep = op ? stepsFor(op.type)[op.step] : null
   // One extra line about this op's payload (routing target, wildcard cost).
   const note = opNote(op, extra)
+  // Official-docs links for the running op, for readers who want to go deeper.
+  const docs = opDocs(op)
   // The ELASTICSEARCH documents — block roots only. The children are Lucene's
   // business: you never delete or address one on its own, so the document list
   // must not offer to.
@@ -655,7 +668,7 @@ export default function App() {
           />
         </div>
 
-        {/* ---------------- Right: explain + inspector ---------------- */}
+        {/* ---------------- Right: explain ---------------- */}
         <div className="col">
           <p className="section-title">What's happening</p>
           {currentStep ? (
@@ -663,6 +676,7 @@ export default function App() {
               <h3>{currentStep.title}</h3>
               <p>{currentStep.blurb}</p>
               {note && <p className="explain-note">{note}</p>}
+              {docs.length > 0 && <DocLinks title="Read more" links={docs} />}
             </div>
           ) : (
             // The idle panel is also what you land on after a Reset or a dataset
@@ -675,17 +689,8 @@ export default function App() {
                   ? 'Nothing indexed yet. Use ＋ Index a document to walk one document through the write path, or Load docs to fill the cluster and go straight to a search.'
                   : 'Run a Search, or use Refresh / Flush / Merge to move these documents through the rest of the lifecycle. Every operation replays step by step in the footer.'}
               </p>
+              <DocLinks title="Elasticsearch docs" links={OVERVIEW_DOCS} />
             </div>
-          )}
-
-          {op?.type === 'search' ? (
-            <SearchResultsPanel
-              search={extra.search}
-              step={op.step}
-              docs={derived.docs}
-            />
-          ) : (
-            <InvertedIndexTable cluster={derived} />
           )}
         </div>
       </motion.div>
@@ -808,4 +813,24 @@ export default function App() {
 function docOrder(id) {
   const n = parseInt(id.replace(/\D/g, ''), 10)
   return Number.isNaN(n) ? 0 : n
+}
+
+// A short list of official-docs links under an explanation, for readers who want
+// to go past the walkthrough. Opens in a new tab — the simulation keeps its
+// state.
+function DocLinks({ title, links }) {
+  return (
+    <div className="explain-docs">
+      <span className="explain-docs-title">{title}</span>
+      <ul>
+        {links.map((l) => (
+          <li key={l.url}>
+            <a href={l.url} target="_blank" rel="noopener noreferrer">
+              {l.label}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
 }

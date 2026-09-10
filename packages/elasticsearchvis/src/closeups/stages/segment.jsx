@@ -63,7 +63,7 @@ const QUERY_STEPS = [
     tile: null,
     title: '1 · Inside a segment',
     blurb:
-      'Four structures make up a segment, and a query reads them in this order: the term index in memory, then the term blocks, then the postings — all to turn a word into a list of numbers. The stored fields, bottom right, are not read by a query at all. They wait for the fetch phase, after the coordinator has picked the winners.',
+      'Four of the main segment structure are shown below: The term index, the term blocks, the postings (the real inverted index), and the stored fields (unused until the fetch phase).',
   },
   { key: 'walk', tile: 'fst', title: '2 · Follow the query through the index' },
   { key: 'read', tile: 'tim', title: '3 · Only what survives leaves the disk' },
@@ -77,6 +77,15 @@ const QUERY_STEPS = [
       'An in-memory walk, one block read, one posting list — and the shard now holds ordinals and scores, nothing else. The stored fields, where the _source you will see in the response actually lives, stay on disk until the coordinator has cut the global ranking and comes back for the winners: that is the fetch phase, one 🔍 later in this search.',
   },
 ]
+
+// Plain-term mode splits those two middle steps differently from a pattern: the
+// FST walk finishes with ONE block address in hand and nothing off the disk yet
+// (`read`, still on the .tip tile), and reading that block is its own step
+// (`found`, the dive into .tim). A pattern/fuzzy keeps the names above.
+const TERM_STEP_OVERRIDES = {
+  read: { tile: 'fst', title: '3 · Term address is found' },
+  found: { tile: 'tim', title: '4 · Reading the term block' },
+}
 
 const POSTINGS_BLURBS = {
   term:
@@ -135,8 +144,9 @@ export function build({ shard, seg, segId, rows, docs, term, patterns, phase = '
 
   const steps = (fetch ? FETCH_STEPS : QUERY_STEPS).map((s) => {
     if (fetch || s.blurb) return s
-    if (s.key === 'postings') return { ...s, blurb: POSTINGS_BLURBS[d.mode] }
-    return { ...s, blurb: d.blurbs[s.key] }
+    const base = d.mode === 'term' && TERM_STEP_OVERRIDES[s.key] ? { ...s, ...TERM_STEP_OVERRIDES[s.key] } : s
+    if (s.key === 'postings') return { ...base, blurb: POSTINGS_BLURBS[d.mode] }
+    return { ...base, blurb: d.blurbs[s.key] }
   })
   const at = Object.fromEntries(steps.map((s, i) => [s.key, i]))
   const tileOf = (i) => {
@@ -161,7 +171,10 @@ export function build({ shard, seg, segId, rows, docs, term, patterns, phase = '
     // Floored: a follows-only pattern walk can be three arcs long, which would
     // otherwise hurry the step past its own blurb.
     if (key === 'walk') return Math.max(CU_DWELL_MS, Math.min(d.units, 40) * d.tick + 900)
-    if (key === 'read') return Math.max(CU_DWELL_MS, Math.min(d.reads.rowUnits, 40) * BLOCK_READ_MS + 900)
+    // The block-read replay is budgeted on whichever step actually reads it
+    // (`found` for a plain term, `read` otherwise — see d.blockReadStep).
+    if (key === d.blockReadStep)
+      return Math.max(CU_DWELL_MS, Math.min(d.reads.rowUnits, 40) * BLOCK_READ_MS + 900)
     if (key === 'found' && d.mode === 'fuzzy' && d.matched)
       return Math.max(CU_DWELL_MS, d.matched.path.steps.length * d.tick + 1200)
     if (key === 'postings') return Math.max(CU_DWELL_MS, Math.min(walk.units, 40) * POSTING_STEP_MS + 900)
@@ -177,7 +190,7 @@ export function build({ shard, seg, segId, rows, docs, term, patterns, phase = '
     const key = steps[i].key
     if (fetch) return key === 'locate' || key === 'read' ? Math.max(1, wanted.length) : 1
     if (key === 'walk') return d.units
-    if (key === 'read') return d.reads.rowUnits
+    if (key === d.blockReadStep) return d.reads.rowUnits
     if (key === 'found' && d.mode === 'fuzzy' && d.matched) return d.matched.path.steps.length
     if (key === 'postings') return walk.units
     return 1
@@ -189,16 +202,13 @@ export function build({ shard, seg, segId, rows, docs, term, patterns, phase = '
       <span className="si-sub"> — fetching {wanted.length} winner{wanted.length === 1 ? '' : 's'}’ _source</span>
     </>
   ) : (
-    <>
-      {segId} · inside the segment
-      <span className="si-sub"> — finding {d.looking} without loading the dictionary</span>
-    </>
+    <>{segId} · inside the segment</>
   )
 
   return {
     key: `segment-${shard.id}-${segId}-${phase}-${fetch ? ids.join(',') : d.mode === 'term' ? term : d.pattern.raw}`,
     title,
-    sub: fetch ? `${segId} · fetch phase · .fdt` : `${segId} · .tip in memory, .tim / .doc on disk`,
+    sub: segId,
     steps,
     dwell,
     units,
@@ -495,7 +505,9 @@ function tileStatus({ d, walk, postings, sf, wanted, fetch, step, at, postedShow
 
   const { index, mode, trace, hits, matchedTerms } = d
   const walked = step > at.walk
-  const read = step > at.read || (step === at.read && false)
+  // The step that actually reads the block(s): `found` for a plain term (its
+  // `read` step just concludes the in-memory walk), `read` otherwise.
+  const readAt = at[d.blockReadStep]
   const carried = mode === 'term' && trace.block ? hexAddr(trace.block.fp) : null
   const fst = !walked && step < at.walk
     ? { text: `${index.fst.fstStates} states · not walked yet` }
@@ -506,9 +518,9 @@ function tileStatus({ d, walk, postings, sf, wanted, fetch, step, at, postedShow
         : { text: `walked · ${n(hits.prunedArcs, 'arc', 'arcs')} pruned`, done: true }
   const blocksRead = mode === 'term' ? trace.blocksRead : hits.blocksLoaded
   const tim =
-    step < at.read
+    step < readAt
       ? { text: `${n(index.blocks.length, 'block', 'blocks')} · none read${carried && walked ? ` · ${carried} next` : ''}` }
-      : step === at.read
+      : step === readAt
         ? { text: `reading ${mode === 'term' ? carried ?? '' : `${blocksRead} of ${index.blocks.length}`}…`, hot: true }
         : matchedTerms.length
           ? {
@@ -599,7 +611,17 @@ function PostingsTile({ postings, walk, shown, patterns, docs, live }) {
               >
                 <span className="seg-post-term">{term}</span>
                 <span className="seg-post-fp">{docHex(row.fp)}</span>
-                <span className="seg-post-df">docFreq {row.docFreq}</span>
+                {/* The list's length, NOT a stored field: .doc holds (ordinal,
+                    freq) pairs and nothing else. docFreq itself is a per-term
+                    statistic in the .tim row (see the term-blocks tile), which
+                    is exactly why a scorer can read it without walking this
+                    list. */}
+                <span
+                  className="seg-post-df"
+                  title="one entry per document that contains the term — this count equals the docFreq stored in the .tim term row"
+                >
+                  {row.docFreq} {row.docFreq === 1 ? 'doc' : 'docs'}
+                </span>
                 <span className="seg-post-entries">
                   {row.entries.map((e, k) => {
                     const idx = first + k

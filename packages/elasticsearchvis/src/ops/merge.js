@@ -29,6 +29,14 @@ export default {
   label: 'Merge',
   steps: STEPS,
 
+  // Further reading, shown under the explanation in "What's happening".
+  docs: [
+    {
+      label: 'Segment merging',
+      url: 'https://www.elastic.co/docs/reference/elasticsearch/index-settings/merge',
+    },
+  ],
+
   derive(c, op) {
     const s = op.step
     if (s >= 1) {

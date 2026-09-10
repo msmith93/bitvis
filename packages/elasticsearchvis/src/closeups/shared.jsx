@@ -72,14 +72,28 @@ export function scrollTileTo(from, target, { centre = false } = {}) {
 // reveal, ordered by `revealed` (a GLOBAL counter: rows carry their own `order`
 // when several blocks replay in sequence). `postings` (src/postings.js) lets an
 // opened row print the real .doc address its term points at.
+//
+// Every block row is ALSO click-to-open: the replay shows which block the walk
+// read, but a reader poking at the picture can crack any address open and see
+// the terms inside it (all rows, no scan highlight). A manually opened block
+// carries `.manual` so it reads as "you opened this", not "the walk did".
 export function BlockColumn({ index, focusFp, expandedFps, loadedFps, scans, revealed, postings }) {
   const reached = (fp) => (loadedFps ? loadedFps.has(fp) : fp === focusFp)
   const anyReached = !!loadedFps || focusFp != null
+  const [manual, setManual] = useState(() => new Set())
+  const toggle = (fp) =>
+    setManual((prev) => {
+      const next = new Set(prev)
+      next.has(fp) ? next.delete(fp) : next.add(fp)
+      return next
+    })
   return (
     <div className="cu-bcol">
       {index.blocks.map((b) => {
         const range = blockRange(index, b)
-        const expanded = !!expandedFps?.has(b.fp)
+        const byReplay = !!expandedFps?.has(b.fp)
+        const byHand = manual.has(b.fp)
+        const open = byReplay || byHand
         return (
           <div
             key={b.fp}
@@ -87,19 +101,33 @@ export function BlockColumn({ index, focusFp, expandedFps, loadedFps, scans, rev
               'cu-bcol-item' +
               (anyReached && reached(b.fp) ? ' focus' : '') +
               (anyReached && !reached(b.fp) ? ' unread' : '') +
-              (expanded ? ' expanded' : '')
+              (open ? ' expanded' : '') +
+              (byHand && !byReplay ? ' manual' : '')
             }
           >
-            <div className="cu-bcol-row" data-block-fp={b.fp}>
+            <button
+              type="button"
+              className="cu-bcol-row"
+              data-block-fp={b.fp}
+              aria-expanded={open}
+              title={open ? 'Hide this block' : 'Open this block'}
+              onClick={() => toggle(b.fp)}
+            >
+              <span className="cu-bcol-caret">{open ? '▾' : '▸'}</span>
               <span className="cu-bcol-name">
                 {b.prefix ? <>“{b.prefix}…”</> : 'contents'}
               </span>
               <span className="cu-bcol-count">{range ? range.count : 0} terms</span>
               <span className="cu-bcol-fp">{hex(b.fp)}</span>
-            </div>
-            {expanded && (
+            </button>
+            {open && (
               <div className="cu-bcol-open">
-                <SuffixBlock block={b} scan={scans?.get(b.fp)} revealed={revealed} postings={postings} />
+                <SuffixBlock
+                  block={b}
+                  scan={byReplay ? scans?.get(b.fp) : undefined}
+                  revealed={byReplay ? revealed : Infinity}
+                  postings={postings}
+                />
               </div>
             )}
           </div>
@@ -127,8 +155,7 @@ export function SuffixBlock({ block, scan, revealed = Infinity, postings }) {
         <span className="cu-suffix-prefix">
           {block.prefix ? (
             <>
-              every term in here starts with <b>“{block.prefix}”</b> — so it is
-              written once, at the top, instead of on every row
+              every term in here starts with <b>“{block.prefix}”</b>
             </>
           ) : (
             <>the contents page — its terms share no common start</>
@@ -136,9 +163,7 @@ export function SuffixBlock({ block, scan, revealed = Infinity, postings }) {
         </span>
         <span className="cu-block-count">
           {block.entries.length} entries · {block.bytes}B
-          {block.bytesUncompressed > block.bytes && (
-            <i className="cu-was"> (was {block.bytesUncompressed}B in full)</i>
-          )}
+          {block.bytesUncompressed > block.bytes}
         </span>
       </div>
       {/* Why the greyed rows are grey. A block scan is a linear walk in sorted
@@ -146,13 +171,6 @@ export function SuffixBlock({ block, scan, revealed = Infinity, postings }) {
           scanToTermLeaf), so the rows below the stop are never compared — and
           without saying so the picture reads as "all four were checked", which
           is what the row count beneath it would then contradict. */}
-      {scan && untouched > 0 && (
-        <div className="cu-suffix-note">
-          the scan stops at the first entry that matches or sorts past the term — the{' '}
-          <b>{untouched}</b> row{untouched === 1 ? '' : 's'} below it{' '}
-          {untouched === 1 ? 'is' : 'are'} never compared
-        </div>
-      )}
       <div className="cu-suffix-rows">
         {block.entries.map((e, i) => {
           const r = readIx.get(i)
@@ -177,7 +195,16 @@ export function SuffixBlock({ block, scan, revealed = Infinity, postings }) {
               </span>
               {e.kind === 'term' ? (
                 <>
-                  <span className="cu-suffix-cell meta">docFreq {e.docFreq}</span>
+                  {/* A per-term statistic that lives HERE, in the term row's
+                      metadata — not in the posting list. Storing it means a
+                      scorer (BM25's IDF needs it) never has to walk .doc to
+                      count. */}
+                  <span
+                    className="cu-suffix-cell meta"
+                    title="documents containing this term — stored in the .tim term metadata, alongside the .doc pointer"
+                  >
+                    docFreq {e.docFreq}
+                  </span>
                   {/* The hop the next tile opens at: the term's posting list
                       lives at this address in .doc. */}
                   <span className="cu-suffix-cell meta dim">

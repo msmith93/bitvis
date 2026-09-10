@@ -26,6 +26,18 @@ export default {
   label: 'Refresh',
   steps: STEPS,
 
+  // Further reading, shown under the explanation in "What's happening".
+  docs: [
+    {
+      label: 'Near real-time search',
+      url: 'https://www.elastic.co/docs/manage-data/data-store/near-real-time-search',
+    },
+    {
+      label: 'Translog & flush',
+      url: 'https://www.elastic.co/docs/reference/elasticsearch/index-settings/translog',
+    },
+  ],
+
   derive(c, op) {
     const s = op.step
     const newSegs = op.payload.newSegments

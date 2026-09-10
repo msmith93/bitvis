@@ -61,6 +61,14 @@ export function opExtra(cluster, op) {
   return OPS[op.type]?.extra?.(cluster, op) ?? {}
 }
 
+// Links to the official Elasticsearch docs for the current op type, shown under
+// the step blurb in "What's happening" for readers who want to go deeper. An
+// op module without a `docs` array simply contributes none.
+export function opDocs(op) {
+  if (!op) return []
+  return OPS[op.type]?.docs ?? []
+}
+
 // One optional line about THIS op's payload rather than its current step —
 // e.g. what a routing key or a wildcard pattern cost. Rendered under the step
 // blurb, which stays static per step.

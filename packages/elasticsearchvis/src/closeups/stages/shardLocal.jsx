@@ -260,13 +260,21 @@ function ShardLocalStage({ step, active, openCloseUp, model, docs, query }) {
                 probeIdx={scanning ? probeIdx : null}
                 showCost={wildcard && step >= at.lookup}
                 wildcard={wildcard}
+                // The segment zoom is about resolving a term against the on-disk
+                // dictionary and walking its posting list — so the 🔍 only shows
+                // on the steps where that is what the shard is doing (lookup
+                // through postings; `expand` sits between them for a pattern).
+                // On score / top-k / return the segment view has nothing to add.
                 magnify={
-                  openCloseUp && {
-                    attr: 'data-anat-dict',
-                    title:
-                      'Inside this segment: the term index, the term blocks, the postings and the stored fields',
-                    onClick: () => openCloseUp({ kind: 'segment', shard: shard.id, seg: seg.id }),
-                  }
+                  openCloseUp && step >= at.lookup && step <= at.postings
+                    ? {
+                        attr: 'data-anat-dict',
+                        title:
+                          'Inside this segment: the term index, the term blocks, the postings and the stored fields',
+                        onClick: () =>
+                          openCloseUp({ kind: 'segment', shard: shard.id, seg: seg.id }),
+                      }
+                    : null
                 }
               />
             ))
@@ -487,21 +495,23 @@ function ResultsLane({ step, at, local, docs, revealed }) {
         {mode === 'topk' && evicted.length > 0 && (
           <div className="si-evicted">
             evicted:
-            <AnimatePresence>
-              {evicted.map((s) => (
-                <motion.span
-                  key={s.docId}
-                  layout
-                  layoutId={`res-${s.docId}`}
-                  className="si-evicted-chip"
-                  exit={{ opacity: 0, scale: 0.6 }}
-                  transition={{ type: 'spring', stiffness: 360, damping: 28 }}
-                >
-                  <DocChip id={s.docId} docs={docs} />
-                  <span className="score">{s.score}</span>
-                </motion.span>
-              ))}
-            </AnimatePresence>
+            {/* No shared layoutId with the lane chips: an evicted doc leaves the
+                lane (AnimatePresence exit above) and a fresh chip fades in here.
+                Flying one element between the two containers meant the same
+                layoutId was mounted twice for a frame, which framer resolves by
+                oscillating the position — the jitter this used to show. */}
+            {evicted.map((s) => (
+              <motion.span
+                key={s.docId}
+                className="si-evicted-chip"
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 0.7, y: 0 }}
+                transition={{ type: 'spring', stiffness: 340, damping: 30 }}
+              >
+                <DocChip id={s.docId} docs={docs} />
+                <span className="score">{s.score}</span>
+              </motion.span>
+            ))}
           </div>
         )}
       </LayoutGroup>

@@ -53,17 +53,17 @@ export default {
   label: 'Indexing',
   steps: STEPS,
 
-  // One line about THIS document's routing, shown under the step blurb. Step 2
-  // can only state the rule ("_routing defaults to the _id"); this says which
-  // value was actually hashed, so a doc indexed with a key is never narrated as
-  // if its _id had chosen the shard.
-  note(op) {
-    const { doc } = op.payload
-    const key = doc.routing
-    return key
-      ? `routing “${key}” → hash % 3 = shard ${doc.shard}. The _id (${doc.id}) was not used — every document sharing this key lands on the same shard.`
-      : `no routing key → hash(${doc.id}) % 3 = shard ${doc.shard}.`
-  },
+  // Further reading, shown under the explanation in "What's happening".
+  docs: [
+    {
+      label: 'Reading and writing documents',
+      url: 'https://www.elastic.co/docs/deploy-manage/distributed-architecture/reading-and-writing-documents',
+    },
+    {
+      label: 'Text analysis',
+      url: 'https://www.elastic.co/docs/manage-data/data-store/text-analysis',
+    },
+  ],
 
   derive(c, op) {
     const s = op.step

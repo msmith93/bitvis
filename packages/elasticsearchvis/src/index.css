@@ -544,33 +544,36 @@ textarea:focus {
 }
 
 /* ================= RIGHT: explain + inspectors ================= */
+/* The right column now holds only this box, so it is deliberately large: bigger
+   type and generous padding make the current step the thing your eye lands on. */
 .explain {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--accent-text);
-  border-radius: 8px;
-  padding: 13px;
+  border-left: 4px solid var(--accent-text);
+  border-radius: 10px;
+  padding: 22px 24px;
   margin-bottom: 16px;
 }
 .explain h3 {
-  margin: 0 0 8px;
-  font-size: 14px;
+  margin: 0 0 14px;
+  font-size: 19px;
+  line-height: 1.35;
 }
-/* The blurbs run 2–5 lines depending on the step, and the results panel below
-   would slide up and down with them on every Next. Reserve the tallest blurb
-   in `em` so the reservation tracks the font, and widen it at the breakpoint
-   where the column gets narrower and the same text needs another line.
-   (The optional .explain-note is deliberately NOT reserved: it depends on the
-   query, not the step, so it is constant for a whole operation.) */
+/* The blurbs run 2–5 lines depending on the step. Reserve the tallest blurb in
+   `em` so the reservation tracks the font and the box doesn't jump on every
+   Next, and widen it at the breakpoint where the column gets narrower and the
+   same text needs another line. (The optional .explain-note is deliberately NOT
+   reserved: it depends on the query, not the step, so it is constant for a whole
+   operation.) */
 .explain p {
   margin: 0;
-  font-size: 13px;
-  line-height: 1.55;
-  min-height: 7.8em;
+  font-size: 16px;
+  line-height: 1.7;
+  min-height: 8.5em;
 }
 @media (max-width: 1199px) {
   .explain p {
-    min-height: 9.4em;
+    min-height: 10.2em;
   }
 }
 /* The idle panel has no next step to keep room for. */
@@ -579,15 +582,46 @@ textarea:focus {
   color: var(--muted);
 }
 
-.ii-meta {
-  font-size: 12px;
+/* "Read more" — official-docs links under the explanation. */
+.explain-docs {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.explain-docs-title {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
   color: var(--muted);
-  margin-bottom: 10px;
-  line-height: 1.45;
+  margin-bottom: 8px;
 }
-.ii-strike-note {
-  color: var(--accent-soft);
+.explain-docs ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
+.explain-docs li {
+  margin: 0;
+}
+.explain-docs li + li {
+  margin-top: 6px;
+}
+.explain-docs a {
+  font-size: 14px;
+  color: var(--accent-text);
+  text-decoration: none;
+  line-height: 1.5;
+}
+.explain-docs a::before {
+  content: '↗';
+  margin-right: 7px;
+  opacity: 0.7;
+}
+.explain-docs a:hover {
+  text-decoration: underline;
+}
+
 .term-chip {
   display: inline-block;
   font-family: ui-monospace, Menlo, monospace;
@@ -599,123 +633,11 @@ textarea:focus {
   margin: 0 3px 3px 0;
 }
 
-table.ii {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-}
-table.ii td {
-  padding: 4px 6px;
-  border-bottom: 1px solid var(--border);
-  vertical-align: top;
-}
-table.ii td.term {
-  font-family: ui-monospace, Menlo, monospace;
-  font-weight: 600;
-  width: 42%;
-}
-.posting {
-  display: inline-block;
-  font-family: ui-monospace, Menlo, monospace;
-  font-size: 10px;
-  font-weight: 700;
-  color: #0b0c10;
-  padding: 1px 6px;
-  border-radius: 5px;
-  margin: 1px 3px 1px 0;
-}
-.posting.deleted {
-  text-decoration: line-through;
-  opacity: 0.5;
-}
-
-.shard-ii {
-  margin-bottom: 14px;
-}
-.shard-ii-head {
-  font-size: 11px;
-  font-weight: 700;
-  font-family: ui-monospace, Menlo, monospace;
-  color: var(--accent-2);
-  margin-bottom: 4px;
-}
-
-/* search results */
-.search-shards {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 14px;
-}
-.search-shard {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px 10px;
-  background: var(--panel);
-}
-.ss-head {
-  font-size: 12px;
-  font-weight: 600;
-  margin-bottom: 6px;
-}
-.ss-wait {
-  font-size: 12px;
-  color: var(--muted);
-  font-style: italic;
-}
-.ss-none {
-  font-size: 12px;
-  color: var(--muted);
-}
-.ss-hits {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.ss-hit {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
+/* Local hit / merged-ranking scores in the close-up stages. */
 .score {
   font-size: 11px;
   color: var(--muted);
   font-family: ui-monospace, Menlo, monospace;
-}
-
-.merged-block {
-  border-top: 1px solid var(--border);
-  padding-top: 12px;
-}
-.results {
-  margin: 0;
-  padding-left: 18px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.results li {
-  font-size: 13px;
-}
-.result-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.result-from {
-  font-size: 11px;
-  color: var(--muted);
-}
-.result-body {
-  font-size: 12px;
-  color: var(--muted);
-  margin-top: 3px;
-}
-.returned {
-  margin-top: 12px;
-  font-size: 12px;
-  color: var(--good);
-  font-weight: 600;
 }
 
 /* ================= BOTTOM: stepper ================= */
@@ -2292,25 +2214,16 @@ table.ii td.term {
   font-size: 11px;
   color: var(--warn);
 }
-.search-shard.skipped {
-  opacity: 0.55;
-}
-.ss-skipped {
-  font-size: 11px;
-  color: var(--muted);
-  font-style: italic;
-  padding: 4px 0;
-}
 
 /* The op's payload-specific line (routing target, wildcard cost) under the
    step blurb in "What's happening". */
 .explain-note {
-  margin-top: 8px;
-  padding-top: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
   border-top: 1px dashed var(--border);
-  font-size: 12px;
+  font-size: 14px;
   color: var(--warn);
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
 /* ---------------- Term-dictionary probe replay ---------------- */
@@ -2967,16 +2880,44 @@ table.ii td.term {
   border-radius: 6px;
   transition: opacity 0.2s ease;
 }
+/* The row is a button — every block opens on click, not only the one the walk
+   read. Reset the UA button chrome back to the plain row it used to be. */
 .cu-bcol-row {
+  width: 100%;
   display: flex;
   align-items: baseline;
   gap: 8px;
   padding: 4px 8px;
+  font: inherit;
   font-size: 11px;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.cu-bcol-row:hover {
+  background: var(--panel-2);
+  border-color: var(--border);
+}
+.cu-bcol-caret {
+  color: var(--muted);
+  font-size: 9px;
+  width: 8px;
+  flex: none;
 }
 .cu-bcol-name {
   color: var(--text);
   min-width: 62px;
+}
+/* a block the reader cracked open by hand, rather than the walk */
+.cu-bcol-item.manual {
+  border-color: var(--border);
+  background: var(--sink);
+}
+.cu-bcol-item.manual .cu-bcol-caret {
+  color: var(--accent-text);
 }
 .cu-bcol-count {
   color: var(--muted);

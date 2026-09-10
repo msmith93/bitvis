@@ -247,7 +247,7 @@ const STEPS = [
     dataset: 'catalog-nested',
     placement: 'right',
     title: 'Now at scale',
-    body: 'One product makes the correctness point; the costs only show up in bulk. Open “Load docs” and pick “Catalog · nested” — twelve products with two to four variants each, mapped exactly the way you just mapped yours.',
+    body: 'One product makes the correctness point; the costs only show up in bulk. Open “Load docs” and pick “Nested docs” — twelve products with two to four variants each, mapped exactly the way you just mapped yours.',
     waitFor: (s) => s.zoomShard == null && !s.coordZoom,
     advanceOn: (s) => s.sampleSet === 'catalog-nested',
   },

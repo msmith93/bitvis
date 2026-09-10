@@ -312,7 +312,7 @@ export const DATASETS = [
   // mapping change: you cannot change a mapping in place in Elasticsearch.
   {
     id: 'catalog-nested',
-    label: 'Catalog · nested',
+    label: 'Nested docs',
     blurb: 'The same 12 products with variants mapped nested — every variant becomes its own hidden Lucene doc.',
     docs: CATALOG_DOCS,
     mapping: ['variants'],
