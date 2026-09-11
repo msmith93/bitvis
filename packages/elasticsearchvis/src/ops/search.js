@@ -408,7 +408,7 @@ const PLAIN_LOCAL_STEPS = [
     // real algorithm would teach the opposite of the truth. Prose and a link,
     // deliberately, rather than a zoom. See SPEC.md's flagged simplifications.
     blurb:
-      'A fixed-size priority queue keeps only the size highest-scoring docs; lower scores are evicted as better ones arrive. This is the shard’s local ranking. Scoring every candidate first, as this app does, is a simplification: real Lucene runs WAND / Block-Max WAND, which keeps an upper bound on what each term can still contribute, compares it against the queue’s current lowest score, and skips past documents that cannot beat it — so most matches are never scored at all. The pruning is driven by the gap between a rare term’s bound and a common term’s, which comes from BM25’s inverse document frequency; the term-frequency stand-in used here has no such spread, so nothing here could be pruned.',
+      'A fixed-size priority queue keeps only the size highest-scoring docs; lower scores are evicted as better ones arrive. This is the shard’s local ranking. Scoring every candidate first, as this app does, is a simplification: real Lucene runs WAND / Block-Max WAND',
     link: {
       label: 'Magic WAND: faster retrieval of top hits',
       url: 'https://www.elastic.co/blog/faster-retrieval-of-top-hits-in-elasticsearch-with-block-max-wand',
