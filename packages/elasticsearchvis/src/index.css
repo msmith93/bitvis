@@ -2689,11 +2689,16 @@ textarea:focus {
   border-radius: 8px;
   background: var(--sink);
   padding: 4px;
-  /* Bounded, and it pans to follow the walk (see ArcGraph). Without the cap a
-     hundred-term dictionary makes this panel taller than the screen, because
-     the FST fans out sideways and fstLayout stacks that fan vertically. */
-  max-height: 340px;
-  overflow: auto;
+  /* The tile panel (.seg-tile-panel) is the only vertical scroller — a second
+     one here fought it. Horizontal stays contained so a wide FST never widens
+     the panel (fstLayout stacks depth on x); ArcGraph pans this axis itself and
+     leaves the vertical pan to the tile panel. `overflow-y: visible` would
+     compute back to `auto` the moment overflow-x isn't `visible` too (the CSS
+     overflow spec forces that), reintroducing the second scrollbar — `hidden`
+     sidesteps it, and never actually clips because nothing here constrains the
+     box's height, so it always grows to fit. */
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 .cu-fst-svg {
   display: block;
@@ -2865,8 +2870,6 @@ textarea:focus {
   flex-direction: column;
   gap: 2px;
   padding: 7px;
-  max-height: 340px;
-  overflow-y: auto;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .cu-bcol-item {

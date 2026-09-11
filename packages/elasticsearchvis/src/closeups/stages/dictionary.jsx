@@ -628,31 +628,16 @@ export function BlocksTile({ d, step, sub, live, pending, at, postings }) {
 
   // Jump to the address the walk picked once the camera has landed on this
   // tile — the same idea as the shard view scrolling the matched term into
-  // view, and as the FST panel panning to its cursor. Two scrolls: the panel
-  // brings the whole .tim strip into view, then the block column (its own
-  // scroller) centres the block the walk read / is about to read. Instant, and
-  // re-derived on a step change only, so it never fights the reader.
+  // view, and as the FST panel panning to its cursor. The panel is the only
+  // scroller (the block column no longer has one of its own), so centring the
+  // block within it is the whole job. Instant, and re-derived on a step change
+  // only, so it never fights the reader.
   const ref = useRef(null)
   useEffect(() => {
     if (!live) return
     const target = '.cu-bcol-item.expanded, .cu-bcol-item.focus'
-    const cancelPanel = scrollTileTo(ref.current, target, { centre: true })
-    const col = ref.current?.querySelector('.cu-bcol')
-    let raf
-    if (col) {
-      raf = requestAnimationFrame(() => {
-        const t = col.querySelector('.cu-bcol-item.expanded') || col.querySelector('.cu-bcol-item.focus')
-        if (!t) return
-        const r = t.getBoundingClientRect()
-        const b = col.getBoundingClientRect()
-        if (r.top >= b.top && r.bottom <= b.bottom) return
-        col.scrollTop += r.top - b.top - b.height / 2 + r.height / 2
-      })
-    }
-    return () => {
-      cancelPanel?.()
-      if (raf) cancelAnimationFrame(raf)
-    }
+    const cancel = scrollTileTo(ref.current, target, { centre: true })
+    return () => cancel?.()
   }, [step, live, reading])
 
   const focusFp = mode === 'term' ? trace.block?.fp ?? null : null
@@ -662,43 +647,25 @@ export function BlocksTile({ d, step, sub, live, pending, at, postings }) {
       : null
 
   return (
-    <>
-      <section className="cu-side disk cu-disk-strip" ref={ref}>
-        <header className="cu-side-head">
-          <span className="cu-side-title">on disk · .tim</span>
-          <span className="cu-side-sub">
-            {index.blocks.length} blocks
-            {reading && <> · {mode === 'term' ? trace.blocksRead : hits.blocksLoaded} read</>}
-          </span>
-        </header>
+    <section className="cu-side disk cu-disk-strip" ref={ref}>
+      <header className="cu-side-head">
+        <span className="cu-side-title">on disk · .tim</span>
+        <span className="cu-side-sub">
+          {index.blocks.length} blocks
+          {reading && <> · {mode === 'term' ? trace.blocksRead : hits.blocksLoaded} read</>}
+        </span>
+      </header>
 
-        <BlockColumn
-          index={index}
-          focusFp={focusFp}
-          expandedFps={reading ? reads.expandedFps : null}
-          loadedFps={loadedFps}
-          scans={reads.scans}
-          revealed={rowsShown}
-          postings={postings}
-        />
-      </section>
-
-      {reading && (
-        <WalkReadout
-          mode={mode}
-          lev={null}
-          pattern={pattern}
-          dfa={dfa}
-          walking
-          done
-          hits={hits}
-          trace={trace}
-          term={term}
-          index={index}
-          visits={[]}
-        />
-      )}
-    </>
+      <BlockColumn
+        index={index}
+        focusFp={focusFp}
+        expandedFps={reading ? reads.expandedFps : null}
+        loadedFps={loadedFps}
+        scans={reads.scans}
+        revealed={rowsShown}
+        postings={postings}
+      />
+    </section>
   )
 }
 
@@ -936,27 +903,10 @@ function WalkReadout({ mode, lev, pattern, dfa, walking, done, blockRead = true,
 
   // The walk is over but nothing has left the disk yet — the plain-term `read`
   // step ("Term address is found"), where the answer is a single .tim address
-  // still held in memory. Reading it is the next step, so the block-read totals
-  // below would be a spoiler here.
-  if (done && !blockRead) {
-    const addr = mode === 'term' && trace.block ? hexAddr(trace.block.fp) : null
-    return (
-      <div className="cu-isect exact">
-        <div className="cu-isect-cell">
-          <span className="cu-isect-k">walk</span>
-          <b>complete</b>
-        </div>
-        <div className="cu-isect-cell grow">
-          <span className="cu-isect-k">address in hand · the one block that can hold the term</span>
-          <b className="cu-isect-prefix">{addr ? `remember ${addr}` : 'nothing to read'}</b>
-        </div>
-        <div className="cu-isect-verdict exact">
-          nothing off the disk yet
-          <i>reading that block is the next step</i>
-        </div>
-      </div>
-    )
-  }
+  // still held in memory. The block-read totals below would be a spoiler here
+  // (reading that block is the next step), so this state shows nothing rather
+  // than a box announcing there is nothing to show yet.
+  if (done && !blockRead) return null
 
   // Once the walk is over there is no cursor to report, and leaving the last
   // verdict standing reads as a failure notice above a perfectly good result.

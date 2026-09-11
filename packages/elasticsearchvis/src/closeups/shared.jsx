@@ -315,9 +315,9 @@ export function ArcGraph({
   // The .tip FST is BUSHY, not deep: fstLayout puts depth on x (a handful of
   // columns) and stacks siblings on y, so a dictionary with a hundred terms is
   // a graph a couple of thousand pixels TALL. Rather than let that set the
-  // panel's height, the box is capped and pans to wherever the walk currently
-  // is — which also reads better, because the eye follows the action instead of
-  // hunting for it in a static picture.
+  // tile panel's scroll fight a second one of its own, the box only scrolls
+  // horizontally (see .cu-fst); the vertical pan rides the tile panel itself
+  // (.seg-tile-panel, via scrollTileTo), same as every other on-disk stage.
   // Pan to the node this step is ABOUT, not to where the walk is standing. They
   // differ exactly where it matters: a pruned arc is reported from the node the
   // walk sits on, and for `sc*` that is the root for sixteen consecutive
@@ -327,14 +327,15 @@ export function ArcGraph({
   // and a smooth scroll would still be travelling when the next one lands.
   const at = focusState ?? cursorState ?? fst.root
   const spot = pos.get(at)
+  const target = useRef(null)
   useEffect(() => {
     const el = box.current
     if (!el || !spot) return
     el.scrollTo({
-      top: Math.max(0, Math.min(spot.y - el.clientHeight / 2, el.scrollHeight - el.clientHeight)),
       left: Math.max(0, Math.min(spot.x - el.clientWidth / 2, el.scrollWidth - el.clientWidth)),
       behavior: 'auto',
     })
+    return scrollTileTo(el, target.current, { centre: true })
   }, [spot?.x, spot?.y])
 
   return (
@@ -369,6 +370,7 @@ export function ArcGraph({
           return (
             <g
               key={s.id}
+              ref={s.id === at ? target : undefined}
               className={
                 'cu-state' +
                 (s.id === cursorState ? ' cursor' : '') +

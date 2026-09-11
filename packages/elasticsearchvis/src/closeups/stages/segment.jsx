@@ -658,30 +658,6 @@ function PostingsTile({ postings, walk, shown, patterns, docs, live }) {
         </div>
       </section>
 
-      <div className={'cu-isect ' + (anyWalked ? 'exact' : 'dead')}>
-        <div className="cu-isect-cell">
-          <span className="cu-isect-k">lists read</span>
-          <b className="cu-isect-prefix">{walk.terms.length ? walk.terms.map((t) => `“${t}”`).join(', ') : 'none'}</b>
-        </div>
-        <div className="cu-isect-cell grow">
-          <span className="cu-isect-k">candidates so far · segment-local ordinals</span>
-          <span className="cu-isect-states">
-            {ords.length ? (
-              ords.map((o) => (
-                <i key={o} className="cu-isect-state accept">
-                  {o}
-                </i>
-              ))
-            ) : (
-              <i className="cu-isect-state none">—</i>
-            )}
-          </span>
-        </div>
-        <div className={'cu-isect-verdict ' + (anyWalked ? 'exact' : 'dead')}>
-          {anyWalked ? `${Math.min(shown, walk.units)} of ${walk.units} postings` : 'no posting list to read'}
-          <i>{anyWalked ? 'numbers and frequencies — the text was never read' : 'the term is not in this segment'}</i>
-        </div>
-      </div>
     </>
   )
 }
