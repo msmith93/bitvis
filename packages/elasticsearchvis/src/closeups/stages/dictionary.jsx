@@ -12,7 +12,6 @@ import {
   ArcGraph,
   AutomatonGrid,
   BlockColumn,
-  hexAddr,
   scrollTileTo,
   useReveal,
 } from '../shared'
@@ -697,25 +696,6 @@ function matchNodesOf(index, byFp) {
   return out
 }
 
-// The block address a term walk is holding after consuming `prefix`: the
-// deepest output on that path, with the root block as the fallback — the same
-// "remember the last address you passed" rule fstSeek applies. The readout
-// re-derives it from the prefix because the intersection walk backtracks, so
-// the carried address is a property of the CURRENT candidate path, not of the
-// visit list.
-function carriedAlong(index, prefix) {
-  const { states, root } = index.fst
-  let s = root
-  let out = states[root].out
-  for (const ch of prefix) {
-    const arc = states[s].arcs.find((a) => a.label === ch)
-    if (!arc) break
-    s = arc.to
-    if (states[s].out != null) out = states[s].out
-  }
-  return out
-}
-
 // Which FST states sit behind an arc the walk never went down — whether nothing
 // live could accept it (a prune) or an indexed jump stepped over it (a seek's
 // skipped siblings). Either way: terms nobody read.
@@ -965,9 +945,10 @@ function WalkReadout({ mode, lev, pattern, dfa, walking, done, blockRead = true,
     )
   }
 
-  // Mid-walk, term and pattern: the same strip a fuzzy gets, with the grow cell
-  // carrying what THIS query knows mid-walk — the block address a term walk is
-  // holding, or what a glob accepts.
+  // Mid-walk, term and pattern: the same strip a fuzzy gets. The grow cell only
+  // has something worth saying mid-walk for a pattern (what it currently
+  // accepts) — a term walk's carried block address repeated the same line on
+  // every step and never earned its keep, so it's gone.
   if (mode !== 'fuzzy') {
     const last = visits[visits.length - 1] ?? null
     const prefix = last == null ? '' : last.action === 'prune' ? last.prefix : last.prefix + last.label
@@ -991,7 +972,6 @@ function WalkReadout({ mode, lev, pattern, dfa, walking, done, blockRead = true,
             cls: 'exact',
             text: last == null ? 'start' : 'the pattern accepts it',
           }
-    const carried = mode === 'term' ? carriedAlong(index, prefix) : null
     return (
       <div className={'cu-isect ' + verdict.cls}>
         <div className="cu-isect-cell">
@@ -1009,25 +989,16 @@ function WalkReadout({ mode, lev, pattern, dfa, walking, done, blockRead = true,
             {last == null ? '—' : `“${last.label}”`}
           </b>
         </div>
-        <div className="cu-isect-cell grow">
-          {mode === 'term' ? (
-            <>
-              <span className="cu-isect-k">address in hand · the block to read when the arrows run out</span>
-              <b className="cu-isect-prefix">
-                {carried != null ? <>remember {hexAddr(carried)}</> : 'nothing yet'}
-              </b>
-            </>
-          ) : (
-            <>
-              <span className="cu-isect-k">what “{pattern.raw}” accepts</span>
-              <b className="cu-isect-prefix">
-                {dfa.startAcceptsAnything
-                  ? 'any character to begin with'
-                  : `only “${pattern.seekPrefix[0]}” to begin with`}
-              </b>
-            </>
-          )}
-        </div>
+        {mode !== 'term' && (
+          <div className="cu-isect-cell grow">
+            <span className="cu-isect-k">what “{pattern.raw}” accepts</span>
+            <b className="cu-isect-prefix">
+              {dfa.startAcceptsAnything
+                ? 'any character to begin with'
+                : `only “${pattern.seekPrefix[0]}” to begin with`}
+            </b>
+          </div>
+        )}
         <div className={'cu-isect-verdict ' + verdict.cls}>
           {verdict.text}
           {prune ? (
