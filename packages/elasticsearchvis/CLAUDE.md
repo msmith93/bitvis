@@ -1,10 +1,38 @@
-# CLAUDE.md
+# CLAUDE.md — elasticsearchvis
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this package.
+> **Read the root `/CLAUDE.md` and `/docs/ARCHITECTURE.md` first.** They cover
+> the monorepo layout and the `(cluster, op)` engine this app shares with its
+> three siblings. This file covers only what is specific to elasticsearchvis.
+>
+> `packages/elasticsearchvis`, npm workspace `@bitvis/elasticsearchvis`. Deploy
+> with `../../scripts/deploy.sh ElasticsearchvisStack`.
 
-> This app is `packages/elasticsearchvis` in the **bitvis** monorepo (npm workspaces).
-> Run `npm install` once at the repo root. Deploy infra lives at the repo root
-> (`infra/`, `scripts/`); deploy this site with `../../scripts/deploy.sh ElasticsearchvisStack`.
+## Find your task here first
+
+This file is long because this app is the deepest one. **Read the section your
+task touches, not the whole file.** The Architecture bullets below are in this
+order:
+
+| Working on… | Read the bullet(s) |
+|---|---|
+| Cluster/shard/segment state, routing | `cluster` |
+| `object` vs `nested`, `_source`, doc blocks | **A Lucene doc is NOT an Elasticsearch doc**, Sub-objects and their mapping |
+| Adding/changing an operation, step lists | `op`, Derivation, `useOpLifecycle` |
+| Guided tours | Scenarios |
+| Query parsing, `field:value`, `AND` | Fielded + conjunctive queries |
+| Wildcards, fuzzy, `~`, routing keys | Patterns (wildcard + fuzzy) and routing |
+| Any zoom panel | Close-ups, then the specific zoom's bullet |
+| The 4-tile segment view (.tip/.tim/.doc/.fdt) | The segment close-up, `anatomy.jsx` |
+| The FST, term dictionary, automaton walk | **The on-disk models** (longest bullet — the seek/consider rule lives here) |
+| Sample data, datasets | `SAMPLE_DOCS` |
+| Analyzer, tokenization, scoring | Analysis, the per-shard inverted index |
+| Colours, dark/light | Theming |
+| Animation timing | `src/timing.js` |
+
+**Before removing or rebuilding something that looks missing**, check `SPEC.md`
+— it records several features that were deliberately deleted (posting-list
+encoding, the parent-bitset diagram, the two-automaton contrast table) and why.
+Rebuilding them has already been a wasted cycle.
 
 ## Commands
 
@@ -34,8 +62,11 @@ requirements — read `SPEC.md` before changing the model.
 
 ## Architecture
 
-The core pattern is a **pure derivation of visible state from `(cluster, op)`**,
-which lets the stepper scrub any operation forwards and backwards.
+Built on the shared `(cluster, op)` engine — see `/docs/ARCHITECTURE.md` for how
+derivation, the ops registry, `useOpLifecycle` and `timing.js` work in general.
+Below is what differs here. Note two app-specific API facts: `stepsFor(type)`
+takes a **type** (cassandravis's takes an op), and this is the only app whose
+close-ups **nest**.
 
 - **`cluster`** (`src/cluster.js`) is the committed state: `{ shards, docs }`.
   Each shard has `buffer`, `translog`, and immutable `segments`
@@ -297,10 +328,26 @@ which lets the stepper scrub any operation forwards and backwards.
   the dictionary and would otherwise set the panel's size. The strip therefore
   starts below the fold, so the stage scrolls each step's subject into view on a
   step change (same rule, same instant behaviour). The arc replay is the
-  SAME for every query — green followed, red rejected, subtree dimmed, cursor
-  panning — and only the automaton panel is fuzzy-specific. Don't reintroduce a
-  per-kind variant of the walk; `SPEC.md` records why the glob-only version was
-  wrong. **A plain term runs that same intersection** (it is the degenerate
+  SAME for every query, and the ONE rule it obeys is about what the query can
+  accept at a node, never about the query's kind: **exactly one live label and
+  the walk SEEKS** (Lucene's node carries its own arc index — a presence bitset,
+  or a sorted array it bisects — so `findTargetArc` jumps to that label and
+  never compares the siblings), **many or ANY and the arcs are considered** one
+  at a time. Green is an arc taken (sought or followed), red is an arc no
+  live transition accepts, and the subtree behind a prune OR behind a seek's
+  untouched siblings is dimmed — that dimming is where the cost lesson lives now. The
+  consequence is that red appears only in fuzzy mode on this data, which is the
+  accurate answer; `SPEC.md` carries the Lucene citations
+  (`FST.findTargetArc`'s four arc encodings, `FSTCompiler`'s thresholds, the
+  root-arc cache deleted in 8.4) and the reason the old every-sibling-reddens
+  version was wrong. Red is a VERDICT, never a claim the arc was inspected —
+  `IntersectTermsEnum` leapfrogs transition ranges and never runs the automaton
+  on a label it rejects, which is why the strip reads `no live transition —
+  PRUNE` and not `refused on sight`. Don't reintroduce inspection language. A seek that finds no arc emits NO visit and just ends the
+  walk — same reason the dead-end stub is gone. Only the automaton panel is
+  fuzzy-specific. Don't reintroduce a per-kind variant of the walk; `SPEC.md`
+  records why the glob-only version was wrong too.
+  **A plain term runs that same intersection** (it is the degenerate
   pattern), but it keeps `seekTrace` for its COST numbers, and that split is
   load-bearing: `intersectTrace` loads a block at every output-carrying state on
   the way down — three for `search` — where `seekExact` carries the last output
@@ -426,19 +473,9 @@ which lets the stepper scrub any operation forwards and backwards.
   when a refresh applied a delete. `refresh.js`'s `note()` says it in words on
   the same beat, and returns null when there is nothing to apply.
 
-- **`MobileWarning`** (`src/components/MobileWarning.jsx`, styled in `index.css`)
-  is a full-screen advisory shown on small touch screens: these visualizers are
-  desktop simulations, so a phone gets told so before it fights the layout. It
-  is advisory ("Continue anyway" dismisses it for the session, with no
-  persistence) and it is deliberately gated on a coarse pointer AND a small
-  viewport, so a narrow desktop window never trips it. Every visualizer app
-  carries an identical copy of it — the landing page does not.
-
-- **`HomeLink`** (`src/components/HomeLink.jsx`, styled in `index.css`) is the
-  way back to the bitvis landing page (`https://bitvis.bitsculpt.top`). Each
-  visualizer is its own subdomain, so without it a visitor who enjoys this one
-  has no path to the others; it sits first in the topbar and carries the landing
-  page's own 2×2 dot mark. Every visualizer app carries an identical copy.
+- **`MobileWarning` and `HomeLink`** (`src/components/`, styled in `index.css`)
+  are the two components that are **byte-identical in all four apps** — change
+  one, change four. Rationale in `/docs/ARCHITECTURE.md`.
 
 - **Theming** — dark (default) and light, chosen by `ThemeToggle` (top-right of
   the header) and remembered in `localStorage` as `esvis-theme`; `index.html`

@@ -32,15 +32,35 @@ import {
 //
 // The SAME picture serves every kind of query, because a plain term is just the
 // degenerate case of a pattern — an automaton with exactly one acceptable
-// reading. Every mode drives ONE replay with one set of rules: green is an arc
-// the walk followed, red is one it refused on sight (with everything behind it
-// dimmed and skipped unread), and the cursor pans to the decision being made.
+// reading. Every mode drives ONE replay with one set of rules, and the rule is
+// about what the QUERY can accept at each node, never about the query's kind:
 //
-//   term mode     the term's own automaton follows one path; one block is read.
-//                 The COST numbers come from seekTrace, not the intersection —
-//                 see the note in deriveDictionary().
-//   pattern mode  the pattern's automaton follows some arcs and prunes others;
-//                 the surviving blocks are read.
+//   one acceptable character   the walk SEEKS. Lucene's node carries its own arc
+//                              index (a presence bitmap, or a sorted array it
+//                              bisects), so findTargetArc jumps to that label and
+//                              never compares the siblings. Green arc; siblings
+//                              stay grey, their subtrees dimmed — never read.
+//   many, or any               nothing to jump to, so the arcs are considered.
+//                              Green followed, RED refused, subtree dimmed.
+//
+// The cursor pans to the decision being made either way. Red therefore means
+// exactly one thing — an arc no live transition can accept, so the query cannot
+// go there — and on this data that only ever happens for a fuzzy, which is the
+// honest answer: an exact term and an anchored glob both know which byte they
+// want.
+//
+// The wording is deliberately about the VERDICT, not about an inspection. Real
+// Lucene leapfrogs sorted transition ranges and never runs the automaton on a
+// label it rejects, so "refused on sight" claimed a test that does not happen;
+// what a prune actually reports is that nothing live accepts this arc. SPEC.md
+// carries the measurement behind that choice.
+//
+//   term mode     the term's own automaton names one character at every node, so
+//                 the walk is a chain of seeks; one block is read. The COST
+//                 numbers come from seekTrace, not the intersection — see the
+//                 note in deriveDictionary().
+//   pattern mode  the pattern's automaton seeks while it is anchored and takes
+//                 every arc once it opens up; the surviving blocks are read.
 //   fuzzy mode    the same walk, but the automaton is DRAWN beside the FST and
 //                 the two move in lockstep.
 //
@@ -61,7 +81,7 @@ import {
 // (overview · walk · read · found · postings · done) and looks these up by key.
 const TERM_BLURBS = {
   walk:
-    'We\'ll follow one exact term match as it traverses the term index. The term index is stored as a Finite State Transducer. Each node represents an address to a block of terms that all share the same prefix. Each step to the right of the root node represents one more letter in the shared prefix. Lucene walks along the tree until reaching an node that has no children extended from an edge representing the next letter in the term. At this point, the term address in the node is returned.',
+    'Follow one exact term through the term index — a Finite State Transducer, held in memory. An arrow is one character; a node carrying an address means “a block of terms starting with this prefix lives over there on disk”. The walk knows exactly which character it wants next, and a node INDEXES its own arrows — as a presence bitmap it can test in one operation, or a small sorted array it bisects — so it jumps straight to that arrow and never compares the others. It stops when there is no arrow for the next character, which happens early and is not a failure: .tip indexes block prefixes, not whole terms, so the arrows are meant to run out. The last address the walk passed is the answer.',
   read:
     'The arrows ran out, so the address the walk was carrying is the answer. This is the only block that can hold this term.',
   found:
@@ -70,7 +90,7 @@ const TERM_BLURBS = {
 
 const PATTERN_BLURBS = {
   walk:
-    'A pattern can match many terms, so instead of spelling one out, the query is turned into a little machine that says which characters are still acceptable. Watch it decide, arrow by arrow: green is an arrow it accepted, red is one it refused on sight — and everything behind a red arrow is skipped without ever being looked at.',
+    'A pattern can match many terms, so instead of spelling one out, the query is turned into a little machine that says which characters are still acceptable. What that machine can accept at each node decides how the walk moves. While only ONE character is acceptable the machine has something to seek: the node’s arrow index takes it straight there, and the siblings are never looked at — greyed out here, along with everything behind them. Once the pattern opens up and any character will do, there is nothing to jump to and every arrow has to be taken.',
   read:
     'Only the blocks the walk actually reached are read. Everything greyed out below was eliminated by the walk above — not by a shortcut or a guess, but because the pattern provably cannot match anything inside it.',
   found:
@@ -81,7 +101,7 @@ const FUZZY_BLURBS = {
   index:
     'Two structures, and only one of them is on disk. The term index on the left is the same one every query uses. The machine on the right is this query — “within N edits of a word” compiled into states you can point at.',
   walk:
-    'Now watch them move together. One arrow of the index is one character of a candidate term, and the automaton consumes that same character at the same moment. Going RIGHT in the grid means the character was the one expected; going DOWN means an edit was spent to accept it. The walk is in several states at once — it has to be, because it does not yet know which reading of the term will turn out to be the cheap one. When no state survives a character, the arrow dies and every term behind it is skipped unread.',
+    'Now watch them move together. One arrow of the index is one character of a candidate term, and the automaton consumes that same character at the same moment. Going RIGHT in the grid means the character was the one expected; going DOWN means an edit was spent to accept it. The walk is in several states at once — it has to be, because it does not yet know which reading of the term will turn out to be the cheap one. That is also why a fuzzy query has nothing to jump to: while any edits remain, ANY character can be bought as an edit, so every arrow has to be tried. Only once the budget is spent does the machine want one specific character again. When no state survives a character, the arrow dies and every term behind it is skipped unread.',
   read:
     'Only the blocks the walk actually reached are read. Everything greyed out was eliminated by the automaton above — because there is no continuation of that prefix the machine could still accept within its edit budget.',
   found:
@@ -124,13 +144,21 @@ export function deriveDictionary({ shard, segId, rows, term, patterns }) {
   // and the reader is left wondering how it ever decided anything.
   const matched = pattern ? hits.visits.find((v) => v.action === 'accept') ?? null : null
 
-  // Which visits the walk step replays: every arc DECISION, followed or pruned.
+  // Which visits the walk step replays: every DECISION the walk made. That is a
+  // seek (the query named one byte, so the node's arc index was used to jump
+  // straight to it) or an arc-by-arc verdict, followed or pruned, where the
+  // query named many.
+  //
   // A glob used to draw only its follows, on the theory that animating skipped
-  // work was the opposite of the lesson. That was backwards — for `sc*` the
-  // whole lesson IS that every arc but 's' dies at the root, and leaving those
-  // undrawn made the cheapest pattern look identical to the most expensive one.
+  // work was the opposite of the lesson. That was backwards — leaving the
+  // skipped work undrawn made the cheapest pattern look identical to the most
+  // expensive one. The cost still shows, but as a DIMMED subtree rather than a
+  // parade of refusals: `sc*` jumps twice and greys out the rest of the
+  // dictionary, where `*search` has nothing to jump to and follows every arc.
   // One replay, one set of rules, whatever the query.
-  const walkVisits = hits.visits.filter((v) => v.action === 'follow' || v.action === 'prune')
+  const walkVisits = hits.visits.filter(
+    (v) => v.action === 'follow' || v.action === 'prune' || v.action === 'seek',
+  )
 
   // What the read step opens and replays, per mode — see buildReads.
   const reads = buildReads(index, mode, trace, hits)
@@ -327,7 +355,7 @@ function sayDecision(dfa, visit, prev) {
   // progress — it is the single most confusing thing about watching the walk.
   let lead = ''
   if (prev) {
-    const wasAt = prev.action === 'follow' ? prev.prefix + prev.label : prev.prefix
+    const wasAt = prev.action === 'prune' ? prev.prefix : prev.prefix + prev.label
     if (wasAt !== visit.prefix)
       lead =
         `Everything under ${q(wasAt)} is finished, so the walk backs up to ` +
@@ -335,7 +363,21 @@ function sayDecision(dfa, visit, prev) {
         `state it had there. `
   }
 
-  const head = `${lead}The index offers ${q(x.label)} ${where}.`
+  // A seek and a scan are different sentences, because they are different
+  // events: scanning, the INDEX offers a character and the machine judges it;
+  // seeking, the MACHINE names a character and the node's arc index produces it.
+  // Fuzzy only reaches this branch with a prefix_length, where the pinned
+  // characters are not negotiable.
+  const head =
+    visit.action === 'seek'
+      ? `${lead}The machine wants ${q(x.label)} ${where} and nothing else, so it goes ` +
+        `straight to that arrow` +
+        (visit.skipped.length
+          ? ` — the other ${visit.skipped.length} here ${
+              visit.skipped.length === 1 ? 'is' : 'are'
+            } not compared.`
+          : '.')
+      : `${lead}The index offers ${q(x.label)} ${where}.`
 
   if (visit.action === 'prune') {
     return {
@@ -351,12 +393,13 @@ function sayDecision(dfa, visit, prev) {
     }
   }
 
-  const parts = [sayWhy(x)]
+  const parts = visit.action === 'seek' ? [] : [sayWhy(x)]
   const alive = x.to.filter((n) => !n.bridge).length
+  const took = visit.action === 'seek' ? 'The walk takes it' : 'The walk follows the arrow'
   const tail =
     alive === 1
-      ? `The walk follows the arrow, and exactly one reading comes through.`
-      : `The walk follows the arrow, and the machine is now in ${alive} readings at once — ` +
+      ? `${took}, and exactly one reading comes through.`
+      : `${took}, and the machine is now in ${alive} readings at once — ` +
         `it cannot yet tell which will pay off, so it keeps them all.`
 
   return {
@@ -418,16 +461,27 @@ export function FstTile({ d, step, sub, live, at }) {
   const spelled = sub ?? spelledClock // only read on the found step
 
   // What the picture highlights: ONE replay for every mode. The walk lights the
-  // arcs it took, reddens the ones it refused, dims what a refusal skipped, and
+  // arcs it took, reddens the ones nothing live accepts, dims what they skipped, and
   // pans to the decision being made — a plain term differs only in having a
   // one-reading automaton, so exactly one path survives.
   const revealed = walkVisits.slice(0, shown)
   const followed = new Set()
   const pruned = new Set()
+  // The far end of every arc the walk did not go down. A prune is an arc nothing
+  // live accepts; a seek's siblings were stepped over by an indexed jump. They
+  // earn the same dimming — the cost lesson is identical — but only a prune
+  // earns red, because only a prune is a verdict the query reached.
+  const unread = []
   for (const v of revealed) {
     const key = `${v.fstFrom}:${v.label}`
-    if (v.action === 'follow') followed.add(key)
-    else pruned.add(key)
+    if (v.action === 'prune') {
+      pruned.add(key)
+      unread.push(v.fstTo)
+    } else {
+      // A seek took its arc just as surely as a follow did.
+      followed.add(key)
+      if (v.action === 'seek') unread.push(...v.skippedTo)
+    }
   }
   const last = revealed[revealed.length - 1] ?? null
 
@@ -467,12 +521,13 @@ export function FstTile({ d, step, sub, live, at }) {
     ? {
         followed,
         pruned,
-        dimmed: subtreeOf(index.fst, revealed.filter((v) => v.action === 'prune')),
+        dimmed: subtreeOf(index.fst, unread),
         // The ring marks where the walk IS; the pan follows what the step is
-        // ABOUT. For a prune those are different nodes, and the far end is the
-        // one worth looking at. On the "address found" step both are the node
-        // holding the answer address.
-        cursor: addrNode ?? (last ? (last.action === 'follow' ? last.fstTo : last.fstFrom) : index.fst.root),
+        // ABOUT. For a prune those are different nodes — the walk is still
+        // standing on the node it refused the arc FROM — and the far end is the
+        // one worth looking at. A seek moves the walk, exactly like a follow.
+        // On the "address found" step both are the node holding the answer.
+        cursor: addrNode ?? (last ? (last.action === 'prune' ? last.fstFrom : last.fstTo) : index.fst.root),
         focus: addrNode ?? (last ? last.fstTo : index.fst.root),
         matches,
       }
@@ -685,10 +740,12 @@ function carriedAlong(index, prefix) {
   return out
 }
 
-// Which FST states sit behind an arc that was pruned — the terms nobody read.
-function subtreeOf(fst, prunes) {
+// Which FST states sit behind an arc the walk never went down — whether nothing
+// live could accept it (a prune) or an indexed jump stepped over it (a seek's
+// skipped siblings). Either way: terms nobody read.
+function subtreeOf(fst, roots) {
   const out = new Set()
-  const stack = prunes.map((v) => v.fstTo)
+  const stack = [...roots]
   while (stack.length) {
     const id = stack.pop()
     if (id == null || out.has(id)) continue
@@ -747,9 +804,9 @@ function levView(dfa, revealed) {
     taken,
     dead,
     visit: last,
-    prefix: last == null ? '' : last.action === 'follow' ? last.prefix + last.label : last.prefix,
+    prefix: last == null ? '' : last.action === 'prune' ? last.prefix : last.prefix + last.label,
     char,
-    fstNode: last == null ? null : last.action === 'follow' ? last.fstTo : last.fstFrom,
+    fstNode: last == null ? null : last.action === 'prune' ? last.fstFrom : last.fstTo,
     edits: Number.isFinite(bestNow) ? bestNow : null,
     spentAnEdit: !dead && last != null && bestNow > bestBefore,
     // A live accepting state means the candidate prefix is ALREADY within budget
@@ -912,8 +969,8 @@ function WalkReadout({ mode, lev, pattern, dfa, walking, done, blockRead = true,
           <b>complete</b>
         </div>
         <div className="cu-isect-cell">
-          <span className="cu-isect-k">arcs pruned</span>
-          <b>{hits.prunedArcs}</b>
+          <span className="cu-isect-k">arcs skipped unread</span>
+          <b>{hits.prunedArcs + hits.arcsSkipped}</b>
         </div>
         <div className="cu-isect-cell grow">
           <span className="cu-isect-k">{matchedLabel}</span>
@@ -954,19 +1011,27 @@ function WalkReadout({ mode, lev, pattern, dfa, walking, done, blockRead = true,
   // holding, or what a glob accepts.
   if (mode !== 'fuzzy') {
     const last = visits[visits.length - 1] ?? null
-    const prefix = last == null ? '' : last.action === 'follow' ? last.prefix + last.label : last.prefix
+    const prefix = last == null ? '' : last.action === 'prune' ? last.prefix : last.prefix + last.label
     const prune = last?.action === 'prune' ? last : null
+    // A seek is not a verdict on an arc — it is the node's arc index being used.
+    // Saying how many arcs it did NOT compare is the whole correction this view
+    // exists to make, so the count goes in the verdict rather than the copy.
     const verdict = prune
-      ? { cls: 'dead', text: 'refused on sight — PRUNE' }
-      : {
-          cls: 'exact',
-          text:
-            last == null
-              ? 'start'
-              : mode === 'term'
-                ? 'this arrow can still spell the term'
-                : 'the pattern accepts it',
-        }
+      ? { cls: 'dead', text: 'no live transition — PRUNE' }
+      : last?.action === 'seek'
+        ? {
+            cls: 'exact',
+            text: 'jumped straight to it — SEEK',
+            note: last.skipped.length
+              ? `the node indexes its arcs, so ${last.skipped.length} sibling${
+                  last.skipped.length === 1 ? ' was' : 's were'
+                } never compared`
+              : 'the only arc here',
+          }
+        : {
+            cls: 'exact',
+            text: last == null ? 'start' : 'the pattern accepts it',
+          }
     const carried = mode === 'term' ? carriedAlong(index, prefix) : null
     return (
       <div className={'cu-isect ' + verdict.cls}>
@@ -978,7 +1043,9 @@ function WalkReadout({ mode, lev, pattern, dfa, walking, done, blockRead = true,
           </b>
         </div>
         <div className="cu-isect-cell">
-          <span className="cu-isect-k">character read</span>
+          <span className="cu-isect-k">
+            {last?.action === 'seek' ? 'character asked for' : 'character read'}
+          </span>
           <b className={prune ? 'cu-isect-x' : undefined}>
             {last == null ? '—' : `“${last.label}”`}
           </b>
@@ -1004,10 +1071,12 @@ function WalkReadout({ mode, lev, pattern, dfa, walking, done, blockRead = true,
         </div>
         <div className={'cu-isect-verdict ' + verdict.cls}>
           {verdict.text}
-          {prune && (
+          {prune ? (
             <i>
               {prune.termsSkipped} term{prune.termsSkipped === 1 ? '' : 's'} behind it, never read
             </i>
+          ) : (
+            verdict.note && <i>{verdict.note}</i>
           )}
         </div>
       </div>

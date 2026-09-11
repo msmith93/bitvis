@@ -373,6 +373,24 @@ function liveFloors(floors, dfa, dfaState) {
   })
 }
 
+// What this DFA state can still accept, as the walk sees it. Either exactly one
+// byte — in which case Lucene does NOT examine the node's other arcs, it SEEKS —
+// or a range/ANY, in which case there is nothing to seek to and the arcs have to
+// be considered.
+//
+// This is the single rule that decides how a node is drawn, and it is a property
+// of the QUERY at that node, never of the query's kind: an exact term is
+// determinate everywhere, `sc*` is determinate until the `*`, and a fuzzy state
+// is never determinate while it still has budget (an insertion buys any
+// character, so `other` stays live). See SPEC.md for the Lucene citations.
+function liveLabels(dfa, dfaState) {
+  const st = dfa.states[dfaState]
+  if (!st || st.dead) return { any: false, labels: [] }
+  // A live ANY fallback means every byte is reachable: nothing to jump to.
+  if (st.other != null && !dfa.states[st.other].dead) return { any: true, labels: [] }
+  return { any: false, labels: dfa.alphabet.filter((c) => dfaStep(dfa, dfaState, c) != null) }
+}
+
 // Every visit carries BOTH cursors — which FST state and which DFA state it
 // moved from and to. The dictionary close-up animates its two panels off exactly
 // this; without it the view has to re-walk the prefix to work out where it is,
@@ -411,7 +429,6 @@ function termPath(dfa, from, prefix, term) {
 export function intersectTrace(index, dfa) {
   const visits = []
   const loadedFps = new Set()
-  const prunedTerms = []
   let termsRead = 0
   const matched = []
 
@@ -452,6 +469,45 @@ export function intersectTrace(index, dfa) {
       }
     }
 
+    // ONE indexed jump when the query names a single byte. Lucene's FST node
+    // carries its own arc index — a presence bitset (O(1)), or a fixed-length
+    // sorted array it binary-searches — so `findTargetArc` goes straight to the
+    // label it wants and never compares the siblings. Drawing those siblings
+    // dying one at a time said the opposite, which is why this branch exists.
+    const live = liveLabels(dfa, dfaState)
+    if (!live.any && live.labels.length <= 1) {
+      // Zero live labels means the query wants a byte this dictionary does not
+      // contain at all (`zzz` against a segment with no z terms). Lucene asks
+      // for it, gets null back, and stops — it never touches the siblings, so
+      // neither does the picture.
+      const label = live.labels[0]
+      const arc = label == null ? null : state.arcs.find((a) => a.label === label)
+      // No arc for the byte we asked for: the walk is over. Deliberately NOT a
+      // visit — `.tip` arcs are block prefixes, so the arrows running out is the
+      // NORMAL end of a successful term lookup, and drawing it as a refusal put
+      // two opposite meanings on red once before (SPEC.md).
+      if (!arc) return
+      const next = dfaStep(dfa, dfaState, label)
+      const skipped = state.arcs.filter((a) => a.label !== label)
+      visits.push({
+        action: 'seek',
+        prefix,
+        label,
+        dfaState: next,
+        fstFrom: fstState,
+        fstTo: arc.to,
+        dfaFrom: dfaState,
+        dfaTo: next,
+        // The arcs this jump did not touch. They cost nothing and were never
+        // reached — a different fact from an arc nothing live could accept.
+        skipped: skipped.map((a) => a.label),
+        skippedTo: skipped.map((a) => a.to),
+        termsSkipped: skipped.reduce((n, a) => n + index.fst.states[a.to].terms, 0),
+      })
+      walk(arc.to, next, prefix + label)
+      return
+    }
+
     for (const arc of state.arcs) {
       const next = dfaStep(dfa, dfaState, arc.label)
       const under = index.fst.states[arc.to].terms
@@ -466,7 +522,6 @@ export function intersectTrace(index, dfa) {
           dfaFrom: dfaState,
           dfaTo: null, // nothing survived — that is what a prune IS
         })
-        prunedTerms.push(under)
         continue
       }
       visits.push({
@@ -497,13 +552,19 @@ export function intersectTrace(index, dfa) {
     blocksLoaded,
     blocksTotal: index.blocks.length,
     prunedArcs: visits.filter((v) => v.action === 'prune').length,
+    // Arcs an indexed jump stepped over without looking at. Distinct from a
+    // prune: a prune was considered and refused, these were never read at all.
+    arcsSkipped: visits.reduce((n, v) => n + (v.action === 'seek' ? v.skipped.length : 0), 0),
+    seeks: visits.filter((v) => v.action === 'seek').length,
     // Terms behind a pruned arc are never read. They can double-count nested
     // subtrees, so clamp to what the dictionary actually holds.
     termsPruned: Math.min(
       index.terms.length,
       index.terms.length - termsRead,
     ),
-    // A leading wildcard prunes nothing — the structural version of "expensive".
-    prunesNothing: !visits.some((v) => v.action === 'prune'),
+    // A leading wildcard skips nothing — the structural version of "expensive".
+    // It has no seek to make either: its start state accepts every byte, so
+    // there is no single label to jump to and no arc it may refuse.
+    prunesNothing: !visits.some((v) => v.action === 'prune' || v.action === 'seek'),
   }
 }

@@ -409,10 +409,10 @@ const PLAIN_LOCAL_STEPS = [
     // deliberately, rather than a zoom. See SPEC.md's flagged simplifications.
     blurb:
       'A fixed-size priority queue keeps only the size highest-scoring docs; lower scores are evicted as better ones arrive. This is the shard’s local ranking. Scoring every candidate first, as this app does, is a simplification: real Lucene runs WAND / Block-Max WAND',
-    link: {
-      label: 'Magic WAND: faster retrieval of top hits',
-      url: 'https://www.elastic.co/blog/faster-retrieval-of-top-hits-in-elasticsearch-with-block-max-wand',
-    },
+    // link: {
+    //   label: 'Magic WAND: faster retrieval of top hits',
+    //   url: 'https://www.elastic.co/blog/faster-retrieval-of-top-hits-in-elasticsearch-with-block-max-wand',
+    // },
   },
   {
     key: 'return',

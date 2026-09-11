@@ -51,7 +51,7 @@ const { SAMPLE_DOCS, FUZZY_QUERIES, WILDCARD_QUERIES, CATALOG_DOCS, NESTED_QUERI
   SRC + 'presets.js'
 )
 const { buildTermIndex, fstSeek, seekTrace } = await import(SRC + 'blocktree.js')
-const { ANY, compileAutomaton, intersectTrace } = await import(SRC + 'automaton.js')
+const { ANY, compileAutomaton, dfaStep, intersectTrace } = await import(SRC + 'automaton.js')
 const { buildBlock, OBJECT_MAPPING, makeMapping } = await import(SRC + 'mapping.js')
 const { scoreDoc, computeShardSearch, localSearchSteps } = await import(SRC + 'ops/search.js')
 const searchOp = (await import(SRC + 'ops/search.js')).default
@@ -276,14 +276,32 @@ section('5 · the intersection trace reports the walk it performed')
     const dfa = compileAutomaton(pattern, alphabet)
     const hits = intersectTrace(index, dfa)
     for (const v of hits.visits) {
-      if (v.action !== 'follow' && v.action !== 'prune') continue
+      if (v.action !== 'follow' && v.action !== 'prune' && v.action !== 'seek') continue
       visits += 1
       const where = `shard ${shard} “${q}” pl=${pl} “${v.prefix}”+${v.label}`
       if (stateFor(index.fst, v.prefix) !== v.fstFrom) problems.push(`${where}: fstFrom disagrees with the prefix`)
       const arc = index.fst.states[v.fstFrom].arcs.find((a) => a.label === v.label)
       if (!arc || arc.to !== v.fstTo) problems.push(`${where}: fstTo is not where the arc points`)
       if (v.action === 'prune' && v.dfaTo !== null) problems.push(`${where}: a prune must have no surviving state`)
-      if (v.action === 'follow' && dfa.states[v.dfaTo].dead) problems.push(`${where}: a follow landed on a dead state`)
+      if (v.action !== 'prune' && dfa.states[v.dfaTo].dead) problems.push(`${where}: the walk landed on a dead state`)
+      // A seek is the claim "the query named ONE byte here, so Lucene used the
+      // node's arc index and never compared the siblings". If more than one
+      // label were live the picture would be showing an indexed jump where real
+      // Lucene has to enumerate — the exact error this whole mode was built to
+      // stop making. So check the claim rather than trusting the emitter.
+      if (v.action === 'seek') {
+        const live = dfa.alphabet.filter((c) => dfaStep(dfa, v.dfaFrom, c) != null)
+        const other = dfa.states[v.dfaFrom].other
+        if (other != null && !dfa.states[other].dead)
+          problems.push(`${where}: seeking, but the state accepts ANY character`)
+        if (live.length !== 1 || live[0] !== v.label)
+          problems.push(`${where}: seeking “${v.label}” but the live set is [${live}]`)
+        const siblings = index.fst.states[v.fstFrom].arcs
+          .filter((a) => a.label !== v.label)
+          .map((a) => a.label)
+        if (v.skipped.join('') !== siblings.join(''))
+          problems.push(`${where}: skipped [${v.skipped}] is not the node's other arcs [${siblings}]`)
+      }
     }
   }
   check(`both cursors agree with the walk over ${visits} arc decisions`, problems.length === 0, problems.slice(0, 4).join('\n      '))
@@ -351,7 +369,12 @@ section('5 · the intersection trace reports the walk it performed')
         seeks += 1
         const dfa = compileAutomaton(W.parsePattern(term), alphabet)
         const hits = intersectTrace(index, dfa)
-        const walked = hits.visits.filter((v) => v.action === 'follow').map((v) => v.label)
+        // Term mode is now a chain of SEEKS — the arrows it takes are the arrows
+      // it asked for by name. Accept follows too, so this keeps meaning "the
+      // arcs the walk went down" if a term ever stops being determinate.
+      const walked = hits.visits
+        .filter((v) => v.action === 'follow' || v.action === 'seek')
+        .map((v) => v.label)
         const sought = fstSeek(index, term).arcs.filter((a) => !a.missing).map((a) => a.label)
         const where = `shard ${shard} “${term}”`
         if (walked.join('') !== sought.join(''))
@@ -367,6 +390,34 @@ section('5 · the intersection trace reports the walk it performed')
       mismatched.length === 0,
       mismatched.slice(0, 4).join('\n      '),
     )
+
+    // The correction this change exists to make. An exact term names one byte
+    // at every node, so its walk must be ALL indexed jumps and must never draw
+    // an arc that nothing live accepts — the picture used to redden every
+    // sibling at every node, which said Lucene compares them one at a time.
+    const swept = []
+    for (const { shard, index } of DICTS) {
+      const alphabet = [...new Set(index.terms.flatMap((t) => [...t]))]
+      for (const term of ['search', 'serch', 'lucene', 'zzz']) {
+        const hits = intersectTrace(index, compileAutomaton(W.parsePattern(term), alphabet))
+        const bad = hits.visits.filter((v) => v.action === 'follow' || v.action === 'prune')
+        if (bad.length)
+          swept.push(`shard ${shard} “${term}”: ${bad.length} arc(s) examined instead of sought`)
+      }
+    }
+    check('an exact term only ever seeks — it never examines an arc', swept.length === 0, swept.join('\n      '))
+
+    // And the other half: a leading wildcard has nothing to seek to, so it must
+    // still take every arc. If this ever started seeking, the scenario built on
+    // "no path may be refused" would be narrating the opposite of the picture.
+    const leading = []
+    for (const { shard, index } of DICTS) {
+      const alphabet = [...new Set(index.terms.flatMap((t) => [...t]))]
+      const hits = intersectTrace(index, compileAutomaton(W.parsePattern('*search'), alphabet))
+      if (hits.seeks > 0) leading.push(`shard ${shard}: “*search” made ${hits.seeks} seek(s)`)
+      if (hits.prunedArcs > 0) leading.push(`shard ${shard}: “*search” pruned ${hits.prunedArcs} arc(s)`)
+    }
+    check('a leading wildcard has nothing to seek to and nothing to refuse', leading.length === 0, leading.join('\n      '))
   }
 
   // The reason the fuzzy scenario has a step 4 at all. The arc walk consumes

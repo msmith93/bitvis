@@ -93,7 +93,7 @@ const STEPS = [
     // grounds that the deep panel's own contrast table showed the cheap case
     // beside the expensive one — but that table was removed as clutter (SPEC.md
     // records why), so without this the reader only ever sees the structure for
-    // the pattern that CAN'T use it, and never watches an arc actually die.
+    // the pattern that CAN'T use it, and never watches the walk actually jump.
     id: 'dictionary-prefix',
     target: '[data-anat-dict]',
     placement: 'bottom',
@@ -117,8 +117,8 @@ const STEPS = [
     id: 'read-the-prune',
     target: '[data-tour="fst"]',
     placement: 'right',
-    title: 'Watch an arrow die',
-    body: 'Follow the walk. “sc*” can only ever accept a term beginning s-c, so at the very first character the machine refuses every other arrow: it turns red, and the whole branch of the dictionary behind it is skipped without being read.',
+    title: 'Watch it jump',
+    body: 'Follow the walk. “sc*” can only ever accept a term beginning s-c, so at the first character the machine wants exactly one arrow — and a node indexes its arrows, so it goes straight there without comparing the others. Two jumps and it is inside the s-c corner of the dictionary. Everything greyed out was not rejected; it was never looked at.',
     waitFor: atDictWalk,
     cta: 'Got it',
   },
@@ -155,10 +155,12 @@ const STEPS = [
     advanceOn: (s) => s.zoomShard != null || (s.opDone && !s.playing),
   },
   {
-    // The second descent, on the LEADING run: `*search` prunes exactly zero arcs
+    // The second descent, on the LEADING run: `*search` skips exactly zero arcs
     // and reads every block, which is the structural version of this scenario's
-    // whole thesis. It only lands because the reader watched arcs actually die
-    // on the `sc*` run a few steps back — the two pictures are the contrast.
+    // whole thesis. It only lands because the reader watched the walk jump past
+    // the dictionary on the `sc*` run a few steps back — the two are the
+    // contrast, and neither shows a single red arc: an anchored pattern doesn't
+    // refuse arcs, it never looks at them.
     // Mirrors the ondisk/fuzzy descent: one click per step, so getting down two
     // levels is two steps.
     id: 'dictionary-leading',
@@ -181,7 +183,7 @@ const STEPS = [
     target: '[data-tour="fst"]',
     placement: 'right',
     title: 'No paths skipped',
-    body: 'Watch the arrows as the walk runs. In a pattern that can be anchored, most of them die red at the root and everything behind them is skipped. Here every single arrow path has to be searched. A leading wildcard accepts ANY first character, so there is no path the machine is ever entitled to refuse. That is the performance cost of leading wildcards. Every block off the disk must be checked.',
+    body: 'Watch the arrows as the walk runs. A pattern that can be anchored names its first character, so the walk jumps to one arrow and ignores the rest of the dictionary. Here every single arrow path has to be searched. A leading wildcard accepts ANY first character, so there is nothing to jump to and no path the machine is ever entitled to refuse. That is the performance cost of leading wildcards. Every block off the disk must be checked.',
     waitFor: atDictWalk,
     cta: 'Got it',
   },
@@ -203,7 +205,7 @@ const STEPS = [
     body: [
       'A prefix like “sc*” costs a seek plus the matching range. A leading wildcard costs the ENTIRE term dictionary — and that price is paid per segment, per shard, on every node the query touches.',
       'It is also why the usual fix is to index the data differently rather than query harder: a reverse field, an ngram/wildcard field, or a prefix you can actually seek to.',
-      'The middle view models the seek as a binary search over a flat sorted array. The two zooms you took show what Lucene really does — an FST in memory picking blocks out of a file on disk, with the pattern compiled to an automaton rather than tested as a regex — and they are the same picture twice: arcs dying at the root for the pattern that can be anchored, not one arrow refused for the pattern that cannot.',
+      'The middle view models the seek as a binary search over a flat sorted array. The two zooms you took show what Lucene really does — an FST in memory picking blocks out of a file on disk, with the pattern compiled to an automaton rather than tested as a regex — and they are the same picture twice: two indexed jumps into one corner for the pattern that can be anchored, and every arrow taken for the pattern that cannot.',
     ],
     waitFor: (s) => s.zoomShard == null && !s.coordZoom,
     cta: 'Done',

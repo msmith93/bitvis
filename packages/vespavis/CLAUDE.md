@@ -1,12 +1,19 @@
-# CLAUDE.md
+# CLAUDE.md — vespavis
 
-This file provides guidance to Claude Code (claude.ai/code) when working with
-code in this package.
-
-> This app is `packages/vespavis` in the **bitvis** monorepo (npm workspaces).
-> Run `npm install` once at the repo root. Deploy infra lives at the repo root
-> (`infra/`, `scripts/`); deploy this site with
+> **Read the root `/CLAUDE.md` and `/docs/ARCHITECTURE.md` first.** They cover
+> the monorepo layout and the `(cluster, op)` engine this app shares with its
+> three siblings. This file covers only what is specific to vespavis.
+>
+> `packages/vespavis`, npm workspace `@bitvis/vespavis`. Deploy with
 > `../../scripts/deploy.sh VespavisStack`.
+
+**App-specific API facts:** the step-list accessor is **`stepsOf(op)`**, not
+`stepsFor` — and a module may export `stepsFor(payload)` to vary its own steps
+(both `query` and `update` do, so the footer changes shape with the rank profile
+/ indexing statement). `npm run check` exists. There are **no guided tours** and
+**no close-ups** in this app. It is **light-themed only**, by design — it
+matches Vespa's brand; there is no `ThemeToggle` and adding dark mode is net-new
+work, not a port. `PLAN.md` is the live roadmap.
 
 ## Commands
 

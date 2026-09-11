@@ -1,12 +1,20 @@
-# CLAUDE.md
+# CLAUDE.md — cassandravis
 
-This file provides guidance to Claude Code (claude.ai/code) when working with
-code in this package.
-
-> This app is `packages/cassandravis` in the **bitvis** monorepo (npm
-> workspaces). Run `npm install` once at the repo root. Deploy infra lives at
-> the repo root (`infra/`, `scripts/`); deploy this site with
+> **Read the root `/CLAUDE.md` and `/docs/ARCHITECTURE.md` first.** They cover
+> the monorepo layout and the `(cluster, op)` engine this app shares with its
+> three siblings. This file covers only what is specific to cassandravis.
+>
+> `packages/cassandravis`, npm workspace `@bitvis/cassandravis`. Deploy with
 > `../../scripts/deploy.sh CassandravisStack`.
+
+**App-specific API facts:** `stepsFor(op)` takes an **op**, not a type, and a
+module's `steps` may be a **function of the payload** (put/get grow steps when
+the hinted-handoff or read-repair branch applies). `cloneCluster` is **deep**
+(per-node LSM storage). Close-ups live in `src/closeups/` but are held **one at
+a time** — `App.jsx` keeps a single `closeUp` object, they do not nest.
+This is the only app with e2e tests: `npm run test:e2e` (Playwright, pins port
+5183) — run it after touching any close-up, since a runtime error there is
+invisible to `npm run build`. No `npm run check`. Dark theme only.
 
 ## Commands
 
@@ -36,9 +44,9 @@ before changing the model.
 
 ## Architecture
 
-Same core pattern as the sibling `elasticsearchvis`/`kubevis` packages: a **pure
-derivation of visible state from `(cluster, op)`**, which lets the stepper
-scrub any operation forwards and backwards.
+Built on the shared `(cluster, op)` engine — see `/docs/ARCHITECTURE.md` for how
+derivation, the ops registry, `useOpLifecycle` and `timing.js` work in general.
+Below is what differs here.
 
 - **`cluster`** (`src/cluster.js`) is the committed state:
   `{ nodes, keys, coordinator }`. Ring tokens live IN cluster state
@@ -102,16 +110,6 @@ scrub any operation forwards and backwards.
   with the `W+R>N` badge), `MerkleView` (repair comparison), `ScenarioBar`,
   `Stepper`, `Walkthrough`. Framer Motion drives the stage animations.
 
-- **`MobileWarning`** (`src/components/MobileWarning.jsx`, styled in `index.css`)
-  is a full-screen advisory shown on small touch screens: these visualizers are
-  desktop simulations, so a phone gets told so before it fights the layout. It
-  is advisory ("Continue anyway" dismisses it for the session, with no
-  persistence) and it is deliberately gated on a coarse pointer AND a small
-  viewport, so a narrow desktop window never trips it. Every visualizer app
-  carries an identical copy of it — the landing page does not.
-
-- **`HomeLink`** (`src/components/HomeLink.jsx`, styled in `index.css`) is the
-  way back to the bitvis landing page (`https://bitvis.bitsculpt.top`). Each
-  visualizer is its own subdomain, so without it a visitor who enjoys this one
-  has no path to the others; it sits first in the topbar and carries the landing
-  page's own 2×2 dot mark. Every visualizer app carries an identical copy.
+- **`MobileWarning` and `HomeLink`** (`src/components/`, styled in `index.css`)
+  are the two components that are **byte-identical in all four apps** — change
+  one, change four. Rationale in `/docs/ARCHITECTURE.md`.

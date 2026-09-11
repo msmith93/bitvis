@@ -414,6 +414,40 @@ wrong mental model would be stated confidently to the reader:
   (`currentTransition.min/max`) to skip labels no transition can accept. We test
   characters arc by arc, which is the same set of follows and prunes said out
   loud — the toy alphabet is ASCII, so bytes and characters coincide here.
+- **A node is not scanned to find an arc, and the picture must not say it is.**
+  `FST.findTargetArc(label, …)` reads a node-flags byte and dispatches on how
+  that node's arcs were written:
+  `ARCS_FOR_DIRECT_ADDRESSING` (fixed-length arcs over a label range plus a
+  presence bitset — `label - firstLabel`, one `BitTable.isBitSet`, a handful of
+  popcounts in `countBitsUpTo`, and **no label comparison at all**),
+  `ARCS_FOR_CONTINUOUS` (the range is dense, so the bitset is dropped and
+  `readArc` does not even read the label), `ARCS_FOR_BINARY_SEARCH` (~log₂n
+  label probes), and only as a fallback a variable-length arc list scanned
+  linearly with an early exit on `label > labelToMatch`.
+  `FSTCompiler.shouldExpandNodeWithFixedLengthArcs` gives the array forms to any
+  node at depth ≤ `FIXED_LENGTH_ARC_SHALLOW_DEPTH` (3) with ≥
+  `FIXED_LENGTH_ARC_SHALLOW_NUM_ARCS` (5) arcs, or ≥
+  `FIXED_LENGTH_ARC_DEEP_NUM_ARCS` (10) arcs anywhere — so the bushy nodes a
+  walk would appear to sweep are exactly the ones that are indexed, and the
+  linear path is left to nodes holding one to three arcs. Lucene **deleted** its
+  explicit root-arc cache in 8.4 (LUCENE-9049, *"redundant with labels indexed by
+  bitset"*), which is the project saying in its own words that root lookup is
+  already an array index. Hence the seek/consider rule below.
+- The genuine one-at-a-time comparison is one level DOWN, in
+  `SegmentTermsEnumFrame.scanToTermLeaf`: `Arrays.compareUnsigned` over the
+  block's suffixes, up to `maxItemsInBlock` (48), with an early exit once the
+  scan passes the target. This app already animates that, as the `.tim` row
+  reveal — and the FST's whole job is to keep that scan short.
+- Two simplifications worth stating plainly. In the DEFAULT codec
+  `IntersectTermsEnum` does not intersect the automaton with FST arcs at all: it
+  merge-joins `currentTransition.min/max` against the **block suffix bytes**, and
+  touches the FST only through `findTargetArc` in `pushFrame`, to recover
+  floor-block metadata. Arc-level intersection is real, but it lives in the
+  non-default `FSTTermsReader` (`readFirstRealTargetArc`/`readNextRealArc` for
+  siblings, `Util.readCeilArc` to seek). And as of Lucene 10.3 the default terms
+  index is no longer an FST at all — `TrieBuilder`/`TrieReader` replaced it — but
+  its `ChildSaveStrategy` makes the SAME choice, `BITS` before `ARRAY`, with no
+  linear-scan strategy at all. The lesson this zoom teaches survives both.
 - `pushFrame` → `frame.load(node)` means a frame IS a block read: an intersect
   reads the root block and each sub-block it descends into. That is why term
   mode keeps `seekTrace` for its cost (see above) — the two APIs genuinely read
@@ -426,8 +460,17 @@ wrong mental model would be stated confidently to the reader:
 
 1. The pattern compiles to an NFA, then is **determinized** (Lucene caps this at
    `maxDeterminizedStates` = 10000, which this app enforces).
-2. The automaton is run against the `.tip` arcs in lockstep. An arc it has no live
-   transition for is **pruned** — every term behind it is skipped unread.
+2. The automaton is run against the `.tip` arcs in lockstep, and **what it can
+   accept at a node decides how the walk moves there**. Exactly one live label
+   and the walk **seeks**: one indexed jump, the siblings never examined (drawn
+   grey, their subtrees dimmed, and counted as skipped). Many live labels or an
+   ANY fallback and there is nothing to jump to, so the arcs are considered one
+   by one: followed, or **pruned** — every term behind a prune skipped unread.
+   This is ONE rule for every mode, keyed on the query's state at that node and
+   never on the query's kind, so it does not reintroduce a per-kind walk.
+   A plain term is determinate everywhere, so it is a pure chain of seeks;
+   `sc*` seeks until the `*`; a fuzzy is determinate only once its budget is
+   spent, because until then an insertion buys any character.
 3. A **leading wildcard's start state accepts any character**, so no arc can ever
    be pruned and every block loads. The cost difference is therefore STRUCTURAL,
    not a heuristic. Both numbers must be derived by running the two automata,
@@ -531,24 +574,49 @@ pattern, the dictionary zoom draws the automaton beside the term index.
 - **Draw the SET, never a single cursor.** After part of a word the machine
   genuinely cannot tell which reading will pay off, and one glowing node would
   misrepresent that.
-- **Prunes are drawn, for every kind of pattern.** This reverses an earlier
-  decision that a glob should animate only its follows (on the grounds that
-  drawing skipped work wasted the step). That was backwards: for `sc*` the whole
-  lesson is that every arc but `s` dies at the root, and leaving those undrawn
-  made the cheapest pattern look identical to the most expensive one. There is
-  now ONE replay with one set of rules — followed arcs green, rejected arcs red,
-  the subtree behind a rejection dimmed, a cursor that pans — and the only thing
-  a query's kind still decides is whether the automaton panel appears beside the
+- **Skipped work is drawn, for every kind of pattern — but red is a VERDICT,
+  never a claim that the arc was inspected.** An earlier version animated a glob's follows only,
+  on the grounds that drawing skipped work wasted the step; that was backwards,
+  because it made the cheapest pattern look identical to the most expensive one.
+  A later version over-corrected the other way and reddened every sibling at
+  every node, for every query — which claimed Lucene compares a node's arcs one
+  at a time, and it does not (see the `findTargetArc` bullet above). There is now
+  ONE replay with one set of rules, keyed on the seek/consider test: a followed
+  or sought arc is green, an arc no live transition accepts is red, the subtree
+  behind EITHER a prune or a seek's untouched siblings is dimmed (that is where
+  the cost lesson lives), and the cursor pans to the decision being made.
+  The wording matters, and the verdict strip says `no live transition — PRUNE`
+  rather than the old `refused on sight`: `IntersectTermsEnum` leapfrogs sorted
+  transition ranges and **never runs the automaton on a label it rejects**, so
+  "refused on sight" claimed a test that does not happen. What a prune honestly
+  reports is that nothing live accepts the arc and everything behind it goes
+  unread — which is true, and is the lesson. Measured on this data, of the 128
+  prunes drawn, 83 sit below the first live range and 38 in a gap between
+  ranges — entries Lucene's catch-up scan genuinely walks past — and only 7
+  (5.5%) sit beyond the last live range, where Lucene pops the frame and never
+  arrives. So the picture depicts the right amount of WORK; it was only the verb
+  that overclaimed. Greying the reds out entirely would be more literal and less
+  true: it would erase the fuzzy panel's central lesson (the automaton
+  eliminates whole subtrees) to fix a verb. Arcs and block entries are not the
+  same unit, so that census is an analogy-level check, not an exact mapping.
+  The consequence is that on this data red appears **only in fuzzy mode**, which
+  is the honest answer: an exact term and an anchored glob both know which byte
+  they want, and `*search` — the expensive case — refuses nothing precisely
+  because it can rule nothing out. The contrast the wildcard scenario rests on is
+  now two indexed jumps into one corner of the dictionary versus every arrow
+  taken, and it reads more sharply than sixteen dying arcs did. The only thing a
+  query's kind still decides is whether the automaton panel appears beside the
   index, because a glob has no `(i, e)` grid to draw.
   **A plain term runs that same replay**, because it is the degenerate pattern:
-  its automaton has one acceptable reading, so one arc survives at each node and
-  every sibling dies. Term mode used to have a visual language of its own (green
+  its automaton names one character at every node, so a term walk is a short
+  chain of seeks. Term mode used to have a visual language of its own (green
   node FILLS, and a dashed red stub with a ✗ for the arc it ran out of) which
   put two opposite meanings on red in one picture — the stub fires on SUCCESSFUL
   lookups, since `.tip` arcs are block prefixes and the arrows always run out
   before the word does. The stub is gone and the fact lives in the copy and the
-  walk readout instead. What term mode does NOT share is its COST model: it
-  keeps `seekTrace`, because `TermsEnum.intersect` loads a block at every
+  walk readout instead; for the same reason a seek that finds no arc emits no
+  visit at all and simply ends the walk. What term mode does NOT share is its
+  COST model: it keeps `seekTrace`, because `TermsEnum.intersect` loads a block at every
   output-carrying state on the way down (three for `search` here) where
   `seekExact` carries the last output and reads exactly ONE — and one read is
   the number this zoom exists to teach. The intersection drives the picture;

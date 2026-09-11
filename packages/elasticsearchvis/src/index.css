@@ -3063,10 +3063,12 @@ textarea:focus {
    states that are ALIVE right now, states that just became alive, and the
    moment nothing survives at all. */
 
-/* A pruned arc on the FST — an arrow the query refused on sight, with every
-   term behind it skipped unread. EVERY mode draws these: the work saved is the
-   lesson, and a picture that only showed the work done made the cheapest query
-   look identical to the most expensive one. */
+/* A pruned arc on the FST — an arrow no live transition accepts, with every
+   term behind it skipped unread. Red is a VERDICT, not an inspection: real
+   Lucene leapfrogs transition ranges and never runs the automaton on a label it
+   rejects, so the copy must not claim the arc was tested. The work saved is
+   still the lesson, and a picture that only showed the work done made the
+   cheapest query look identical to the most expensive one. */
 .cu-arc.pruned line {
   stroke: var(--danger);
   stroke-width: 2;

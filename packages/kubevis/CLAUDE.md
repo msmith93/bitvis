@@ -1,11 +1,16 @@
-# CLAUDE.md
+# CLAUDE.md — kubevis
 
-This file provides guidance to Claude Code (claude.ai/code) when working with
-code in this package.
+> **Read the root `/CLAUDE.md` and `/docs/ARCHITECTURE.md` first.** They cover
+> the monorepo layout and the `(cluster, op)` engine this app shares with its
+> three siblings. This file covers only what is specific to kubevis.
+>
+> `packages/kubevis`, npm workspace `@bitvis/kubevis`. Deploy with
+> `../../scripts/deploy.sh KubevisStack`.
 
-> This app is `packages/kubevis` in the **bitvis** monorepo (npm workspaces).
-> Run `npm install` once at the repo root. Deploy infra lives at the repo root
-> (`infra/`, `scripts/`), not here.
+**App-specific API facts:** `stepsFor(type)` takes a **type**; `cloneCluster` is
+**shallow**; this is the only app with `commit(mutator)` on the lifecycle (the
+ambient traffic layer needs it) and the only one with an `src/kubectl.js`
+parser. No `npm run check`, no e2e tests. Dark theme only.
 
 ## Commands
 
@@ -41,9 +46,9 @@ correctness requirements — read `SPEC.md` before changing the model.
 
 ## Architecture
 
-Same core pattern as the sibling `elasticsearchvis` repo: a **pure derivation of
-visible state from `(cluster, op)`**, which lets the stepper scrub any
-operation forwards and backwards.
+Built on the shared `(cluster, op)` engine — see `/docs/ARCHITECTURE.md` for how
+derivation, the ops registry, `useOpLifecycle` and `timing.js` work in general.
+Below is what differs here.
 
 - **`cluster`** (`src/cluster.js`) is the committed state:
   `{ nodes, deployments, replicaSets, pods, events }`. Topology is fixed (1
@@ -127,16 +132,6 @@ operation forwards and backwards.
   `PodChip` is `forwardRef` because `AnimatePresence popLayout` measures
   exiting children.
 
-- **`MobileWarning`** (`src/components/MobileWarning.jsx`, styled in `index.css`)
-  is a full-screen advisory shown on small touch screens: these visualizers are
-  desktop simulations, so a phone gets told so before it fights the layout. It
-  is advisory ("Continue anyway" dismisses it for the session, with no
-  persistence) and it is deliberately gated on a coarse pointer AND a small
-  viewport, so a narrow desktop window never trips it. Every visualizer app
-  carries an identical copy of it — the landing page does not.
-
-- **`HomeLink`** (`src/components/HomeLink.jsx`, styled in `index.css`) is the
-  way back to the bitvis landing page (`https://bitvis.bitsculpt.top`). Each
-  visualizer is its own subdomain, so without it a visitor who enjoys this one
-  has no path to the others; it sits first in the topbar and carries the landing
-  page's own 2×2 dot mark. Every visualizer app carries an identical copy.
+- **`MobileWarning` and `HomeLink`** (`src/components/`, styled in `index.css`)
+  are the two components that are **byte-identical in all four apps** — change
+  one, change four. Rationale in `/docs/ARCHITECTURE.md`.

@@ -515,7 +515,10 @@ function tileStatus({ d, walk, postings, sf, wanted, fetch, step, at, postedShow
       ? { text: 'walking…', hot: true }
       : mode === 'term'
         ? { text: carried ? `walked · carrying ${carried}` : 'walked · nothing to read', done: true }
-        : { text: `walked · ${n(hits.prunedArcs, 'arc', 'arcs')} pruned`, done: true }
+        : {
+            text: `walked · ${n(hits.prunedArcs + hits.arcsSkipped, 'arc', 'arcs')} skipped unread`,
+            done: true,
+          }
   const blocksRead = mode === 'term' ? trace.blocksRead : hits.blocksLoaded
   const tim =
     step < readAt

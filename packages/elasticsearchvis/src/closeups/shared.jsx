@@ -399,12 +399,14 @@ export function ArcGraph({
       <div className="cu-fst-legend">
         <span className="cu-fst-key">
           an arrow <b>consumes one character</b> · a circle is <b>a node</b>, and an
-          address inside one means <b>“a block lives here”</b>
+          address inside one means <b>“a block lives here”</b> · a node <b>indexes its
+          own arrows</b>, so a walk that knows the character it wants jumps straight
+          to one and compares none of the rest
         </span>
         <span><i className="dot has-out" /> carries a .tim block pointer</span>
-        <span><i className="dot followed" /> the arrows this query followed · grey was never looked at</span>
+        <span><i className="dot followed" /> the arrows this query took · grey was never looked at</span>
         {pruned?.size > 0 && (
-          <span><i className="dot pruned" /> rejected — everything behind it is skipped unread</span>
+          <span><i className="dot pruned" /> no live transition accepts it — everything behind it is skipped unread</span>
         )}
         {matches?.size > 0 && (
           <span>

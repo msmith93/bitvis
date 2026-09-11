@@ -103,7 +103,7 @@ const STEPS = [
     // top of a panel the user is still reading.
     body: [
       'What you just watched is an FST: an automaton whose arrows are characters and whose circles can carry the address of a block. That is the structure Lucene uses to index the terms of a text field.',
-      'And the reason it exists is the split you were looking at. The dictionary is far too large to hold in memory at real scale, so it stays on disk in blocks; what stays resident is a small graph that indexes those BLOCKS rather than the terms. Finding any term costs a walk through memory and a single block read — no matter how many terms there are.',
+      'And the reason it exists is the split you were looking at. The dictionary is far too large to hold in memory at real scale, so it stays on disk in blocks; what stays resident is a small graph that indexes those BLOCKS rather than the terms. Finding any term costs a walk through memory and a single block read — no matter how many terms there are. The walk is not a search, either: each node indexes its own arrows, so every step is a jump straight to the character being asked for.',
       'What that read hands back is an address in the postings, and the postings are numbers: the ordinals of the Lucene docs that contain the term. The text itself sits in a fourth file the query never opens — the stored fields — which is fetched later, for the winners only.',
     ],
     waitFor: (s) => s.closeUpDepth === 0,
