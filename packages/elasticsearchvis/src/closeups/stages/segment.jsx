@@ -304,22 +304,33 @@ function SegmentStage({
 
   const focus = cam.focus
   const live = active && focus === target && cam.landed
+  // The camera is still on its way to this step's view (zooming out, holding
+  // the grid, or springing into the tile) and the replay has yet to run. A
+  // reveal that is off parks at the END, which is right for a scrub or a
+  // covered panel but wrong here: the tile would spring in showing its finished
+  // state and then snap back to the start when the camera landed. So while
+  // pending, each replay rests at its START instead. (Every reveal is only read
+  // on its own step, so resting the others at 0 changes nothing.)
+  const pending = active && sub == null && !live
 
   // ---- the replays that live outside the dictionary tiles ------------------
   const posted = useReveal(
     !fetch && step === at.postings && live && sub == null,
     walk?.units ?? 0,
     POSTING_STEP_MS,
+    pending ? 0 : (walk?.units ?? 0),
   )
   const located = useReveal(
     fetch && step === at.locate && live && sub == null,
     wanted.length,
     FETCH_STEP_MS,
+    pending ? 0 : wanted.length,
   )
   const fetched = useReveal(
     fetch && step === at.read && live && sub == null,
     wanted.length,
     FETCH_STEP_MS,
+    pending ? 0 : wanted.length,
   )
   const postedShown = !fetch && step === at.postings ? (sub ?? posted) : step > (at.postings ?? Infinity) ? Infinity : 0
   const locatedShown = fetch ? (step === at.locate ? (sub ?? located) : step > at.locate ? Infinity : 0) : 0
@@ -328,8 +339,9 @@ function SegmentStage({
   const status = tileStatus({ d, walk, postings, sf, wanted, fetch, step, at, postedShown, locatedShown, fetchedShown })
 
   const body = (tile) => {
-    if (tile === 'fst') return <FstTile d={d} step={step} sub={sub} live={live} at={at} />
-    if (tile === 'tim') return <BlocksTile d={d} step={step} sub={sub} live={live} at={at} postings={postings} />
+    if (tile === 'fst') return <FstTile d={d} step={step} sub={sub} live={live} pending={pending} at={at} />
+    if (tile === 'tim')
+      return <BlocksTile d={d} step={step} sub={sub} live={live} pending={pending} at={at} postings={postings} />
     if (tile === 'doc')
       return (
         <PostingsTile postings={postings} walk={walk} shown={postedShown} patterns={patterns} docs={docs} live={live} />

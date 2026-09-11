@@ -440,17 +440,21 @@ function sayStart(dfa) {
 // while the tile was still springing in would be half over before it could be
 // seen. `sub` is the mini-stepper's manual position: when it is non-null the
 // user is scrubbing, each reveal's `on` goes false and it parks at the end
-// (useReveal's off-semantics) while the view reads `sub` instead.
-export function FstTile({ d, step, sub, live, at }) {
+// (useReveal's off-semantics) while the view reads `sub` instead. `pending` is
+// the camera still travelling here under the clock: the replay rests at its
+// START then, or the tile would spring in finished and snap back on landing.
+export function FstTile({ d, step, sub, live, pending, at }) {
   const { index, mode, trace, hits, dfa, pattern, term, tick, walkVisits, matched } = d
   const total = walkVisits.length
-  const walked = useReveal(step === at.walk && live && sub == null, total, tick)
+  const walked = useReveal(step === at.walk && live && sub == null, total, tick, pending ? 0 : total)
   // The found step, fuzzy: the machine finishing the word it matched, one
   // character at a time, until it lands on an accepting state.
+  const spellTotal = matched?.path.steps.length ?? 0
   const spelledClock = useReveal(
     step === at.found && live && mode === 'fuzzy' && !!matched && sub == null,
-    matched?.path.steps.length ?? 0,
+    spellTotal,
     tick,
+    pending ? 0 : spellTotal,
   )
 
   const walking = step >= at.walk
@@ -607,13 +611,18 @@ export function FstTile({ d, step, sub, live, at }) {
 // opened in place on the read step with their rows replayed in scan order, and
 // the walk's totals beneath. `postings` (src/postings.js) lets an opened row
 // name the real .doc address its term points at — the hop the next tile opens.
-export function BlocksTile({ d, step, sub, live, at, postings }) {
+export function BlocksTile({ d, step, sub, live, pending, at, postings }) {
   const { index, mode, trace, hits, dfa, pattern, term, reads } = d
   // `read` on the .tim tile is the block-read step for a pattern/fuzzy; for a
   // plain term it is `found` (its `read` step stays on the .tip tile with the
   // address in hand). d.blockReadStep names whichever it is.
   const readAt = at[d.blockReadStep]
-  const rows = useReveal(step === readAt && live && sub == null, reads.rowUnits, BLOCK_READ_MS)
+  const rows = useReveal(
+    step === readAt && live && sub == null,
+    reads.rowUnits,
+    BLOCK_READ_MS,
+    pending ? 0 : reads.rowUnits,
+  )
   const reading = step >= readAt
   const rowsShown = step === readAt ? (sub ?? rows) : Infinity
 
