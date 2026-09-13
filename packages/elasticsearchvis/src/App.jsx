@@ -734,6 +734,7 @@ export default function App() {
             onZoom={(id) => openCloseUp({ kind: 'shard', shard: id })}
             onCoordZoom={() => openCloseUp({ kind: 'coordinator' })}
             onFetchZoom={(id) => openCloseUp({ kind: 'fetch', shard: id })}
+            onStatsZoom={(id) => openCloseUp({ kind: 'stats', shard: id })}
           />
         </div>
 

@@ -1192,14 +1192,23 @@ section('10 · dfs_query_then_fetch')
   const keysOf = (payload) => searchOp.stepsFor(payload).map((x) => x.key).join()
   check('with dfs off the search op keeps its six steps, unchanged',
     keysOf({}) === 'coordinator,scatter,local,gather,fetch,return', keysOf({}))
-  check('with dfs on it gains the statistics round trip, in front',
-    keysOf({ dfs: true }) === 'dfs,coordinator,scatter,local,gather,fetch,return',
+  // AFTER the coordinator, never before it: the statistics it asks for are the
+  // statistics of THIS query's terms, so there is nothing to ask about until the
+  // query has arrived. Drawn the other way round once, which is the bug this
+  // pins shut.
+  check('with dfs on it gains the statistics round trip, after the query arrives',
+    keysOf({ dfs: true }) === 'coordinator,dfs,scatter,local,gather,fetch,return',
     keysOf({ dfs: true }))
+  const dfsKeys = searchOp.stepsFor({ dfs: true }).map((x) => x.key)
+  check('the statistics round trip never precedes the coordinator receiving the query',
+    dfsKeys.indexOf('dfs') === dfsKeys.indexOf('coordinator') + 1 &&
+      dfsKeys.indexOf('dfs') < dfsKeys.indexOf('scatter'))
   // Everything that used to compare op.step to a literal now asks for the KEY.
   const keyAt = (payload, step) => searchStepKey({ type: 'search', step, payload })
   check('the phase keys survive the shift (local is step 2, or 3 under dfs)',
     keyAt({}, 2) === 'local' && keyAt({ dfs: true }, 3) === 'local' &&
-      keyAt({}, 4) === 'fetch' && keyAt({ dfs: true }, 5) === 'fetch')
+      keyAt({}, 4) === 'fetch' && keyAt({ dfs: true }, 5) === 'fetch' &&
+      keyAt({ dfs: true }, 0) === 'coordinator' && keyAt({ dfs: true }, 1) === 'dfs')
 
   // dfs hands every shard the SAME numbers; query_then_fetch does not.
   const scored = (s) => Object.values(s.stats).map((st) => st.byTerm.get('search').docFreq + '/' + st.docCount)
@@ -1238,6 +1247,19 @@ section('10 · dfs_query_then_fetch')
   const fell = dfs.merged.findIndex((h) => h.docId === 'doc-3')
   check('...and doc-3 falls out of the top 3 entirely under dfs',
     fell >= dfs.size, `doc-3 now at #${fell + 1} of ${dfs.merged.length}`)
+
+  // The stats zoom and the query zoom must agree about which terms a shard can
+  // report on — they are two panels over one dictionary, and the stats panel
+  // filters shardStats' keys where the query panel goes through the dictionary
+  // scan. Different code, same answer, or the two zooms teach different things.
+  const pats = W.parseQuery('search')
+  for (const shard of SAMPLE.shards) {
+    const st = shardStats(shard, SAMPLE.docs)
+    const fromStats = [...st.byTerm.keys()].filter((t) => W.matchesAny(t, pats)).sort().join()
+    const fromQuery = computeShardSearch(shard, pats, SAMPLE.docs, qtf.window).matchedTerms.join()
+    check(`shard ${shard.id}: the statistics zoom and the query zoom resolve the same terms`,
+      fromStats === fromQuery, `stats [${fromStats}] vs query [${fromQuery}]`)
+  }
 
   // A routed search asks one shard, so its "global" view is that shard's own —
   // dfs cannot make a difference it has nobody to disagree with.

@@ -241,12 +241,22 @@ payload (see the bullet below), and this is the only app whose close-ups
   `build(...) → { key, title, sub, steps, dwell?, Stage, stageProps, source,
   className? }`, and `src/closeups/index.js` is the registry
   (`shardCloseUp` / `coordCloseUp` / `fetchShards` / `closeUpStillValid` /
-  `closeUpAnchor` / `buildCloseUp`). Four kinds: `shard` (the `local` phase),
+  `closeUpAnchor` / `buildCloseUp`). Five kinds: `shard` (the `local` phase),
   `coordinator` (`gather` and `fetch`), `fetch` (a shard holding a winner, the
   `fetch` phase — `stages/shardFetch.jsx`, which turns each id back into a
-  segment + ordinal), and `segment` (inside one segment, nested under `shard`
-  or `fetch`, with `phase: 'query' | 'fetch'`). The registry addresses those by
-  `searchStepKey(op)`, never by step index — dfs moves the indices.
+  segment + ordinal), `stats` (a shard answering a dfs statistics request —
+  `stages/shardStats.jsx`), and `segment` (inside one segment, nested under any
+  of the shard-level three, with `phase: 'query' | 'fetch' | 'stats'`). The
+  registry addresses those by `searchStepKey(op)`, never by step index — dfs
+  moves the indices.
+  **The three shard-level zooms draw the SAME segment cards on purpose** and
+  differ only in what they light: query lights the dictionary then the postings,
+  fetch lights only `_source`, stats lights the dictionary and STOPS. That
+  comparison is the lesson; don't give any of them a card of its own.
+  The segment zoom's `stats` phase is the `query` phase minus its last tile — it
+  reuses `deriveDictionary` and `QUERY_STEPS`' middle three entries verbatim, so
+  the walk and the block read are visibly the same work a search does, and only
+  the stopping point differs. `.doc` is dimmed there with the reason.
   **Adding a zoom = one module plus one case in the registry.** A `steps` entry is `{ key, title, blurb }` plus an
   optional `link: { label, url }`, rendered under the blurb by the shared
   `components/DocLinks.jsx` (the same component App's "What's happening" panel

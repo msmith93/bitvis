@@ -24,15 +24,19 @@ import {
 //                     must first be expanded against each segment's term
 //                     dictionary.
 
-// dfs_query_then_fetch's extra phase. A whole round trip to every shard before
-// the query starts, carrying NUMBERS rather than documents — which is the cost
-// that keeps it off by default.
+// dfs_query_then_fetch's extra phase. A whole round trip to every shard,
+// carrying NUMBERS rather than documents — which is the cost that keeps it off
+// by default.
+//
+// It sits AFTER the coordinator has the query and BEFORE the scatter, and it
+// cannot sit anywhere else: what it asks for is the document frequency of THIS
+// query's terms, so there is nothing to ask about until the query has arrived.
 const DFS_STEP = {
   key: 'dfs',
   ms: 1600, // overridden by duration() (statistics flights)
-  title: '1 · Gather global term statistics',
+  title: '2 · Gather global term statistics',
   blurb:
-    'Before the query goes out, the coordinator asks every shard for its document frequencies and sums them. Every shard then scores on the SAME statistics — at the cost of a round trip to all of them.',
+    'The coordinator has the terms, so before asking anyone to search it asks every shard what those terms are worth: their document frequencies, summed into one set of numbers. Every shard then scores on the SAME statistics — at the cost of a round trip to all of them.',
 }
 
 const STEPS = [
@@ -374,7 +378,7 @@ export function searchStepIndex(payload, key) {
 
 const searchOpSteps = (payload) =>
   payload?.dfs
-    ? [DFS_STEP, ...STEPS].map((st, i) => ({
+    ? [STEPS[0], DFS_STEP, ...STEPS.slice(1)].map((st, i) => ({
         ...st,
         title: st.title.replace(/^\d+ · /, `${i + 1} · `),
       }))

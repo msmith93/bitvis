@@ -2,6 +2,7 @@ import * as shardLocal from './stages/shardLocal'
 import * as coordMerge from './stages/coordMerge'
 import * as segment from './stages/segment'
 import * as shardFetch from './stages/shardFetch'
+import * as shardStats from './stages/shardStats'
 import { segmentInvertedIndex } from '../invertedIndex'
 import { computeCoordinatorMerge, searchStepKey } from '../ops/search'
 import { matchesAny } from '../wildcard'
@@ -16,6 +17,8 @@ import { matchesAny } from '../wildcard'
 //   { kind: 'shard', shard }                        — a serving shard's local search
 //   { kind: 'coordinator' }                         — the coordinator's merge & fetch
 //   { kind: 'fetch', shard }                        — a shard answering GET _source
+//   { kind: 'stats', shard }                        — a shard answering a dfs
+//                                                     statistics request
 //   { kind: 'segment', shard, seg, term? }          — inside one segment: the four
 //                                                     tiles (.tip .tim .doc .fdt)
 //   { kind: 'segment', shard, seg, phase: 'fetch', ids }
@@ -41,6 +44,7 @@ export function fetchShards(search) {
 export function shardCloseUp(op, shardId, search) {
   if (op?.type !== 'search') return null
   const key = searchStepKey(op)
+  if (key === 'dfs') return search?.serving?.[shardId] ? 'stats' : null
   if (key === 'local') return search?.serving?.[shardId] ? 'shard' : null
   if (key === 'fetch') return fetchShards(search)[shardId] ? 'fetch' : null
   return null
@@ -60,6 +64,7 @@ export function closeUpStillValid(op, cu, search) {
   if (cu.kind === 'coordinator') return coordCloseUp(op) === 'coordinator'
   if (cu.kind === 'shard') return shardCloseUp(op, cu.shard, search) === 'shard'
   if (cu.kind === 'fetch') return shardCloseUp(op, cu.shard, search) === 'fetch'
+  if (cu.kind === 'stats') return shardCloseUp(op, cu.shard, search) === 'stats'
   return false
 }
 
@@ -73,13 +78,18 @@ export function closeUpAnchor(cu, search) {
     // out of the same card.
     case 'shard':
     case 'fetch':
+    case 'stats':
       return search?.serving?.[cu.shard]?.role === 'replica'
         ? `[data-replica-target="${cu.shard}"]`
         : `[data-shard-target="${cu.shard}"]`
     // The on-disk zoom springs out of the segment head that opened it, inside
     // the shard (or fetch) panel that is already on screen.
     case 'segment':
-      return cu.phase === 'fetch' ? `[data-anat-fetch="${cu.seg}"]` : `[data-anat-dict="${cu.seg}"]`
+      return cu.phase === 'fetch'
+        ? `[data-anat-fetch="${cu.seg}"]`
+        : cu.phase === 'stats'
+        ? `[data-anat-stats="${cu.seg}"]`
+        : `[data-anat-dict="${cu.seg}"]`
     default:
       return null
   }
@@ -104,6 +114,11 @@ export function buildCloseUp(cu, { op, derived, search }) {
       const shard = derived.shards.find((s) => s.id === cu.shard)
       if (!shard || !fetchShards(search)[cu.shard]) return null
       return shardFetch.build({ shard, search, docs: derived.docs, query, anchor })
+    }
+    case 'stats': {
+      const shard = derived.shards.find((s) => s.id === cu.shard)
+      if (!shard || !search.serving?.[cu.shard]) return null
+      return shardStats.build({ shard, search, docs: derived.docs, query, anchor })
     }
 
     // ---- the on-disk zoom, keyed on one segment of one shard ----

@@ -121,7 +121,44 @@ const STEPS = [
     title: 'This is what it costs',
     waitFor: (s) => s.opDfs && s.opPhase === 'dfs',
     onShow: (s, actions) => actions.pause(),
-    body: 'A whole extra round trip to every shard before the query has even been asked, carrying numbers rather than documents. That is why this is not the default — and on a cluster of many shards it is a real price.',
+    body: 'The coordinator has the query, and before asking anyone to search it asks everyone what the terms are worth. A whole extra round trip, carrying numbers rather than documents — that is why this is not the default.',
+    cta: 'Got it',
+  },
+  {
+    id: 'stats-zoom',
+    target: '[data-tour="stats-magnify"]',
+    placement: 'left',
+    title: 'What is a shard actually doing here?',
+    waitFor: (s) => s.opDfs && s.opPhase === 'dfs' && s.closeUpDepth === 0,
+    body: 'It sounds like it has to search for the term to count what it is in. Open a shard’s 🔍 and see.',
+    advanceOn: (s) => s.closeUpKind === 'stats',
+  },
+  {
+    id: 'stats-dive',
+    target: '[data-anat-stats]',
+    placement: 'left',
+    title: 'Go one level further',
+    // The panel's own second step is where the segment 🔍 appears.
+    waitFor: (s) => s.closeUpKind === 'stats' && s.closeUpStep >= 1,
+    body: 'Each segment is being looked up. Press into one to watch how far that lookup actually goes.',
+    advanceOn: (s) => s.closeUpKind === 'segment' || s.closeUpDepth === 0,
+  },
+  {
+    id: 'stops-early',
+    // Rings the HEAD of the tile that was not opened. The tile's own box is
+    // taller than the panel's scroller, so ringing the whole thing draws a line
+    // off the bottom of the screen; its head is short, always in view, and says
+    // which tile this is. (tipPos also clamps `top` to vh - 220, so a long tip
+    // anchored low puts its own button off-screen — keep this body short.)
+    target: '[data-seg-tile="doc"] .seg-tile-head',
+    placement: 'left',
+    // noDim: the point is a comparison across the whole panel — two lit tiles
+    // above, two dark ones below — and dimming three quarters of it would hide
+    // exactly the half that carries the lesson.
+    noDim: true,
+    title: 'It stops at the term row',
+    waitFor: (s) => s.closeUpKind === 'segment' && s.closeUpStep >= 4,
+    body: 'The postings were never opened — the count was in the term row above, beside a pointer nobody followed. The query phase will seek this same term again, so the lookup is paid twice and the posting list is walked once.',
     cta: 'Got it',
   },
   {

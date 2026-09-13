@@ -18,6 +18,7 @@ export default function ClusterStage({
   onZoom,
   onCoordZoom,
   onFetchZoom,
+  onStatsZoom,
 }) {
   const type = op?.type
   const step = op?.step ?? -1
@@ -50,7 +51,7 @@ export default function ClusterStage({
     NODES.forEach((n) => activeNodes.add(n.id))
   } else if (type === 'search' && search) {
     activeNodes.add(COORDINATOR)
-    if (phase === 'scatter' || phase === 'local') {
+    if (phase === 'dfs' || phase === 'scatter' || phase === 'local') {
       for (const [sid, sv] of Object.entries(search.serving)) {
         activeNodes.add(sv.node)
         activeCopies.add(copyKey(Number(sid), sv.role))
@@ -163,8 +164,10 @@ export default function ClusterStage({
                   isServing={isServing}
                   scanning={isServing && phase === 'local'}
                   fetching={isServing && !!fetching[shard]}
+                  collecting={isServing && phase === 'dfs'}
                   onZoom={onZoom}
                   onFetchZoom={onFetchZoom}
+                  onStatsZoom={onStatsZoom}
                   mergeSelecting={
                     type === 'merge' && step === 0 && extra.merge?.shards.includes(shard)
                   }
@@ -191,8 +194,10 @@ function ShardCard({
   isServing,
   scanning,
   fetching,
+  collecting,
   onZoom,
   onFetchZoom,
+  onStatsZoom,
   mergeSelecting,
   peekProps,
 }) {
@@ -236,6 +241,19 @@ function ShardCard({
             data-tour="fetch-magnify"
             title="Zoom into this shard's fetch: the winners' _source read off disk"
             onClick={() => onFetchZoom?.(shard.id)}
+          >
+            🔍
+          </button>
+        )}
+        {/* dfs only: what a shard does to answer a statistics request. Worth its
+            own glass because the answer is "much less than a search" and there
+            is no way to see that from out here. */}
+        {collecting && (
+          <button
+            className="magnify-btn"
+            data-tour="stats-magnify"
+            title="Zoom into this shard answering the statistics request"
+            onClick={() => onStatsZoom?.(shard.id)}
           >
             🔍
           </button>

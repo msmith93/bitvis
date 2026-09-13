@@ -86,14 +86,33 @@ distinctions are the whole pedagogical point.
    ones discarded; deleted docs physically dropped. Both copies merge.
 
 ### Search (scatter-gather, query-then-fetch)
-0. **Gather global term statistics** — `dfs_query_then_fetch` ONLY, and off by
-   default. Before the query goes out, the coordinator asks every shard for its
-   document frequencies and sums them, then sends the totals out with the query
-   so every shard scores on the same numbers. It is a whole extra round trip to
-   every shard, which is why it is opt-in — and it can change the ranking the
-   client gets back, which is why it exists. The op's step list therefore depends
-   on its payload; with the flag off it is exactly the six steps below.
 1. **Coordinator receives the query** — query string analyzed into terms.
+1b. **Gather global term statistics** — `dfs_query_then_fetch` ONLY, and off by
+   default. The coordinator asks every shard for the document frequencies of
+   THIS query's terms and sums them, then sends the totals out with the query so
+   every shard scores on the same numbers. It sits here and can sit nowhere
+   else: the statistics are statistics *about the query's terms*, so there is
+   nothing to ask about until the query has arrived. It is a whole extra round
+   trip to every shard, which is why it is opt-in — and it can change the ranking
+   the client gets back, which is why it exists. The op's step list therefore
+   depends on its payload; with the flag off it is exactly the six steps here.
+
+   **What a shard does to answer it is NOT a search**, and the `stats` zooms
+   exist to show that. Elasticsearch's `DfsPhase` calls
+   `searcher.createWeight(rewrittenQuery, ScoreMode.COMPLETE, 1)` on a searcher
+   wrapped to record statistics; Lucene's `TermStates.build()` then seeks each
+   segment's term dictionary and reads `docFreq()` / `totalTermFreq()` out of the
+   term's metadata. It never obtains a `PostingsEnum`, never scores a document
+   and never collects a hit — it stops at the term row, with the `.doc` pointer
+   sitting right there unfollowed. That is precisely what storing `docFreq` in
+   the term metadata buys.
+
+   **The dictionary lookup is therefore paid twice**, and only that. The shard
+   answers the two phases in separate requests and only the NUMBERS go back to
+   the coordinator, never the `TermStates` they were found with, so the query
+   phase seeks the same term again. The posting walk, the scoring and the top-k
+   are paid once. dfs costs a round trip and a second lookup, not a second
+   search.
 2. **Scatter (query phase)** — coordinator fans the query out to ONE copy of
    every shard (primary or replica), spread across nodes. This is why search runs
    on all nodes. **With a routing key this is the exception**: `hash(_routing)`
@@ -839,6 +858,14 @@ Documented so reviewers can verify the teaching stays honest:
   postings tile shows real ordinals and frequencies (only the file ENCODING is
   left out, deliberately — see above). `.doc` and `.fdt` file offsets are
   fake-but-stable, like the `.tim` block pointers.
+- **A pattern query collects statistics here, where real Elasticsearch would
+  not.** ES's default rewrite for `wildcard` / `fuzzy` is a constant-score one,
+  which needs no term statistics at all — so `dfs_query_then_fetch` is a no-op
+  for those queries. This app scores each expanded term on its own frequencies
+  (see the blending simplification below), so its statistics zoom shows them
+  being collected. Keeping the two consistent matters more here than matching
+  the rewrite: a zoom that collected nothing would contradict the scoring model
+  one level up.
 - **Fuzzy expansion is not blended.** Elasticsearch's default rewrite blends the
   document frequencies of the expanded terms and boosts by edit distance; here
   each matched term is scored on its own frequencies, so a close match and a

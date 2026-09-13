@@ -41,11 +41,18 @@ import {
 //   not a stack of nested panels: one clock, one stepper, and Prev/Next can
 //   scrub across a tile boundary.
 //
-// Two phases share the panel. The QUERY phase (opened from the shard close-up's
-// segment 🔍 during local search) tours .tip → .tim → .doc and leaves .fdt
-// dimmed with "later" on it. The FETCH phase (opened from the fetch-step 🔍 on
-// a shard, via stages/shardFetch.jsx) arrives with the winners' ids, dims the
-// three tiles the query phase already used, and dives into .fdt alone.
+// THREE phases share the panel, and the comparison between them is the lesson.
+// The QUERY phase (opened from the shard close-up's segment 🔍 during local
+// search) tours .tip → .tim → .doc and leaves .fdt dimmed with "later" on it.
+// The FETCH phase (opened from the fetch-step 🔍 on a shard, via
+// stages/shardFetch.jsx) arrives with the winners' ids, dims the three tiles the
+// query phase already used, and dives into .fdt alone. The STATS phase (opened
+// from the dfs-step 🔍, via stages/shardStats.jsx) is the QUERY phase stopping
+// one tile early: the same .tip walk and the same .tim block read, and then it
+// ends, because the two numbers dfs_query_then_fetch asked for are IN the term
+// row it just read. `.doc` is never opened, and the pointer to it goes
+// unfollowed — which is the whole reason docFreq is stored in the term metadata
+// rather than counted off the list (see src/postings.js).
 
 const TILES = [
   { id: 'fst', ext: '.tip', name: 'term index', where: 'ram', what: 'a small automaton over block prefixes' },
@@ -96,6 +103,33 @@ const POSTINGS_BLURBS = {
     'Every term within the edit budget has a posting list of its own, and each is read and unioned — the fuzzy query is an OR over them from here on. Each entry is an ordinal and a frequency, and nothing about the text: the scorer works on these numbers alone.',
 }
 
+// The query tour minus its last tile. Deliberately built from the same entries,
+// so the walk and the block read are visibly the SAME work a search does — the
+// point is where it stops, not that it does something different.
+const STATS_STEPS = [
+  {
+    key: 'overview',
+    tile: null,
+    title: '1 · Inside a segment, for the statistics only',
+    blurb:
+      'The coordinator has asked what the query’s terms are worth, not which documents match them. Four structures are below; watch how few of them that question actually costs.',
+  },
+  ...QUERY_STEPS.slice(1, -2), // walk · read · found, shared with the query tour
+  {
+    key: 'done',
+    tile: null,
+    title: '5 · It stopped at the term row',
+    blurb:
+      'The postings were never opened. Their address was sitting in the row the whole time and went unfollowed — that is what a document frequency being stored in the term metadata buys. The query phase will seek this same term again, in this same block, because only the numbers went back to the coordinator and not the place they were found: the dictionary lookup is paid twice, the posting list is walked once.',
+  },
+]
+
+// `found`'s shared copy ends "the address the next tile is opened at" — true in
+// the query phase and exactly wrong here, where that address is what does NOT
+// get used. One override rather than a second blurb set.
+const STATS_FOUND_BLURB =
+  'The row gives the term, how many documents contain it, and where its posting list starts in .doc. The first two numbers are the entire answer to the request — and the third is not needed, so nothing is read at that address.'
+
 const FETCH_STEPS = [
   {
     key: 'overview',
@@ -131,6 +165,7 @@ export function build({ shard, seg, segId, rows, docs, term, patterns, phase = '
   const postings = buildPostings(seg, rows, docs)
   const sf = buildStoredFields(seg, docs)
   const fetch = phase === 'fetch'
+  const stats = phase === 'stats'
 
   // The dictionary models run for the query tour only. A fetch-phase visit
   // dims those tiles and needs nothing from them.
@@ -142,10 +177,12 @@ export function build({ shard, seg, segId, rows, docs, term, patterns, phase = '
     ? ids.map((id) => sf.rows.find((r) => r.id === id)).filter(Boolean)
     : []
 
-  const steps = (fetch ? FETCH_STEPS : QUERY_STEPS).map((s) => {
+  const steps = (fetch ? FETCH_STEPS : stats ? STATS_STEPS : QUERY_STEPS).map((s) => {
     if (fetch || s.blurb) return s
     const base = d.mode === 'term' && TERM_STEP_OVERRIDES[s.key] ? { ...s, ...TERM_STEP_OVERRIDES[s.key] } : s
     if (s.key === 'postings') return { ...base, blurb: POSTINGS_BLURBS[d.mode] }
+    if (stats && s.key === 'found' && d.mode === 'term')
+      return { ...base, blurb: STATS_FOUND_BLURB }
     return { ...base, blurb: d.blurbs[s.key] }
   })
   const at = Object.fromEntries(steps.map((s, i) => [s.key, i]))
@@ -201,6 +238,11 @@ export function build({ shard, seg, segId, rows, docs, term, patterns, phase = '
       {segId} · inside the segment
       <span className="si-sub"> — fetching {wanted.length} winner{wanted.length === 1 ? '' : 's'}’ _source</span>
     </>
+  ) : stats ? (
+    <>
+      {segId} · inside the segment
+      <span className="si-sub"> — answering a statistics request</span>
+    </>
   ) : (
     <>{segId} · inside the segment</>
   )
@@ -249,6 +291,7 @@ function SegmentStage({
   steps,
 }) {
   const fetch = phase === 'fetch'
+  const stats = phase === 'stats'
   const target = tileOf(step)
   const box = useRef(null)
 
@@ -336,7 +379,7 @@ function SegmentStage({
   const locatedShown = fetch ? (step === at.locate ? (sub ?? located) : step > at.locate ? Infinity : 0) : 0
   const fetchedShown = fetch ? (step === at.read ? (sub ?? fetched) : step > at.read ? Infinity : 0) : 0
 
-  const status = tileStatus({ d, walk, postings, sf, wanted, fetch, step, at, postedShown, locatedShown, fetchedShown })
+  const status = tileStatus({ d, walk, postings, sf, wanted, fetch, stats, step, at, postedShown, locatedShown, fetchedShown })
 
   const body = (tile) => {
     if (tile === 'fst') return <FstTile d={d} step={step} sub={sub} live={live} pending={pending} at={at} />
@@ -494,7 +537,7 @@ function Glyph({ id }) {
 
 // The status line on each tile, per step: what the tour has done to it so far,
 // and what it hands to the next tile. Everything here is read off the models.
-function tileStatus({ d, walk, postings, sf, wanted, fetch, step, at, postedShown, locatedShown, fetchedShown }) {
+function tileStatus({ d, walk, postings, sf, wanted, fetch, stats, step, at, postedShown, locatedShown, fetchedShown }) {
   const n = (x, one, many) => `${x} ${x === 1 ? one : many}`
   if (fetch) {
     const loc = Math.min(locatedShown, wanted.length)
@@ -545,6 +588,23 @@ function tileStatus({ d, walk, postings, sf, wanted, fetch, step, at, postedShow
               done: true,
             }
           : { text: `${blocksRead} of ${index.blocks.length} read · no match`, done: true }
+  // The stats phase computes `fst` and `tim` exactly as above — the SAME walk
+  // and the same block read — and then dims everything under them. That the two
+  // top tiles are identical and the two bottom ones are dark IS the lesson.
+  if (stats)
+    return {
+      fst,
+      tim,
+      doc: {
+        dim: true,
+        text:
+          step >= at.done
+            ? 'never opened — the count was in the term row'
+            : 'not read to answer a statistics request',
+      },
+      fdt: { dim: true, text: 'not read to answer a statistics request' },
+    }
+
   const shown = Math.min(postedShown, walk.units)
   const doc =
     step < at.postings
