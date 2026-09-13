@@ -18,7 +18,7 @@ import {
   shardWillMerge,
   SHARD_PLACEMENT,
 } from './cluster'
-import { lastStep, OP_LABELS, opDocs, opNote, stepsFor } from './ops'
+import { lastStep, OP_LABELS, opDocs, opNote, stepsOf } from './ops'
 import { SEARCH_SIZE } from './constants'
 import { useOpLifecycle } from './useOpLifecycle'
 import ClusterStage from './components/ClusterStage'
@@ -136,6 +136,9 @@ export default function App() {
   const [nestedPath, setNestedPath] = useState(false)
   const [query, setQuery] = useState(EXAMPLE_QUERIES[0])
   const [routing, setRouting] = useState('') // optional _routing on the search
+  // search_type: off is query_then_fetch (each shard scores with its own term
+  // statistics), on is dfs_query_then_fetch (one round trip collects them first).
+  const [dfs, setDfs] = useState(false)
   const [searchSize, setSearchSize] = useState(SEARCH_SIZE) // result-window `size`, advanced
 
   // Which seeded dataset is seeded, if any. Scenarios read this to detect the
@@ -235,7 +238,7 @@ export default function App() {
     if (
       resultsPhase === 'pending' &&
       op?.type === 'search' &&
-      op.step >= lastStep('search') &&
+      op.step >= lastStep(op) &&
       !playing
     ) {
       setResultsPhase('open')
@@ -410,6 +413,7 @@ export default function App() {
     start('search', {
       query: query.trim(),
       routing: routing.trim() || null,
+      dfs,
       from: 0,
       size: Number(searchSize) || SEARCH_SIZE,
     })
@@ -497,7 +501,7 @@ export default function App() {
     resetCluster()
   }
 
-  const currentStep = op ? stepsFor(op.type)[op.step] : null
+  const currentStep = op ? stepsOf(op)[op.step] : null
   // One extra line about this op's payload (routing target, wildcard cost).
   const note = opNote(op, extra)
   // Official-docs links for the running op, for readers who want to go deeper.
@@ -652,14 +656,28 @@ export default function App() {
                 ))}
             </div>
 
-            {/* ---- advanced: routing key + result-window size ----
-                Collapsed by default: an ordinary search needs neither. Opens
-                itself once either has been set away from its default. */}
+            {/* ---- advanced: search type, routing key, result-window size ----
+                Collapsed by default: an ordinary search needs none of them.
+                Opens itself once any has been set away from its default. */}
             <details
               className="adv"
-              open={!!routing.trim() || Number(searchSize) !== SEARCH_SIZE}
+              open={!!routing.trim() || Number(searchSize) !== SEARCH_SIZE || dfs}
             >
-              <summary>Advanced — routing &amp; size</summary>
+              <summary>Advanced — search type, routing &amp; size</summary>
+
+              {/* The search type. Elasticsearch's default asks each shard to
+                  score with its OWN term statistics, which is fast and slightly
+                  unfair; dfs collects them first so every shard scores on the
+                  same numbers, and pays a round trip to do it. */}
+              <label className="field check">
+                <input type="checkbox" checked={dfs} onChange={(e) => setDfs(e.target.checked)} />
+                <span>
+                  dfs_query_then_fetch
+                  <em className="field-hint">
+                    collect term statistics from every shard first
+                  </em>
+                </span>
+              </label>
 
               {/* Optional _routing on the query: hash this instead of scattering. */}
               <label className="field">
@@ -731,7 +749,7 @@ export default function App() {
       {/* ---------------- Bottom: stepper ---------------- */}
       <Stepper
         dataTour="stepper"
-        steps={op ? stepsFor(op.type) : []}
+        steps={op ? stepsOf(op) : []}
         step={op ? op.step : -1}
         opLabel={op ? OP_LABELS[op.type] : ''}
         playing={playing}

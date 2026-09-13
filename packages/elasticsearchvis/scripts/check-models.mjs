@@ -14,6 +14,7 @@
 //   5. the intersection trace's two cursors agree with the walk they describe
 //   8. the postings and stored-fields tiles say what the levels above say
 //   9. BM25 is BM25, and a shard's statistics are its segments' statistics summed
+//  10. dfs_query_then_fetch changes the ANSWER, and nothing else about the shards
 //
 // Dependency-free and node-only. The app's imports are extensionless (Vite
 // resolves them), so a small loader hook below does the same for node.
@@ -56,7 +57,7 @@ const { ANY, compileAutomaton, dfaStep, intersectTrace } = await import(SRC + 'a
 const { buildBlock, OBJECT_MAPPING, makeMapping } = await import(SRC + 'mapping.js')
 const { matchDoc, scoreDoc, computeShardSearch, localSearchSteps } = await import(SRC + 'ops/search.js')
 const searchOp = (await import(SRC + 'ops/search.js')).default
-const { computeCoordinatorMerge } = await import(SRC + 'ops/search.js')
+const { computeCoordinatorMerge, searchStepKey } = await import(SRC + 'ops/search.js')
 const { segmentInvertedIndex, segmentStats, shardStats, mergeStats } = await import(SRC + 'invertedIndex.js')
 const { idf, tfNorm, termScore, K1, B } = await import(SRC + 'similarity.js')
 const { buildPostings, postingsWalk } = await import(SRC + 'postings.js')
@@ -1130,6 +1131,86 @@ section('9 · BM25 scores from statistics summed across segments')
       global.byTerm.get('search').docFreq ===
         SAMPLE.shards.reduce((n, sh) => n + (shardStats(sh, SAMPLE.docs).byTerm.get('search')?.docFreq ?? 0), 0),
     `df ${global.byTerm.get('search').docFreq} of ${global.docCount}`)
+}
+
+
+// ---------------------------------------------------------------------------
+section('10 · dfs_query_then_fetch')
+// The two search types differ in exactly one thing: which statistics a shard
+// scores with. Everything downstream — the candidates, the per-shard cut, the
+// merge — is the same code. What makes it worth a control and a scenario is
+// that this one difference reaches the client, so that is what gets pinned: on
+// the default dataset the two search types return a DIFFERENT ranking, and they
+// do it without any shard doing different work.
+// ---------------------------------------------------------------------------
+{
+  const SAMPLE = seed(SAMPLE_DOCS, OBJECT_MAPPING)
+  const run = (dfs) =>
+    searchOp.extra(SAMPLE, {
+      type: 'search', step: 4, payload: { query: 'search', routing: null, dfs },
+    }).search
+  const qtf = run(false), dfs = run(true)
+
+  // The step list is a property of the payload — and with dfs OFF it is exactly
+  // what it was, which is what keeps every scenario's pinned opStep valid.
+  const keysOf = (payload) => searchOp.stepsFor(payload).map((x) => x.key).join()
+  check('with dfs off the search op keeps its six steps, unchanged',
+    keysOf({}) === 'coordinator,scatter,local,gather,fetch,return', keysOf({}))
+  check('with dfs on it gains the statistics round trip, in front',
+    keysOf({ dfs: true }) === 'dfs,coordinator,scatter,local,gather,fetch,return',
+    keysOf({ dfs: true }))
+  // Everything that used to compare op.step to a literal now asks for the KEY.
+  const keyAt = (payload, step) => searchStepKey({ type: 'search', step, payload })
+  check('the phase keys survive the shift (local is step 2, or 3 under dfs)',
+    keyAt({}, 2) === 'local' && keyAt({ dfs: true }, 3) === 'local' &&
+      keyAt({}, 4) === 'fetch' && keyAt({ dfs: true }, 5) === 'fetch')
+
+  // dfs hands every shard the SAME numbers; query_then_fetch does not.
+  const scored = (s) => Object.values(s.stats).map((st) => st.byTerm.get('search').docFreq + '/' + st.docCount)
+  check('query_then_fetch: each shard scores with its own statistics',
+    new Set(scored(qtf)).size > 1, scored(qtf).join(' '))
+  check('dfs_query_then_fetch: every shard scores with the same statistics',
+    new Set(scored(dfs)).size === 1, scored(dfs).join(' '))
+  // ...which are the shards' own, summed — mergeStats one level up, not a
+  // second way of counting.
+  const g = mergeStats(Object.values(dfs.shardOwn))
+  check('the global statistics are the shards\' own, summed',
+    dfs.stats[0].docCount === g.docCount &&
+      dfs.stats[0].byTerm.get('search').docFreq === g.byTerm.get('search').docFreq,
+    `${dfs.stats[0].byTerm.get('search').docFreq} of ${dfs.stats[0].docCount}`)
+  // A shard still knows its own figures either way — the stats step shows both.
+  check('a shard still computes its own statistics under dfs (both are shown)',
+    JSON.stringify(scored({ stats: dfs.shardOwn })) === JSON.stringify(scored(qtf)))
+
+  // THE DEMO. Every shard returns the same documents in the same order, so the
+  // only thing that changed is the statistics — and the client's ranking moves
+  // anyway. If this ever stops holding, the scenario is teaching nothing.
+  const sentOf = (s) => Object.entries(s.returned)
+    .map(([sid, h]) => `${sid}:${h.map((x) => x.docId).join('>')}`).sort().join(' ')
+  check('both search types have every shard return the same documents, in the same order',
+    sentOf(qtf) === sentOf(dfs), `\n      qtf ${sentOf(qtf)}\n      dfs ${sentOf(dfs)}`)
+
+  const rank = (s) => computeCoordinatorMerge(s).winners.map((w) => w.docId)
+  check('...and the client still gets a DIFFERENT ranking back',
+    rank(qtf).join() !== rank(dfs).join(),
+    `qtf [${rank(qtf)}] dfs [${rank(dfs)}]`)
+  // Pinned exactly, because the scenario's copy points at this row: the third
+  // result changes hands, and the document that held it drops out of the window.
+  check('"search": #3 is doc-3 (shard 1) under qtf and doc-7 (shard 2) under dfs',
+    rank(qtf)[2] === 'doc-3' && rank(dfs)[2] === 'doc-7',
+    `qtf [${rank(qtf)}] dfs [${rank(dfs)}]`)
+  const fell = dfs.merged.findIndex((h) => h.docId === 'doc-3')
+  check('...and doc-3 falls out of the top 3 entirely under dfs',
+    fell >= dfs.size, `doc-3 now at #${fell + 1} of ${dfs.merged.length}`)
+
+  // A routed search asks one shard, so its "global" view is that shard's own —
+  // dfs cannot make a difference it has nobody to disagree with.
+  const routed = (dfs) => searchOp.extra(SAMPLE, {
+    type: 'search', step: 4, payload: { query: 'search', routing: 'acme', dfs },
+  }).search
+  check('a routed search scores identically either way (only one shard to ask)',
+    rank(routed(false)).join() === rank(routed(true)).join(),
+    `[${rank(routed(false))}] vs [${rank(routed(true))}]`)
 }
 
 

@@ -37,7 +37,10 @@ import { AnatomyCard, DocChip } from '../anatomy'
 // budget can be computed without rendering. Pure.
 function deriveShardLocal({ shard, search, docs }) {
   const patterns = search.patterns
-  const local = computeShardSearch(shard, patterns, docs, search.window)
+  // Scored with whatever the SEARCH used — its own statistics normally, the
+  // coordinator's global ones under dfs. computeShardSearch still derives the
+  // shard's own either way, so the stats step can show both.
+  const local = computeShardSearch(shard, patterns, docs, search.window, search.stats?.[shard.id])
   // Does this shard actually hold nested blocks? Only then is there a join to
   // draw — on flat data every Lucene doc is already its own document.
   const blocks = shard.segments.some(
@@ -239,7 +242,7 @@ function ShardLocalStage({ step, active, openCloseUp, model, docs, query }) {
       <div className="si-scroll">
         {step === at.expand && <ExpansionBlock local={local} />}
 
-        {step === at.stats && <StatsBlock local={local} />}
+        {step === at.stats && <StatsBlock local={local} dfs={search.dfs} />}
 
         {step >= at.postings && (
           <ResultsLane step={step} at={at} local={local} docs={docs} revealed={laneRevealed} />
@@ -342,17 +345,20 @@ function ExpansionBlock({ local }) {
 // segments, and Lucene adds their frequencies up before computing ONE idf for
 // the whole shard (see src/invertedIndex.js). Read out of the same `.tim` term
 // metadata the segment zoom draws, before any posting list is touched.
-function StatsBlock({ local }) {
+function StatsBlock({ local, dfs }) {
   const { shardOwn, scoring, matchedTerms } = local
   return (
     <div className="si-block">
-      <p className="section-title">Term statistics — this shard’s own</p>
+      <p className="section-title">
+        {dfs ? 'Term statistics — collected from every shard' : 'Term statistics — this shard’s own'}
+      </p>
       {matchedTerms.length === 0 ? (
         <div className="ss-none">no terms matched on this shard</div>
       ) : (
         <div className="si-stats">
           {matchedTerms.map((term) => {
             const df = scoring.byTerm.get(term)?.docFreq ?? 0
+            const own = shardOwn.byTerm.get(term)?.docFreq ?? 0
             return (
               <div className="si-stat-row" key={term}>
                 <span className="term-chip">{term}</span>
@@ -366,11 +372,29 @@ function StatsBlock({ local }) {
                     </span>
                   ))}
                   <span className="si-stat-eq">=</span>
-                  <span className="si-stat-df">
-                    docFreq {df} of {scoring.docCount}
+                  {/* Under dfs the shard's own sum is still what it computed —
+                      it just isn't what it scores with. Showing the replaced
+                      figure is the whole contrast, so it is struck, not hidden. */}
+                  <span className={'si-stat-df' + (dfs ? ' replaced' : '')}>
+                    docFreq {own} of {shardOwn.docCount}
                   </span>
+                  {dfs && (
+                    <>
+                      <span className="si-stat-arrow">→</span>
+                      <span className="si-stat-df">
+                        docFreq {df} of {scoring.docCount}
+                      </span>
+                    </>
+                  )}
                 </span>
-                <span className="score">idf {fmtScore(idf(df, scoring.docCount))}</span>
+                <span className="score">
+                  {dfs && (
+                    <span className="si-stat-idf-was">
+                      idf {fmtScore(idf(own, shardOwn.docCount))} →{' '}
+                    </span>
+                  )}
+                  idf {fmtScore(idf(df, scoring.docCount))}
+                </span>
               </div>
             )
           })}
@@ -378,6 +402,7 @@ function StatsBlock({ local }) {
             avg field length {scoring.avgFieldLen.toFixed(1)} terms across{' '}
             {scoring.docCount} Lucene doc{scoring.docCount === 1 ? '' : 's'} — the length
             every candidate is measured against
+            {dfs && ' · collected from every shard, so all of them use these numbers'}
           </div>
         </div>
       )}

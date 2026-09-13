@@ -2335,6 +2335,56 @@ textarea:focus {
   color: var(--accent-text);
   font-weight: 700;
 }
+/* A checkbox row inside the search form's Advanced block: the control on the
+   left, its name and one line of explanation on the right. The name is literal
+   Elasticsearch API syntax, so it opts out of the uppercasing .adv puts on its
+   other labels — `dfs_query_then_fetch` is not spelled in capitals. */
+label.field.check {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
+}
+label.field.check input {
+  margin-top: 1px;
+  accent-color: var(--accent);
+  flex: none;
+  width: auto;
+}
+.adv label.field.check span {
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  margin-bottom: 0;
+}
+.adv label.field.check .field-hint {
+  display: block;
+  font-family: inherit;
+  font-style: normal;
+  font-size: 10px;
+  letter-spacing: 0;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* Under dfs the shard's own figure is still computed, just not used — struck
+   rather than hidden, because the replacement IS the lesson. */
+.si-stat-df.replaced {
+  color: var(--muted);
+  text-decoration: line-through;
+  font-weight: 400;
+}
+.si-stat-arrow {
+  color: var(--muted);
+  padding: 0 2px;
+}
+.si-stat-idf-was {
+  color: var(--muted);
+  font-weight: 400;
+  text-decoration: line-through;
+}
+
 /* Context, not a cost — so muted rather than the warn colour .dict-cost uses. */
 .si-stat-foot {
   margin-top: 8px;

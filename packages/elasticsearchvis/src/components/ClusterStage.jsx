@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { NODES, SHARD_PLACEMENT, COORDINATOR, shardsOnNode } from '../cluster'
 import { PEEK_OPEN_MS, PEEK_CLOSE_MS } from '../timing'
 import { fetchShards } from '../closeups'
+import { searchStepKey } from '../ops/search'
 import DocPeek from './DocPeek'
 
 const copyKey = (shard, role) => `${shard}:${role}`
@@ -20,6 +21,10 @@ export default function ClusterStage({
 }) {
   const type = op?.type
   const step = op?.step ?? -1
+  // The search op's PHASE, by key. dfs_query_then_fetch prepends a statistics
+  // round trip, so every step index after it moves while the keys do not —
+  // every search-phase test below goes through this, never through `step`.
+  const phase = searchStepKey(op)
   const inflight = extra.inflight
   const search = extra.search
 
@@ -45,7 +50,7 @@ export default function ClusterStage({
     NODES.forEach((n) => activeNodes.add(n.id))
   } else if (type === 'search' && search) {
     activeNodes.add(COORDINATOR)
-    if (step >= 1 && step <= 2) {
+    if (phase === 'scatter' || phase === 'local') {
       for (const [sid, sv] of Object.entries(search.serving)) {
         activeNodes.add(sv.node)
         activeCopies.add(copyKey(Number(sid), sv.role))
@@ -61,16 +66,18 @@ export default function ClusterStage({
     activeCopies.add(copyKey(sid, 'replica'))
   }
 
+  // From the local-search phase on, a shard's matches stay highlighted.
+  const SEARCH_MATCHED_PHASES = new Set(['local', 'gather', 'fetch', 'return'])
   // Matched docs per shard (search), highlighted on the serving copy only.
   const matched = new Set()
-  if (type === 'search' && search && step >= 2) {
+  if (type === 'search' && search && SEARCH_MATCHED_PHASES.has(phase)) {
     for (const [sid, hits] of Object.entries(search.perShard))
       for (const h of hits) matched.add(`${sid}:${h.docId}`)
   }
   const servingRole = (sid) => search?.serving?.[sid]?.role
   // The fetch phase asks only the shards holding a winner of the cut — the same
   // slice SearchFlight flies its GET _source to.
-  const fetching = type === 'search' && step === 4 && search ? fetchShards(search) : {}
+  const fetching = type === 'search' && phase === 'fetch' && search ? fetchShards(search) : {}
 
   // Suppress the in-flight doc on the replica copy until it has been replicated.
   const suppressId =
@@ -128,7 +135,7 @@ export default function ClusterStage({
               )}
               {node.id === COORDINATOR &&
                 type === 'search' &&
-                (step === 3 || step === 4) &&
+                (phase === 'gather' || phase === 'fetch') &&
                 search?.totalHits > 0 && (
                   <button
                     className="magnify-btn coord"
@@ -154,7 +161,7 @@ export default function ClusterStage({
                   suppressId={role === 'replica' ? suppressId : null}
                   matched={matched}
                   isServing={isServing}
-                  scanning={isServing && step === 2}
+                  scanning={isServing && phase === 'local'}
                   fetching={isServing && !!fetching[shard]}
                   onZoom={onZoom}
                   onFetchZoom={onFetchZoom}

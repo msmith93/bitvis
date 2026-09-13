@@ -29,11 +29,11 @@ export function build({ search, docs, query, anchor }) {
     source: anchor,
     className: 'coord',
     Stage: CoordMergeStage,
-    stageProps: { co, docs, query, terms: search.terms },
+    stageProps: { co, docs, query, terms: search.terms, dfs: search.dfs },
   }
 }
 
-function CoordMergeStage({ step, co, docs, query, terms }) {
+function CoordMergeStage({ step, co, docs, query, terms, dfs }) {
   return (
     <>
       {/* Persistent query strip — the terms were already analyzed back on the
@@ -56,7 +56,7 @@ function CoordMergeStage({ step, co, docs, query, terms }) {
       </div>
 
       <div className="si-scroll">
-        <MergeStage step={step} co={co} docs={docs} />
+        <MergeStage step={step} co={co} docs={docs} dfs={dfs} />
       </div>
     </>
   )
@@ -70,7 +70,7 @@ function CoordMergeStage({ step, co, docs, query, terms }) {
 // projection (the old CoordinatorInspector's exit animation never completed and
 // the invisible backdrop kept swallowing clicks), which is why they live in one
 // container instead.
-function MergeStage({ step, co, docs }) {
+function MergeStage({ step, co, docs, dfs }) {
   // Global rank of each winner, stable across the cut/group/fetch phases.
   const rank = new Map(co.winners.map((w, i) => [w.docId, i + 1]))
 
@@ -215,7 +215,7 @@ function MergeStage({ step, co, docs }) {
           </Fragment>
         ))}
       </motion.div>
-      {step === 2 && <IdfSpread idfs={co.idfs} />}
+      {step === 2 && <IdfSpread idfs={co.idfs} dfs={dfs} />}
       {step === 5 && (
         <div className="si-return-note" style={{ marginTop: 10 }}>
           ↩ returned to client
@@ -229,7 +229,19 @@ function MergeStage({ step, co, docs }) {
 // own idf, so two chips a place apart may not be comparable at all. Only shown
 // when the shards actually disagree — on data where they agree there is nothing
 // to warn about, and saying so anyway would teach a rule that isn't one.
-function IdfSpread({ idfs }) {
+function IdfSpread({ idfs, dfs }) {
+  // Under dfs there is nothing left to warn about: the shards were handed the
+  // same numbers, so the sort above compares like with like. Say so — a reader
+  // who was shown the problem is owed the moment it goes away.
+  if (dfs)
+    return (
+      <div className="ci-idf-spread">
+        <div className="si-stat-foot">
+          Every score here came from the same global statistics, so the ranking compares
+          like with like.
+        </div>
+      </div>
+    )
   const split = (idfs ?? []).filter((x) => x.spread)
   if (!split.length) return null
   return (

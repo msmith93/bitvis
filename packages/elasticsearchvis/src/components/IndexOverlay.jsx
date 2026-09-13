@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { buildBlock, makeMapping } from '../mapping'
-import { lastStep } from '../ops'
+import { lastStepOfType } from '../ops'
 import { INDEX_SCAN_MS, INDEX_ANALYSIS_LEAD_MS, INDEX_REPLICA_HOP_MS } from '../timing'
 import FlyingTokens, { selectorRect } from './tokenFlight'
 
@@ -181,7 +181,7 @@ export default function IndexOverlay({
         clearTimeout(t1)
         clearTimeout(t2)
       }
-    } else if (step < lastStep('index')) {
+    } else if (step < lastStepOfType('index')) {
       // Step 3: doc dissolves into the buffer. It only FADES (see the step map)
       // rather than unmounting, so the replicate step can fly this same card on
       // from the primary.
@@ -219,7 +219,7 @@ export default function IndexOverlay({
     if (
       phase === 'flying' &&
       op?.type === 'index' &&
-      op.step >= lastStep('index') &&
+      op.step >= lastStepOfType('index') &&
       !playing &&
       replicaDone
     ) {

@@ -3,7 +3,7 @@ import * as coordMerge from './stages/coordMerge'
 import * as segment from './stages/segment'
 import * as shardFetch from './stages/shardFetch'
 import { segmentInvertedIndex } from '../invertedIndex'
-import { computeCoordinatorMerge } from '../ops/search'
+import { computeCoordinatorMerge, searchStepKey } from '../ops/search'
 import { matchesAny } from '../wildcard'
 
 // The close-up registry: which zoom is available WHERE (which op/step, which
@@ -28,9 +28,9 @@ import { matchesAny } from '../wildcard'
 // predicates below. It serves a plain term, a wildcard and a fuzzy — same
 // picture, the query decides how the walk behaves.
 
-const SEARCH_LOCAL_STEP = 2 // ops/search.js STEPS: 'local'
-const SEARCH_GATHER_STEPS = [3, 4] // 'gather' + 'fetch'
-const SEARCH_FETCH_STEP = 4 // 'fetch'
+// Addressed by step KEY, never by index: dfs_query_then_fetch prepends its
+// statistics round trip, so every index after it moves while the keys don't.
+const SEARCH_GATHER_KEYS = ['gather', 'fetch']
 
 // Which shards the fetch phase asks: those holding a winner of the cut.
 export function fetchShards(search) {
@@ -40,14 +40,15 @@ export function fetchShards(search) {
 // The zoom offered on a shard card for the current op/step, or null.
 export function shardCloseUp(op, shardId, search) {
   if (op?.type !== 'search') return null
-  if (op.step === SEARCH_LOCAL_STEP) return search?.serving?.[shardId] ? 'shard' : null
-  if (op.step === SEARCH_FETCH_STEP) return fetchShards(search)[shardId] ? 'fetch' : null
+  const key = searchStepKey(op)
+  if (key === 'local') return search?.serving?.[shardId] ? 'shard' : null
+  if (key === 'fetch') return fetchShards(search)[shardId] ? 'fetch' : null
   return null
 }
 
 // The zoom offered on the coordinator's node column.
 export function coordCloseUp(op) {
-  return op?.type === 'search' && SEARCH_GATHER_STEPS.includes(op.step)
+  return op?.type === 'search' && SEARCH_GATHER_KEYS.includes(searchStepKey(op))
     ? 'coordinator'
     : null
 }

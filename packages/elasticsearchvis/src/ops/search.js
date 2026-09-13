@@ -1,6 +1,6 @@
 import { docRootId, routeShard, selectServingCopy } from '../cluster'
 import { MAX_GATHER_IDS, SEARCH_SIZE } from '../constants'
-import { docFieldLen, docFreqOf, segmentInvertedIndex, shardStats } from '../invertedIndex'
+import { docFieldLen, docFreqOf, mergeStats, segmentInvertedIndex, shardStats } from '../invertedIndex'
 import { idf, termScore } from '../similarity'
 import { FETCH_REQUEST_MS, flightMs, FLIGHT_PAD_MS } from '../timing'
 import {
@@ -23,6 +23,17 @@ import {
 //   a `*` or `~` in the query — the term is a PATTERN (wildcard or fuzzy) that
 //                     must first be expanded against each segment's term
 //                     dictionary.
+
+// dfs_query_then_fetch's extra phase. A whole round trip to every shard before
+// the query starts, carrying NUMBERS rather than documents — which is the cost
+// that keeps it off by default.
+const DFS_STEP = {
+  key: 'dfs',
+  ms: 1600, // overridden by duration() (statistics flights)
+  title: '1 · Gather global term statistics',
+  blurb:
+    'Before the query goes out, the coordinator asks every shard for its document frequencies and sums them. Every shard then scores on the SAME statistics — at the cost of a round trip to all of them.',
+}
 
 const STEPS = [
   {
@@ -229,6 +240,10 @@ function dictionaryCost(shards, docs, patterns) {
 function computeSearch(cluster, op) {
   const patterns = parseQuery(op.payload.query)
   const routing = op.payload.routing || null
+  // search_type. Off is query_then_fetch: every shard scores with what it alone
+  // can see. On is dfs_query_then_fetch: one extra round trip first, so they all
+  // score with the same numbers.
+  const dfs = !!op.payload.dfs
   // The result window, exactly as a real query carries it. Elasticsearch sizes
   // each shard's priority queue at `from + size` AND cuts the merged list to the
   // same window, so this one number drives both ends of query-then-fetch.
@@ -246,7 +261,13 @@ function computeSearch(cluster, op) {
   const serving = {} // shardId -> { node, role }   (queried shards only)
   // Each queried shard's OWN term statistics, summed out of its segments. One
   // per shard, never shared — which is the whole of query_then_fetch.
-  const stats = {} // shardId -> shardStats(...)
+  const shardOwn = {} // shardId -> shardStats(...)
+  // What each shard actually SCORES with. Identical to its own, unless this is a
+  // dfs_query_then_fetch: then the coordinator has already collected every
+  // shard's statistics and summed them, and hands the same totals to all of
+  // them. That is the entire difference between the two search types — the same
+  // roll-up function, one level up.
+  const stats = {} // shardId -> the stats used to score
   const perShard = {} // shardId -> [{ docId, score }]  every local match
   const returned = {} // shardId -> [{ docId, score }]  the top `window` it SENDS
   // What the query actually had to look at: Lucene docs, against the
@@ -257,7 +278,14 @@ function computeSearch(cluster, op) {
 
   for (const shard of queried) {
     serving[shard.id] = selectServingCopy(shard)
-    stats[shard.id] = shardStats(shard, cluster.docs)
+    shardOwn[shard.id] = shardStats(shard, cluster.docs)
+  }
+  // The dfs pre-phase: sum first, then score. Note it sums the QUERIED shards —
+  // a routed search asks only one, so its "global" view is that shard's own.
+  const globalStats = mergeStats(Object.values(shardOwn))
+  for (const shard of queried) stats[shard.id] = dfs ? globalStats : shardOwn[shard.id]
+
+  for (const shard of queried) {
 
     const docIds = new Set()
     for (const seg of shard.segments)
@@ -314,7 +342,10 @@ function computeSearch(cluster, op) {
     rootsScanned,
     cost: dictionaryCost(queried, cluster.docs, patterns),
     serving,
+    dfs,
     stats,
+    shardOwn,
+    globalStats,
     from,
     size,
     window,
@@ -326,19 +357,44 @@ function computeSearch(cluster, op) {
   }
 }
 
+// Which PHASE a search op is in. Everything that used to compare `op.step` to a
+// literal index goes through this instead: dfs prepends a step, so the indices
+// move but the keys never do. Exported because the close-up registry and the
+// flight choreography both ask the same question.
+export function searchStepKey(op) {
+  if (!op || op.type !== 'search') return null
+  return searchOpSteps(op.payload)[op.step]?.key ?? null
+}
+
+// The step INDEX of a phase, for the two places that have to drive the op to a
+// named phase rather than read it (the scenarios).
+export function searchStepIndex(payload, key) {
+  return searchOpSteps(payload).findIndex((st) => st.key === key)
+}
+
+const searchOpSteps = (payload) =>
+  payload?.dfs
+    ? [DFS_STEP, ...STEPS].map((st, i) => ({
+        ...st,
+        title: st.title.replace(/^\d+ · /, `${i + 1} · `),
+      }))
+    : STEPS
+
 // The largest single flight (in tokens) SearchFlight will launch for a step, so
 // duration() can reserve time for it. Mirrors SearchFlight's per-step batches;
 // returns null for steps that launch no flight.
-function searchFlightSize(search, step) {
-  if (step === 0 || step === 1) return search.terms.length // query / fan-out flights
-  if (step === 3) {
+function searchFlightSize(search, key) {
+  // The dfs round trip carries one statistics chip per query term, out and back.
+  if (key === 'dfs') return search.terms.length
+  if (key === 'coordinator' || key === 'scatter') return search.terms.length
+  if (key === 'gather') {
     // one flight per shard with hits, up to MAX_GATHER_IDS id chips each
     const sizes = Object.values(search.returned).map((hits) =>
       Math.min(hits.length, MAX_GATHER_IDS),
     )
     return Math.max(0, ...sizes)
   }
-  if (step === 4) {
+  if (key === 'fetch') {
     // the window's winners grouped by shard, one flight per shard
     const byShard = {}
     for (const w of computeCoordinatorMerge(search).winners)
@@ -352,6 +408,11 @@ export default {
   type: 'search',
   label: 'Search',
   steps: STEPS,
+  // The step list is a property of the PAYLOAD, not just the type: dfs adds its
+  // statistics round trip in front and renumbers everything after it. With dfs
+  // off the list is STEPS unchanged, which is what keeps every scenario's
+  // pinned step index valid.
+  stepsFor: searchOpSteps,
   // no derive(): search never changes the cluster.
 
   // Further reading, shown under the explanation in "What's happening".
@@ -422,11 +483,13 @@ export default {
   // Content-driven steps only; undefined falls back to the step's static `ms`.
   duration(op, extra) {
     if (!extra.search) return undefined
-    const n = searchFlightSize(extra.search, op.step)
+    const key = searchStepKey(op)
+    const n = searchFlightSize(extra.search, key)
     if (n == null) return undefined
-    // Step 4 (fetch) runs two flights back to back — the GET _source request,
-    // then (once it lands) the response — so its budget has to cover both.
-    const requestPad = op.step === 4 ? FETCH_REQUEST_MS : 0
+    // Two steps run a flight OUT and a flight BACK, so their budget covers both:
+    // the fetch phase (GET _source, then the documents) and the dfs round trip
+    // (the request, then every shard's statistics).
+    const requestPad = key === 'fetch' || key === 'dfs' ? FETCH_REQUEST_MS : 0
     return requestPad + flightMs(n) + FLIGHT_PAD_MS
   },
 }
