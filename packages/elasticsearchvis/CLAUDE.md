@@ -25,7 +25,8 @@ order:
 | The 4-tile segment view (.tip/.tim/.doc/.fdt) | The segment close-up, `anatomy.jsx` |
 | The FST, term dictionary, automaton walk | **The on-disk models** (longest bullet — the seek/consider rule lives here) |
 | Sample data, datasets | `SAMPLE_DOCS` |
-| Analyzer, tokenization, scoring | Analysis, the per-shard inverted index |
+| BM25, idf, term statistics, why scores differ per shard | **Scoring is real BM25** |
+| Analyzer, tokenization | Analysis, the per-shard inverted index |
 | Colours, dark/light | Theming |
 | Animation timing | `src/timing.js` |
 
@@ -64,9 +65,10 @@ requirements — read `SPEC.md` before changing the model.
 
 Built on the shared `(cluster, op)` engine — see `/docs/ARCHITECTURE.md` for how
 derivation, the ops registry, `useOpLifecycle` and `timing.js` work in general.
-Below is what differs here. Note two app-specific API facts: `stepsFor(type)`
-takes a **type** (cassandravis's takes an op), and this is the only app whose
-close-ups **nest**.
+Below is what differs here. Note two app-specific API facts: the step list is
+resolved through **`stepsOf(op)`** because the search op's steps depend on its
+payload (see the bullet below), and this is the only app whose close-ups
+**nest**.
 
 - **`cluster`** (`src/cluster.js`) is the committed state: `{ shards, docs }`.
   Each shard has `buffer`, `translog`, and immutable `segments`
@@ -109,6 +111,20 @@ close-ups **nest**.
   an `object` false positive is easy to miss. `fields` (the flattened indexed
   form) is what the shard close-up shows; `source` is what the response shows.
   Don't reconstruct sub-objects from child docs — read `source` (see `SPEC.md`).
+
+- **The search op's steps depend on its PAYLOAD.** `dfs_query_then_fetch`
+  (`payload.dfs`, the search form's Advanced block) is genuinely three-phase, so
+  it prepends a statistics round trip and every later index moves by one. The
+  module therefore exports `stepsFor(payload)` and `src/ops/index.js` resolves it
+  through **`stepsOf(op)` / `lastStep(op)`** — the vespavis pattern; the by-type
+  `stepsForType` / `lastStepOfType` remain only for callers asking about a type
+  in the abstract (`IndexOverlay`). **Never compare a search `op.step` to a
+  literal** — ask `searchStepKey(op)` for the phase instead. The close-up
+  registry, `SearchFlight` and `ClusterStage` all used to pin indices and all
+  three would silently point one phase off; scenarios have `opPhase` in the
+  snapshot for the same reason. With the flag off the step list is byte-identical
+  to what it was, which is what keeps the other scenarios' pinned `opStep` valid,
+  and `npm run check` section 10 pins that.
 
 - **`op`** = `{ type, step, payload }` (held by `useOpLifecycle`). Each op type
   (`index`, `refresh`, `flush`, `merge`, `search`) is one module in `src/ops/`
@@ -170,8 +186,8 @@ close-ups **nest**.
   `parseQuery` accepts `field:value` and an UPPERCASE `AND` and nothing else; a
   clause carries `.field`, every clause of a conjunctive query carries
   `.conjunction` (put on each clause rather than the array so it survives the
-  `.map`/`.filter` the patterns go through). `scoreDoc` returns 0 unless every
-  clause matched **the same Lucene doc** — that one rule is the entire
+  `.map`/`.filter` the patterns go through). `matchDoc` matches nothing unless
+  every clause hit **the same Lucene doc** — that one rule is the entire
   object-vs-nested lesson, and it is deliberately ONE code path for both
   mappings: the only difference is whether a Lucene doc is a whole document or a
   single sub-object. `joinToRoots` then folds Lucene hits up to the documents
@@ -225,12 +241,32 @@ close-ups **nest**.
   `build(...) → { key, title, sub, steps, dwell?, Stage, stageProps, source,
   className? }`, and `src/closeups/index.js` is the registry
   (`shardCloseUp` / `coordCloseUp` / `fetchShards` / `closeUpStillValid` /
-  `closeUpAnchor` / `buildCloseUp`). Four kinds: `shard` (local search, search
-  step 2), `coordinator` (steps 3–4), `fetch` (a shard holding a winner, step
-  4 — `stages/shardFetch.jsx`, which turns each id back into a segment +
-  ordinal), and `segment` (inside one segment, nested under `shard` or
-  `fetch`, with `phase: 'query' | 'fetch'`). **Adding a zoom = one module plus
-  one case in the registry.** A `steps` entry is `{ key, title, blurb }` plus an
+  `closeUpAnchor` / `buildCloseUp`). Six kinds: `shard` (the `local` phase),
+  `coordinator` (`gather` and `fetch`), `coordStats` (the coordinator summing
+  the shards' dfs statistics — `stages/coordStats.jsx`, offered on the `dfs`
+  phase where `coordinator` is offered later), `fetch` (a shard holding a
+  winner, the `fetch` phase — `stages/shardFetch.jsx`, which turns each id back
+  into a segment + ordinal), `stats` (a shard answering a dfs statistics
+  request — `stages/shardStats.jsx`), and `segment` (inside one segment, nested
+  under any of the shard-level three, with `phase: 'query' | 'fetch' | 'stats'`). The
+  registry addresses those by `searchStepKey(op)`, never by step index — dfs
+  moves the indices.
+  **The three shard-level zooms draw the SAME segment cards on purpose** and
+  differ only in what they light: query lights the dictionary then the postings,
+  fetch lights only `_source`, stats lights the dictionary and STOPS. That
+  comparison is the lesson; don't give any of them a card of its own.
+  The dfs round has a zoom at BOTH ends and they are deliberately one picture:
+  `shardStats` shows a shard adding its SEGMENTS up, `coordStats` shows the
+  coordinator adding those SHARDS up, in the same layout, because in the model
+  they are the same call (`mergeStats`). `computeShardIdfs` feeds the second and
+  must read `search.shardOwn`, never `search.stats` — under dfs the latter is
+  already the global view, so every shard would be reported as agreeing and the
+  panel would teach nothing. `npm run check` section 10 pins that.
+  The segment zoom's `stats` phase is the `query` phase minus its last tile — it
+  reuses `deriveDictionary` and `QUERY_STEPS`' middle three entries verbatim, so
+  the walk and the block read are visibly the same work a search does, and only
+  the stopping point differs. `.doc` is dimmed there with the reason.
+  **Adding a zoom = one module plus one case in the registry.** A `steps` entry is `{ key, title, blurb }` plus an
   optional `link: { label, url }`, rendered under the blurb by the shared
   `components/DocLinks.jsx` (the same component App's "What's happening" panel
   uses for `opDocs`). It is for a step that has to admit a simplification and
@@ -281,7 +317,7 @@ close-ups **nest**.
     bodies (module-scope, fed by props). `src/postings.js` and
     `src/storedFields.js` are the pure models behind the other two, and `npm
     run check` section 8 pins them to the levels above (ordinal = index in
-    `seg.docIds`, frequency = `scoreDoc`'s count, root last, `_source` on roots
+    `seg.docIds`, frequency = `matchDoc`'s count, root last, `_source` on roots
     only, every fetch winner resolves to one segment).
   - The stored-fields tile is NEVER dived into by the query-phase tour — the
     fetch-step 🔍 on a shard opens it (`stages/shardFetch.jsx` → `segment` with
@@ -445,8 +481,25 @@ close-ups **nest**.
 
 - **Analysis** (`src/analyzer.js`): a small stand-in for the standard analyzer —
   lowercase + split on non-(letter/number/apostrophe). No stemming/stopwords,
-  keeping "your words → terms" obvious. Search relevance is term-frequency
-  counting (`computeSearch`), a deliberate stand-in for BM25.
+  keeping "your words → terms" obvious.
+
+- **Scoring is real BM25** (`src/similarity.js` — the arithmetic;
+  `src/invertedIndex.js`'s `segmentStats` / `shardStats` / `mergeStats` — the
+  numbers). Two things carry the weight here. First, matching and scoring are
+  SEPARATE: `matchDoc` answers "did this hit, and how often" and needs no
+  statistics (the postings tile pins its `perTerm`, and object-vs-nested only
+  ever asks whether something matched); `scoreDoc(doc, patterns, stats)` turns
+  that into a number. Don't merge them back, and don't give `scoreDoc` a
+  stats-less fallback — that would be a second scorer. Second, **the statistics
+  are the SHARD's**: each segment's `docFreq` comes out of its `.tim` term
+  metadata and they are SUMMED, then one idf is computed for the whole shard,
+  exactly as Lucene's `TermStates.build()` does. There is no such thing as a
+  per-segment idf. `mergeStats` is the one roll-up function for both levels
+  (segments → shard, and shards → global for dfs), which is what stops the search
+  types from becoming two scorers. Statistics are read with `includePurged`,
+  because a delete does not touch the term dictionary — so scores don't move
+  until a merge. `npm run check` section 9 pins all of it; `SPEC.md` carries the
+  flagged simplifications (one field, not per-field; exact field length).
   **Analysis runs once per shard COPY, and the index op must show that.**
   Elasticsearch replicates the operation, not the index: the primary indexes
   locally, forwards the DOCUMENT to each in-sync replica, and the replica runs

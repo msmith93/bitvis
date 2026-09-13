@@ -1306,6 +1306,45 @@ textarea:focus {
   font-weight: 700;
 }
 
+/* The sort step's footnote: the same term, weighed differently per shard. */
+.ci-idf-spread {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ci-idf-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ci-idf-cell {
+  font-size: 11px;
+  font-family: ui-monospace, Menlo, monospace;
+  color: var(--accent-soft);
+  background: var(--panel-2);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.ci-idf-cell.dim {
+  color: var(--muted);
+  opacity: 0.65;
+}
+/* A shard's own figure, once the totals have replaced it. Struck rather than
+   hidden: being superseded is the whole lesson of the dfs round. */
+.ci-idf-cell.replaced {
+  color: var(--muted);
+  text-decoration: line-through;
+  opacity: 0.75;
+}
+/* The summed answer every shard is about to be handed. */
+.ci-idf-cell.total {
+  color: var(--accent-text);
+  font-weight: 700;
+  background: var(--sink);
+}
+
 /* ---- coordinator inspector (merge & fetch close-up) ---- */
 /* One persistent grid; the per-step column count comes from an inline
    grid-template-columns so the same chips reflow between arrangements. */
@@ -1315,6 +1354,13 @@ textarea:focus {
      than full segment anatomy, so it needs far less room than the shard one
      and would otherwise sit in a lot of empty panel. */
   height: min(640px, 92vh);
+}
+/* The statistics variant holds one row per query term rather than a ranked
+   list, so it sizes to its content instead — a plain term would otherwise sit
+   in most of a 640px panel. Capped, because a wildcard expands to many rows. */
+.shard-inspector.coord.coord-stats {
+  height: auto;
+  max-height: min(640px, 92vh);
 }
 .ci-stage {
   display: grid;
@@ -2269,6 +2315,108 @@ textarea:focus {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+/* ---- term statistics (the `stats` step of the shard close-up) ----
+   One row per matched term: each segment's docFreq, then the sum, then the one
+   idf the shard scores with. Monospace so the per-segment figures line up. */
+.si-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.si-stat-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.si-stat-sum {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: 1;
+  font-size: 11px;
+  font-family: ui-monospace, Menlo, monospace;
+}
+.si-stat-seg {
+  color: var(--muted);
+  background: var(--panel-2);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.si-stat-plus,
+.si-stat-eq {
+  color: var(--muted);
+  padding: 0 2px;
+}
+.si-stat-df {
+  color: var(--accent-text);
+  font-weight: 700;
+}
+/* A checkbox row inside the search form's Advanced block: the control on the
+   left, its name and one line of explanation on the right. The name is literal
+   Elasticsearch API syntax, so it opts out of the uppercasing .adv puts on its
+   other labels — `dfs_query_then_fetch` is not spelled in capitals. */
+label.field.check {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
+}
+label.field.check input {
+  margin-top: 1px;
+  accent-color: var(--accent);
+  flex: none;
+  width: auto;
+}
+.adv label.field.check span {
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  margin-bottom: 0;
+}
+.adv label.field.check .field-hint {
+  display: block;
+  font-family: inherit;
+  font-style: normal;
+  font-size: 10px;
+  letter-spacing: 0;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* Under dfs the shard's own figure is still computed, just not used — struck
+   rather than hidden, because the replacement IS the lesson. */
+.si-stat-df.replaced {
+  color: var(--muted);
+  text-decoration: line-through;
+  font-weight: 400;
+}
+.si-stat-arrow {
+  color: var(--muted);
+  padding: 0 2px;
+}
+.si-stat-idf-was {
+  color: var(--muted);
+  font-weight: 400;
+  text-decoration: line-through;
+}
+
+/* Context, not a cost — so muted rather than the warn colour .dict-cost uses. */
+.si-stat-foot {
+  margin-top: 8px;
+  font-size: 11px;
+  font-family: ui-monospace, Menlo, monospace;
+  color: var(--muted);
+}
+
+/* The doc's field length sits with the per-term chips but belongs to the DOC,
+   so it is toned back to read as context rather than another term. */
+.si-tf.len {
+  color: var(--muted);
 }
 
 /* ---------------- Document list overlay (delete / undo) ---------------- */

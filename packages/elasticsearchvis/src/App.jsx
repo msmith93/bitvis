@@ -18,7 +18,8 @@ import {
   shardWillMerge,
   SHARD_PLACEMENT,
 } from './cluster'
-import { lastStep, OP_LABELS, opDocs, opNote, stepsFor } from './ops'
+import { lastStep, OP_LABELS, opDocs, opNote, stepsOf } from './ops'
+import { searchStepKey } from './ops/search'
 import { SEARCH_SIZE } from './constants'
 import { useOpLifecycle } from './useOpLifecycle'
 import ClusterStage from './components/ClusterStage'
@@ -103,7 +104,9 @@ export default function App() {
   // shard is open" for a scenario that only needs to know nothing is on top.
   const zoomShard =
     rootCloseUp?.kind === 'shard' || rootCloseUp?.kind === 'fetch' ? rootCloseUp.shard : null
-  const coordZoom = rootCloseUp?.kind === 'coordinator'
+  // Either coordinator-rooted zoom counts: a step that only needs to know the
+  // reader is looking at Node 1 should not care which of the two it opened.
+  const coordZoom = rootCloseUp?.kind === 'coordinator' || rootCloseUp?.kind === 'coordStats'
 
   // Where the innermost close-up's own mini-stepper has got to, reported up by
   // CloseUp. A tour step needs this to wait for a beat INSIDE a panel — the
@@ -136,6 +139,13 @@ export default function App() {
   const [nestedPath, setNestedPath] = useState(false)
   const [query, setQuery] = useState(EXAMPLE_QUERIES[0])
   const [routing, setRouting] = useState('') // optional _routing on the search
+  // search_type: off is query_then_fetch (each shard scores with its own term
+  // statistics), on is dfs_query_then_fetch (one round trip collects them first).
+  const [dfs, setDfs] = useState(false)
+  // The Advanced block's disclosure state. Controlled rather than left to
+  // <details> so a scenario can OPEN it (revealing the control it is about to
+  // ask for) without spending the reader's one allowed click on the triangle.
+  const [advOpen, setAdvOpen] = useState(false)
   const [searchSize, setSearchSize] = useState(SEARCH_SIZE) // result-window `size`, advanced
 
   // Which seeded dataset is seeded, if any. Scenarios read this to detect the
@@ -174,6 +184,15 @@ export default function App() {
       opDone,
       opQuery: op?.type === 'search' ? op.payload.query : '',
       opRouting: op?.type === 'search' ? op.payload.routing || null : null,
+      // The search TYPE: what the form is set to, and what the running search
+      // actually used. A scenario needs both — one to see the reader tick the
+      // box, the other to know which search it is looking at the results of.
+      dfsOn: dfs,
+      opDfs: op?.type === 'search' ? !!op.payload.dfs : false,
+      // The search op's PHASE by key rather than index. dfs adds a step in
+      // front, so a scenario that pinned `opStep` would point one phase off on
+      // a dfs search; the keys never move.
+      opPhase: searchStepKey(op),
       playing,
       zoomShard,
       coordZoom,
@@ -205,6 +224,9 @@ export default function App() {
       reset: resetCluster,
       setQuery,
       setRouting,
+      // Reveal the Advanced block. A scenario may open it; ticking the box in
+      // it is still the reader's to do.
+      openAdvanced: () => setAdvOpen(true),
       // Prefill the index form — including the advanced sub-objects and the
       // mapping. A scenario step may set this up but must still ask the reader
       // to press Index themselves.
@@ -235,7 +257,7 @@ export default function App() {
     if (
       resultsPhase === 'pending' &&
       op?.type === 'search' &&
-      op.step >= lastStep('search') &&
+      op.step >= lastStep(op) &&
       !playing
     ) {
       setResultsPhase('open')
@@ -410,6 +432,7 @@ export default function App() {
     start('search', {
       query: query.trim(),
       routing: routing.trim() || null,
+      dfs,
       from: 0,
       size: Number(searchSize) || SEARCH_SIZE,
     })
@@ -497,7 +520,7 @@ export default function App() {
     resetCluster()
   }
 
-  const currentStep = op ? stepsFor(op.type)[op.step] : null
+  const currentStep = op ? stepsOf(op)[op.step] : null
   // One extra line about this op's payload (routing target, wildcard cost).
   const note = opNote(op, extra)
   // Official-docs links for the running op, for readers who want to go deeper.
@@ -652,14 +675,26 @@ export default function App() {
                 ))}
             </div>
 
-            {/* ---- advanced: routing key + result-window size ----
-                Collapsed by default: an ordinary search needs neither. Opens
-                itself once either has been set away from its default. */}
+            {/* ---- advanced: search type, routing key, result-window size ----
+                Collapsed by default: an ordinary search needs none of them.
+                Opens itself once any has been set away from its default. */}
             <details
               className="adv"
-              open={!!routing.trim() || Number(searchSize) !== SEARCH_SIZE}
+              open={advOpen || !!routing.trim() || Number(searchSize) !== SEARCH_SIZE || dfs}
+              onToggle={(e) => setAdvOpen(e.currentTarget.open)}
             >
-              <summary>Advanced — routing &amp; size</summary>
+              <summary data-tour="search-advanced">Advanced — search type, routing &amp; size</summary>
+
+              {/* The search type. Elasticsearch's default asks each shard to
+                  score with its OWN term statistics, which is fast and slightly
+                  unfair; dfs collects them first so every shard scores on the
+                  same numbers, and pays a round trip to do it. */}
+              <label className="field check" data-tour="dfs-toggle">
+                <input type="checkbox" checked={dfs} onChange={(e) => setDfs(e.target.checked)} />
+                <span>
+                  dfs_query_then_fetch
+                </span>
+              </label>
 
               {/* Optional _routing on the query: hash this instead of scattering. */}
               <label className="field">
@@ -697,7 +732,9 @@ export default function App() {
             playing={playing}
             onZoom={(id) => openCloseUp({ kind: 'shard', shard: id })}
             onCoordZoom={() => openCloseUp({ kind: 'coordinator' })}
+            onCoordStatsZoom={() => openCloseUp({ kind: 'coordStats' })}
             onFetchZoom={(id) => openCloseUp({ kind: 'fetch', shard: id })}
+            onStatsZoom={(id) => openCloseUp({ kind: 'stats', shard: id })}
           />
         </div>
 
@@ -731,7 +768,7 @@ export default function App() {
       {/* ---------------- Bottom: stepper ---------------- */}
       <Stepper
         dataTour="stepper"
-        steps={op ? stepsFor(op.type) : []}
+        steps={op ? stepsOf(op) : []}
         step={op ? op.step : -1}
         opLabel={op ? OP_LABELS[op.type] : ''}
         playing={playing}

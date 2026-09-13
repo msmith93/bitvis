@@ -1,6 +1,7 @@
 import { docRootId, routeShard, selectServingCopy } from '../cluster'
 import { MAX_GATHER_IDS, SEARCH_SIZE } from '../constants'
-import { segmentInvertedIndex } from '../invertedIndex'
+import { docFieldLen, docFreqOf, mergeStats, segmentInvertedIndex, shardStats } from '../invertedIndex'
+import { idf, termScore } from '../similarity'
 import { FETCH_REQUEST_MS, flightMs, FLIGHT_PAD_MS } from '../timing'
 import {
   clauseCoversField,
@@ -23,6 +24,21 @@ import {
 //                     must first be expanded against each segment's term
 //                     dictionary.
 
+// dfs_query_then_fetch's extra phase. A whole round trip to every shard,
+// carrying NUMBERS rather than documents — which is the cost that keeps it off
+// by default.
+//
+// It sits AFTER the coordinator has the query and BEFORE the scatter, and it
+// cannot sit anywhere else: what it asks for is the document frequency of THIS
+// query's terms, so there is nothing to ask about until the query has arrived.
+const DFS_STEP = {
+  key: 'dfs',
+  ms: 1600, // overridden by duration() (statistics flights)
+  title: '2 · Gather global term statistics',
+  blurb:
+    'The coordinator has the terms, so before asking anyone to search it asks every shard what those terms are worth: their document frequencies, summed into one set of numbers. Every shard then scores on the SAME statistics — at the cost of a round trip to all of them.',
+}
+
 const STEPS = [
   {
     key: 'coordinator',
@@ -36,21 +52,21 @@ const STEPS = [
     ms: 1400, // overridden by duration() (fan-out flights)
     title: '2 · Scatter (query phase)',
     blurb:
-      'The coordinator fans the query out to ONE copy of every shard — primary or replica — spread across the nodes. This is why a search runs on all nodes. A routing key is the exception: it names the one shard that can hold the data.',
+      'The coordinator fans the query out to ONE copy of every shard — primary or replica — spread across the nodes. A routing key is the exception: it names the one shard that can hold the data.',
   },
   {
     key: 'local',
     ms: 1600,
     title: '3 · Each shard searches locally',
     blurb:
-      'Each contacted shard searches its own segments’ inverted indexes, scores the matching docs (a simplified relevance score), and returns only its local top hits — doc ids + scores, not the full documents.',
+      'Each contacted shard searches its own segments’ inverted indexes, scores the matching docs with BM25, and returns only its local top hits — doc ids + scores, not the full documents.',
   },
   {
     key: 'gather',
     ms: 1600, // overridden by duration() (hit-id flights)
     title: '4 · Gather + merge + sort',
     blurb:
-      'The coordinator gathers every shard’s local hits, merges them, and sorts by score to produce the global ranking. A term shared across shards shows up here from multiple shards.',
+      'The coordinator gathers every shard’s local hits, merges them, and sorts by score to produce the global ranking. Each shard scored with its own statistics, so this ranking compares numbers that were not measured on the same scale.',
   },
   {
     key: 'fetch',
@@ -68,23 +84,25 @@ const STEPS = [
   },
 ]
 
-// Score one LUCENE doc against the query patterns: how often each MATCHING term
-// occurs in it. `perTerm` is keyed by the real term, not the pattern, so a
-// wildcard shows which terms it actually hit. For a plain term query this is
-// identical to the term-frequency count the app has always used (a stand-in for
-// BM25).
+// Match one LUCENE doc against the query patterns: which terms hit it, and how
+// often each occurs. `perTerm` is keyed by the real term, not the pattern, so a
+// wildcard shows which terms it actually hit.
+//
+// Deliberately carries NO score: matching needs no statistics, scoring does.
+// Splitting them keeps ONE matching path for the whole app — the postings tile
+// pins `perTerm` against its own frequencies, and the object-vs-nested lesson
+// only ever asks "did this match", never "how much is it worth".
 //
 // Two refinements, both inert unless the query uses them:
 //   a field-qualified clause only counts terms from THAT field;
-//   a conjunctive query scores 0 unless EVERY clause matched this one doc.
+//   a conjunctive query matches nothing unless EVERY clause hit this one doc.
 //
 // That second rule is the entire object-vs-nested lesson, and it is deliberately
 // one function for both: under `object` the whole document is one Lucene doc, so
 // clauses agree across sub-objects that were never together; under `nested` each
 // child is its own Lucene doc, so they have to agree within one child.
-export function scoreDoc(doc, patterns) {
+export function matchDoc(doc, patterns) {
   const perTerm = {}
-  let score = 0
   const clausesHit = new Set()
   for (const [field, terms] of Object.entries(doc.tokens))
     for (const term of terms) {
@@ -95,12 +113,9 @@ export function scoreDoc(doc, patterns) {
           clausesHit.add(i)
         }
       })
-      // Counted once per TERM, not once per matching clause — the frequency the
-      // app has always shown.
-      if (matched) {
-        perTerm[term] = (perTerm[term] || 0) + 1
-        score += 1
-      }
+      // Counted once per TERM, not once per matching clause — the same frequency
+      // the posting list carries.
+      if (matched) perTerm[term] = (perTerm[term] || 0) + 1
     }
   // WHICH clauses this doc satisfied, always reported. A conjunctive query that
   // finds nothing is the most interesting outcome this app has, and without this
@@ -111,8 +126,39 @@ export function scoreDoc(doc, patterns) {
     hit: clausesHit.has(i),
   }))
   if (isConjunctive(patterns) && clausesHit.size < patterns.length)
-    return { score: 0, perTerm: {}, clauses, eliminated: true }
-  return { score, perTerm, clauses, eliminated: false }
+    return { perTerm: {}, clauses, eliminated: true, matched: false }
+  return { perTerm, clauses, eliminated: false, matched: Object.keys(perTerm).length > 0 }
+}
+
+// Score one LUCENE doc with BM25, using the statistics of the SHARD that holds
+// it. Every matched term is one TermQuery and the query is their OR, so the
+// contributions add up.
+//
+// `stats` is the shard's — not one segment's, and not the cluster's. That is
+// exactly what query_then_fetch means: a shard scores with what it can see, so
+// the same document can be worth different amounts on different shards. The
+// `stats` step of the shard close-up is where that becomes visible.
+//
+// `terms` is the explain row per matched term — the numbers that produced the
+// score, in the order the reader needs them: how often, how rare, how long.
+export function scoreDoc(doc, patterns, stats) {
+  const m = matchDoc(doc, patterns)
+  const fieldLen = docFieldLen(doc)
+  const terms = Object.entries(m.perTerm).map(([term, freq]) => {
+    const docFreq = docFreqOf(stats, term)
+    // docFreq 0 means this shard has never seen the term, so it contributes
+    // nothing. Handing 0 to idf() would instead call it infinitely rare.
+    const args = { freq, docFreq, docCount: stats.docCount, fieldLen, avgFieldLen: stats.avgFieldLen }
+    return {
+      term,
+      freq,
+      docFreq,
+      fieldLen,
+      idf: docFreq ? idf(docFreq, stats.docCount) : 0,
+      contribution: docFreq ? termScore(args) : 0,
+    }
+  })
+  return { ...m, score: terms.reduce((n, t) => n + t.contribution, 0), terms }
 }
 
 // The block join: fold per-Lucene-doc scores up to the Elasticsearch documents
@@ -127,16 +173,42 @@ export function scoreDoc(doc, patterns) {
 function mergePerTerm(luceneScored, docs, rootId) {
   const out = {}
   for (const h of luceneScored) {
-    if (h.score <= 0 || docRootId(docs[h.docId]) !== rootId) continue
+    if (!h.matched || docRootId(docs[h.docId]) !== rootId) continue
     for (const [term, n] of Object.entries(h.perTerm)) out[term] = (out[term] || 0) + n
   }
   return out
 }
 
+// The explain rows of one root, unioned over its whole block — the same roll-up
+// `mergePerTerm` does, carried on the numbers that produced the score. idf and
+// docFreq are properties of the TERM, so they are shared by every doc in the
+// block; freq and contribution add up. fieldLen belongs to one Lucene doc, so it
+// is only meaningful when exactly one of them contributed — which is every hit
+// on flat data, and none on a block that matched in several children.
+function mergeTerms(luceneScored, docs, rootId) {
+  const out = new Map()
+  for (const h of luceneScored) {
+    if (!h.matched || docRootId(docs[h.docId]) !== rootId) continue
+    for (const t of h.terms) {
+      const e = out.get(t.term)
+      if (!e) out.set(t.term, { ...t, from: 1 })
+      else
+        out.set(t.term, {
+          ...e,
+          freq: e.freq + t.freq,
+          contribution: e.contribution + t.contribution,
+          fieldLen: null,
+          from: e.from + 1,
+        })
+    }
+  }
+  return [...out.values()].sort((a, b) => b.contribution - a.contribution)
+}
+
 function joinToRoots(luceneHits, docs) {
   const byRoot = new Map()
-  for (const { docId, score } of luceneHits) {
-    if (score <= 0) continue
+  for (const { docId, score, matched } of luceneHits) {
+    if (!matched) continue
     const root = docRootId(docs[docId])
     const rootDoc = docs[root]
     if (!rootDoc || rootDoc.purged) continue
@@ -172,6 +244,10 @@ function dictionaryCost(shards, docs, patterns) {
 function computeSearch(cluster, op) {
   const patterns = parseQuery(op.payload.query)
   const routing = op.payload.routing || null
+  // search_type. Off is query_then_fetch: every shard scores with what it alone
+  // can see. On is dfs_query_then_fetch: one extra round trip first, so they all
+  // score with the same numbers.
+  const dfs = !!op.payload.dfs
   // The result window, exactly as a real query carries it. Elasticsearch sizes
   // each shard's priority queue at `from + size` AND cuts the merged list to the
   // same window, so this one number drives both ends of query-then-fetch.
@@ -187,6 +263,15 @@ function computeSearch(cluster, op) {
       : cluster.shards.filter((s) => s.id === routedShard)
 
   const serving = {} // shardId -> { node, role }   (queried shards only)
+  // Each queried shard's OWN term statistics, summed out of its segments. One
+  // per shard, never shared — which is the whole of query_then_fetch.
+  const shardOwn = {} // shardId -> shardStats(...)
+  // What each shard actually SCORES with. Identical to its own, unless this is a
+  // dfs_query_then_fetch: then the coordinator has already collected every
+  // shard's statistics and summed them, and hands the same totals to all of
+  // them. That is the entire difference between the two search types — the same
+  // roll-up function, one level up.
+  const stats = {} // shardId -> the stats used to score
   const perShard = {} // shardId -> [{ docId, score }]  every local match
   const returned = {} // shardId -> [{ docId, score }]  the top `window` it SENDS
   // What the query actually had to look at: Lucene docs, against the
@@ -197,6 +282,14 @@ function computeSearch(cluster, op) {
 
   for (const shard of queried) {
     serving[shard.id] = selectServingCopy(shard)
+    shardOwn[shard.id] = shardStats(shard, cluster.docs)
+  }
+  // The dfs pre-phase: sum first, then score. Note it sums the QUERIED shards —
+  // a routed search asks only one, so its "global" view is that shard's own.
+  const globalStats = mergeStats(Object.values(shardOwn))
+  for (const shard of queried) stats[shard.id] = dfs ? globalStats : shardOwn[shard.id]
+
+  for (const shard of queried) {
 
     const docIds = new Set()
     for (const seg of shard.segments)
@@ -214,8 +307,8 @@ function computeSearch(cluster, op) {
       // Tombstoned-but-not-yet-refreshed docs are still searchable (purged is
       // set by a refresh); only purged docs drop out of results.
       if (!doc || doc.purged) continue
-      const { score } = scoreDoc(doc, patterns)
-      if (score > 0) luceneHits.push({ docId: id, score })
+      const { score, matched } = scoreDoc(doc, patterns, stats[shard.id])
+      if (matched) luceneHits.push({ docId: id, score, matched })
     }
     // Matches are on LUCENE docs; the client asked about Elasticsearch
     // documents, so every hit is joined up to the root of its block.
@@ -253,6 +346,10 @@ function computeSearch(cluster, op) {
     rootsScanned,
     cost: dictionaryCost(queried, cluster.docs, patterns),
     serving,
+    dfs,
+    stats,
+    shardOwn,
+    globalStats,
     from,
     size,
     window,
@@ -264,19 +361,44 @@ function computeSearch(cluster, op) {
   }
 }
 
+// Which PHASE a search op is in. Everything that used to compare `op.step` to a
+// literal index goes through this instead: dfs prepends a step, so the indices
+// move but the keys never do. Exported because the close-up registry and the
+// flight choreography both ask the same question.
+export function searchStepKey(op) {
+  if (!op || op.type !== 'search') return null
+  return searchOpSteps(op.payload)[op.step]?.key ?? null
+}
+
+// The step INDEX of a phase, for the two places that have to drive the op to a
+// named phase rather than read it (the scenarios).
+export function searchStepIndex(payload, key) {
+  return searchOpSteps(payload).findIndex((st) => st.key === key)
+}
+
+const searchOpSteps = (payload) =>
+  payload?.dfs
+    ? [STEPS[0], DFS_STEP, ...STEPS.slice(1)].map((st, i) => ({
+        ...st,
+        title: st.title.replace(/^\d+ · /, `${i + 1} · `),
+      }))
+    : STEPS
+
 // The largest single flight (in tokens) SearchFlight will launch for a step, so
 // duration() can reserve time for it. Mirrors SearchFlight's per-step batches;
 // returns null for steps that launch no flight.
-function searchFlightSize(search, step) {
-  if (step === 0 || step === 1) return search.terms.length // query / fan-out flights
-  if (step === 3) {
+function searchFlightSize(search, key) {
+  // The dfs round trip carries one statistics chip per query term, out and back.
+  if (key === 'dfs') return search.terms.length
+  if (key === 'coordinator' || key === 'scatter') return search.terms.length
+  if (key === 'gather') {
     // one flight per shard with hits, up to MAX_GATHER_IDS id chips each
     const sizes = Object.values(search.returned).map((hits) =>
       Math.min(hits.length, MAX_GATHER_IDS),
     )
     return Math.max(0, ...sizes)
   }
-  if (step === 4) {
+  if (key === 'fetch') {
     // the window's winners grouped by shard, one flight per shard
     const byShard = {}
     for (const w of computeCoordinatorMerge(search).winners)
@@ -290,6 +412,11 @@ export default {
   type: 'search',
   label: 'Search',
   steps: STEPS,
+  // The step list is a property of the PAYLOAD, not just the type: dfs adds its
+  // statistics round trip in front and renumbers everything after it. With dfs
+  // off the list is STEPS unchanged, which is what keeps every scenario's
+  // pinned step index valid.
+  stepsFor: searchOpSteps,
   // no derive(): search never changes the cluster.
 
   // Further reading, shown under the explanation in "What's happening".
@@ -347,17 +474,20 @@ export default {
         `fuzzy: up to ${p.maxEdits} edit${p.maxEdits === 1 ? '' : 's'} — a match may differ in its very first character, so a sorted list has nothing to seek to. The real term index prunes; open the 🔍 to watch it.`,
       )
     }
+
     return parts.length ? parts.join(' ') : null
   },
 
   // Content-driven steps only; undefined falls back to the step's static `ms`.
   duration(op, extra) {
     if (!extra.search) return undefined
-    const n = searchFlightSize(extra.search, op.step)
+    const key = searchStepKey(op)
+    const n = searchFlightSize(extra.search, key)
     if (n == null) return undefined
-    // Step 4 (fetch) runs two flights back to back — the GET _source request,
-    // then (once it lands) the response — so its budget has to cover both.
-    const requestPad = op.step === 4 ? FETCH_REQUEST_MS : 0
+    // Two steps run a flight OUT and a flight BACK, so their budget covers both:
+    // the fetch phase (GET _source, then the documents) and the dfs round trip
+    // (the request, then every shard's statistics).
+    const requestPad = key === 'fetch' || key === 'dfs' ? FETCH_REQUEST_MS : 0
     return requestPad + flightMs(n) + FLIGHT_PAD_MS
   },
 }
@@ -381,42 +511,50 @@ const PLAIN_LOCAL_STEPS = [
     key: 'lookup',
     title: '2 · Look up terms per segment',
     blurb:
-      'A shard is several immutable segments, each with its OWN term dictionary. Every query term is looked up in every segment’s dictionary to find that term’s posting list.',
+      'A shard is several immutable segments, each with its own term dictionary. Every query term is looked up in every segment’s dictionary to find that term’s posting list.',
+  },
+  {
+    key: 'stats',
+    title: '3 · Collect term statistics',
+    blurb:
+      'Each segment’s term metadata already carries that term’s docFreq, so the shard sums them and computes one idf per term before a single posting list is read.',
   },
   {
     key: 'postings',
-    title: '3 · Walk the posting lists',
+    title: '4 · Walk the posting lists',
     blurb:
-      'Each matched term’s posting list names the docs that contain it — ids only, not the documents themselves. Their union (across terms and segments) is the candidate set. A delete is near-real-time just like a write: until a refresh applies it, a tombstoned doc is still a candidate. After the refresh its posting entries are still here — struck through — but search steps over them; only a merge removes them for good.',
+      'Each matched term’s posting list names the docs that contain it — ids only, not the documents themselves. Their union (across terms and segments) is the candidate set.',
   },
   {
     key: 'score',
-    title: '4 · Score each candidate',
+    title: '5 · Score each candidate',
     blurb:
-      'Each candidate is scored by how often the query terms appear in it. Real Lucene uses BM25 (term frequency, inverse document frequency, field-length norm); here we simplify to a term-frequency count.',
+      'Each candidate is scored with BM25: how often the term appears in it, damped by the document’s length, weighted by the idf above. A common term is worth little; a rare one in a short document is worth a lot.',
   },
   {
     key: 'topk',
-    title: '5 · Keep the top hits',
+    title: '6 · Keep the top hits',
     // The one step whose SIMPLIFICATION is worth naming out loud. This app
     // scores every candidate and then slices (computeSearch, above); Lucene
-    // prunes instead, and a reader who knows that is owed the reason this
-    // picture can't show it. The reason is the tf-only score: WAND's pruning
-    // lives on the GAP between a rare term's upper bound and a common term's,
-    // and that gap is IDF. Without it the bounds here run backwards — a term in
-    // every document would carry the highest bound — so an animation of the
-    // real algorithm would teach the opposite of the truth. Prose and a link,
-    // deliberately, rather than a zoom. See SPEC.md's flagged simplifications.
+    // prunes instead, and a reader who knows that is owed a pointer.
+    //
+    // This used to be unshowable: WAND's pruning lives on the GAP between a rare
+    // term's upper bound and a common term's, and that gap is IDF, which a
+    // term-frequency score does not have. Now that the score IS BM25 the bounds
+    // run the right way round, so the obstacle is scope, not honesty — see
+    // SPEC.md's flagged simplifications. Still prose and a link rather than a
+    // zoom, and the dataset is small enough that a pruning animation would have
+    // little to skip.
     blurb:
       'A fixed-size priority queue keeps only the size highest-scoring docs; lower scores are evicted as better ones arrive. This is the shard’s local ranking. Scoring every candidate first, as this app does, is a simplification: real Lucene runs WAND / Block-Max WAND',
-    // link: {
-    //   label: 'Magic WAND: faster retrieval of top hits',
-    //   url: 'https://www.elastic.co/blog/faster-retrieval-of-top-hits-in-elasticsearch-with-block-max-wand',
-    // },
+    link: {
+      label: 'Magic WAND: faster retrieval of top hits',
+      url: 'https://www.elastic.co/blog/faster-retrieval-of-top-hits-in-elasticsearch-with-block-max-wand',
+    },
   },
   {
     key: 'return',
-    title: '6 · Return ids + scores',
+    title: '7 · Return ids + scores',
     blurb:
       'The shard returns only doc ids + scores to the coordinator — not the documents.',
   },
@@ -532,7 +670,7 @@ export const COORD_MERGE_STEPS = [
     key: 'sort',
     title: '3 · Sort by score',
     blurb:
-      'The merged list is sorted by score (ties broken by doc id) to produce the GLOBAL ranking. A shard’s local #1 can lose to another shard’s #2 here.',
+      'The merged list is sorted by score (ties broken by doc id) to produce the GLOBAL ranking. A shard’s local #1 can lose to another shard’s #2 here. Each score was computed from its own shard’s statistics, so this ranking compares numbers that were not measured on the same scale.',
   },
   {
     key: 'cut',
@@ -554,6 +692,44 @@ export const COORD_MERGE_STEPS = [
   },
 ]
 
+// What each queried shard thought the query's terms were worth. The SAME term
+// can be rarer on one shard than another simply because of how the documents
+// routed, and query_then_fetch never reconciles that — so the coordinator sorts
+// scores that were not measured on the same scale. Derived, never written into
+// copy, because it is only a lesson if the numbers are the live ones.
+export function computeShardIdfs(search) {
+  const sids = Object.keys(search.shardOwn)
+    .map(Number)
+    .sort((a, b) => a - b)
+  const terms = [...new Set(sids.flatMap((sid) => [...search.shardOwn[sid].byTerm.keys()]))]
+    .filter((t) => matchesAny(t, search.patterns))
+    .sort((a, b) => a.localeCompare(b))
+  return terms
+    .map((term) => {
+      const rows = sids.map((shard) => {
+        // Deliberately shardOwn, never `stats`: this is each shard's OWN reading,
+        // which is what the coordinator receives in the dfs round and what it
+        // then replaces. Under dfs `stats` is already the global view, so
+        // reading it here would report every shard as agreeing.
+        const st = search.shardOwn[shard]
+        const docFreq = st.byTerm.get(term)?.docFreq ?? 0
+        return {
+          shard,
+          docFreq,
+          docCount: st.docCount,
+          idf: docFreq ? idf(docFreq, st.docCount) : 0,
+        }
+      })
+      // A shard that has never seen the term scores it 0 either way, so it is
+      // not evidence of disagreement — only the shards that CAN score it count.
+      const seen = rows.filter((r) => r.docFreq)
+      const lo = Math.min(...seen.map((r) => r.idf))
+      const hi = Math.max(...seen.map((r) => r.idf))
+      return { term, rows, spread: seen.length > 1 && hi - lo > 1e-9, gap: hi - lo }
+    })
+    .sort((a, b) => b.gap - a.gap)
+}
+
 // The coordinator's gather→fetch decision, as data for the coordinator
 // inspector. A thin pure projection of computeSearch's output; winners/byShard
 // use the same slice + grouping as SearchFlight's fetch step so the close-up
@@ -572,13 +748,27 @@ export function computeCoordinatorMerge(search) {
   const cut = [...search.merged.slice(0, from), ...search.merged.slice(from + size)]
   const byShard = {}
   for (const w of winners) (byShard[w.shard] ||= []).push(w)
-  return { arrivals, merged: search.merged, winners, cut, byShard, from, size, n: size }
+  return {
+    arrivals,
+    merged: search.merged,
+    winners,
+    cut,
+    byShard,
+    from,
+    size,
+    n: size,
+  }
 }
 
 // The shard-local query phase, as data for the inspector's stepped close-up. Pure
 // like computeSearch, and uses the SAME scoring as computeSearch so the numbers
 // here match the cluster-level results panel.
-export function computeShardSearch(shard, patterns, docs, size = SEARCH_SIZE) {
+export function computeShardSearch(shard, patterns, docs, size = SEARCH_SIZE, stats) {
+  // The SAME statistics computeSearch scores with, from the same helper, so the
+  // numbers in this panel cannot drift from the cluster-level results. Phase-2
+  // dfs passes its global stats in; left out, a shard uses its own.
+  const shardOwn = shardStats(shard, docs)
+  const scoring = stats ?? shardOwn
   const segments = shard.segments
     .filter((seg) => seg.searchable)
     .map((seg) => {
@@ -609,13 +799,13 @@ export function computeShardSearch(shard, patterns, docs, size = SEARCH_SIZE) {
   // Scored at the LUCENE doc level -- this is what the postings actually
   // addressed, and for a nested block it is the CHILDREN that score.
   const luceneScored = candidates
-    .map((docId) => ({ docId, ...scoreDoc(docs[docId], patterns) }))
+    .map((docId) => ({ docId, ...scoreDoc(docs[docId], patterns, scoring) }))
     .sort((a, b) => b.score - a.score || a.docId.localeCompare(b.docId))
 
   // Candidates that failed the conjunction, kept rather than dropped so the view
   // can SHOW the elimination. `survivors` is what goes on to be joined.
   const eliminated = luceneScored.filter((h) => h.eliminated)
-  const survivors = luceneScored.filter((h) => h.score > 0)
+  const survivors = luceneScored.filter((h) => h.matched)
 
   // The block join, as a replayable list of hops: each surviving child and the
   // document it rolls up to. Empty for a flat dataset, where every Lucene doc is
@@ -639,6 +829,7 @@ export function computeShardSearch(shard, patterns, docs, size = SEARCH_SIZE) {
       docId,
       score,
       perTerm: mergePerTerm(luceneScored, docs, docId),
+      terms: mergeTerms(luceneScored, docs, docId),
     }))
     .sort((a, b) => b.score - a.score || a.docId.localeCompare(b.docId))
 
@@ -651,6 +842,10 @@ export function computeShardSearch(shard, patterns, docs, size = SEARCH_SIZE) {
 
   return {
     segments,
+    // Both are shown on the `stats` step: what this shard knows, and what it
+    // actually scored with (the same thing unless dfs replaced it).
+    shardOwn,
+    scoring,
     candidates,
     luceneScored,
     eliminated,

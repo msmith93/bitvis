@@ -29,7 +29,7 @@ const TRAIL_RUNNER = {
 
 // Where the shard panel's own mini-stepper has to be for a step's subject to be
 // ON SCREEN. Both queries here are conjunctive, so the panel's step list is
-// analyze · lookup · postings · intersect · (join) · score · topk · return —
+// analyze · lookup · stats · postings · intersect · (join) · score · topk · return —
 // `join` only on nested data. scripts/check-models.mjs asserts these indices, so
 // the tour cannot silently drift out of sync with the panel.
 //
@@ -37,8 +37,8 @@ const TRAIL_RUNNER = {
 // subject appears. But a reader who closes the panel early must NOT strand the
 // tour: `atPanelStep` therefore passes as soon as the panel is gone, and the
 // step just explains what would have been on screen.
-const PANEL_INTERSECT = 3
-const PANEL_JOIN = 4
+const PANEL_INTERSECT = 4
+const PANEL_JOIN = 5
 const atPanelStep = (n) => (s) => s.closeUpKind !== 'shard' || s.closeUpStep >= n
 
 const STEPS = [

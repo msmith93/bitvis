@@ -13,6 +13,8 @@
 //   4. the automaton PICTURE describes the automaton that actually ran
 //   5. the intersection trace's two cursors agree with the walk they describe
 //   8. the postings and stored-fields tiles say what the levels above say
+//   9. BM25 is BM25, and a shard's statistics are its segments' statistics summed
+//  10. dfs_query_then_fetch changes the ANSWER, and nothing else about the shards
 //
 // Dependency-free and node-only. The app's imports are extensionless (Vite
 // resolves them), so a small loader hook below does the same for node.
@@ -53,10 +55,11 @@ const { SAMPLE_DOCS, FUZZY_QUERIES, WILDCARD_QUERIES, CATALOG_DOCS, NESTED_QUERI
 const { buildTermIndex, fstSeek, seekTrace } = await import(SRC + 'blocktree.js')
 const { ANY, compileAutomaton, dfaStep, intersectTrace } = await import(SRC + 'automaton.js')
 const { buildBlock, OBJECT_MAPPING, makeMapping } = await import(SRC + 'mapping.js')
-const { scoreDoc, computeShardSearch, localSearchSteps } = await import(SRC + 'ops/search.js')
+const { matchDoc, scoreDoc, computeShardSearch, localSearchSteps } = await import(SRC + 'ops/search.js')
 const searchOp = (await import(SRC + 'ops/search.js')).default
-const { computeCoordinatorMerge } = await import(SRC + 'ops/search.js')
-const { segmentInvertedIndex } = await import(SRC + 'invertedIndex.js')
+const { computeCoordinatorMerge, searchStepKey, computeShardIdfs } = await import(SRC + 'ops/search.js')
+const { segmentInvertedIndex, segmentStats, shardStats, mergeStats } = await import(SRC + 'invertedIndex.js')
+const { idf, tfNorm, termScore, K1, B } = await import(SRC + 'similarity.js')
 const { buildPostings, postingsWalk } = await import(SRC + 'postings.js')
 const { buildStoredFields, locateInShard, FDT_CHUNK_MAX } = await import(SRC + 'storedFields.js')
 const { initialCluster, docRoute } = await import(SRC + 'cluster.js')
@@ -605,8 +608,8 @@ section('7 · object vs nested mapping')
   // ever holds both clauses and the trap matches nothing.
   {
     const patterns = W.parseQuery(NESTED_QUERIES[0]) // "variants.color:red AND variants.size:XL"
-    const objHits = Object.values(OBJ.docs).filter((d) => scoreDoc(d, patterns).score > 0)
-    const nestHits = Object.values(NEST.docs).filter((d) => scoreDoc(d, patterns).score > 0)
+    const objHits = Object.values(OBJ.docs).filter((d) => matchDoc(d, patterns).matched)
+    const nestHits = Object.values(NEST.docs).filter((d) => matchDoc(d, patterns).matched)
     check(
       'object: the red+XL trap matches exactly one Lucene doc, rooted at doc-2',
       objHits.length === 1 && docRootId(objHits[0]) === 'doc-2',
@@ -627,8 +630,8 @@ section('7 · object vs nested mapping')
   // products carry red and S on different variants.
   {
     const patterns = W.parseQuery(NESTED_QUERIES[1]) // "variants.color:brown AND variants.size:M"
-    const objHits = Object.values(OBJ.docs).filter((d) => scoreDoc(d, patterns).score > 0)
-    const nestHits = Object.values(NEST.docs).filter((d) => scoreDoc(d, patterns).score > 0)
+    const objHits = Object.values(OBJ.docs).filter((d) => matchDoc(d, patterns).matched)
+    const nestHits = Object.values(NEST.docs).filter((d) => matchDoc(d, patterns).matched)
     const objRoots = [...new Set(objHits.map(docRootId))].sort()
     const nestRoots = [...new Set(nestHits.map(docRootId))].sort()
     check(
@@ -782,13 +785,13 @@ section('7 · object vs nested mapping')
     const nestedKeys = keys(NESTED_QUERIES[1], true)
     const objectKeys = keys(NESTED_QUERIES[0], false)
     check(
-      "the tour's panel step indices still hold: intersect at 3, join at 4",
-      nestedKeys[3] === 'intersect' && nestedKeys[4] === 'join' && objectKeys[3] === 'intersect',
+      "the tour's panel step indices still hold: intersect at 4, join at 5",
+      nestedKeys[4] === 'intersect' && nestedKeys[5] === 'join' && objectKeys[4] === 'intersect',
       `nested [${nestedKeys}] object [${objectKeys}]`,
     )
     check(
       'a plain, single-clause query on flat data gains neither step',
-      keys('search', false).join() === 'analyze,lookup,postings,score,topk,return',
+      keys('search', false).join() === 'analyze,lookup,stats,postings,score,topk,return',
       keys('search', false).join(),
     )
 
@@ -799,8 +802,8 @@ section('7 · object vs nested mapping')
   // at the child-doc level under the hood.
   {
     const patterns = W.parseQuery(NESTED_QUERIES[2]) // "variants.stock:0"
-    const objHits = Object.values(OBJ.docs).filter((d) => scoreDoc(d, patterns).score > 0)
-    const nestHits = Object.values(NEST.docs).filter((d) => scoreDoc(d, patterns).score > 0)
+    const objHits = Object.values(OBJ.docs).filter((d) => matchDoc(d, patterns).matched)
+    const nestHits = Object.values(NEST.docs).filter((d) => matchDoc(d, patterns).matched)
     check('object: variants.stock:0 matches', objHits.length > 0, `hits: [${objHits.map((d) => d.id)}]`)
     check('nested: variants.stock:0 matches', nestHits.length > 0, `hits: [${nestHits.map((d) => d.id)}]`)
     check(
@@ -817,50 +820,51 @@ section('7 · object vs nested mapping')
   }
 }
 
+// The same seeding App.loadDataset does: blocks routed as the cluster routes
+// them, ~3 segments per shard, every segment searchable.
+function seed(source, mapping) {
+  const c = initialCluster()
+  const byShard = Object.fromEntries(c.shards.map((s) => [s.id, []]))
+  source.forEach((d, i) => {
+    const id = `doc-${i + 1}`
+    const { routing, ...fields } = d
+    const block = buildBlock(fields, { id, mapping, routing, shard: docRoute({ id, routing }) })
+    for (const ld of block) c.docs[ld.id] = ld
+    byShard[block[0].shard].push(block)
+  })
+  let seg = 1
+  for (const shard of c.shards) {
+    const blocks = byShard[shard.id]
+    const per = Math.max(2, Math.ceil(blocks.length / 3))
+    for (let j = 0; j < blocks.length; j += per)
+      shard.segments.push({
+        id: `seg-${seg++}`,
+        docIds: blocks.slice(j, j + per).flatMap((b) => b.map((ld) => ld.id)),
+        searchable: true,
+        committed: true,
+      })
+  }
+  return c
+}
+
 // ---------------------------------------------------------------------------
 section('8 · the postings and stored-fields tiles agree with the levels above')
 // The segment close-up's last two tiles draw src/postings.js and
 // src/storedFields.js. A posting is an ORDINAL with a FREQUENCY; the ordinal
 // must be the doc's index in seg.docIds (cluster.js's definition) and the
-// frequency the count scoreDoc uses — otherwise the tile animates numbers the
+// frequency the count matchDoc uses — otherwise the tile animates numbers the
 // shard close-up above it would contradict. The stored-fields rows are
 // addressed by that same ordinal, the root is the LAST row of its block, and
 // only a root carries _source. And the fetch close-up's resolution of a winner
 // to (segment, ordinal) has to land on exactly one segment.
 // ---------------------------------------------------------------------------
 {
-  // The same seeding App.loadDataset does: blocks routed as the cluster routes
-  // them, ~3 segments per shard, every segment searchable.
-  function seed(source, mapping) {
-    const c = initialCluster()
-    const byShard = Object.fromEntries(c.shards.map((s) => [s.id, []]))
-    source.forEach((d, i) => {
-      const id = `doc-${i + 1}`
-      const { routing, ...fields } = d
-      const block = buildBlock(fields, { id, mapping, routing, shard: docRoute({ id, routing }) })
-      for (const ld of block) c.docs[ld.id] = ld
-      byShard[block[0].shard].push(block)
-    })
-    let seg = 1
-    for (const shard of c.shards) {
-      const blocks = byShard[shard.id]
-      const per = Math.max(2, Math.ceil(blocks.length / 3))
-      for (let j = 0; j < blocks.length; j += per)
-        shard.segments.push({
-          id: `seg-${seg++}`,
-          docIds: blocks.slice(j, j + per).flatMap((b) => b.map((ld) => ld.id)),
-          searchable: true,
-          committed: true,
-        })
-    }
-    return c
-  }
   const SAMPLE = seed(SAMPLE_DOCS, OBJECT_MAPPING)
   const NESTED = seed(CATALOG_DOCS, makeMapping(['variants']))
   const CLUSTERS = [['sample', SAMPLE], ['catalog-nested', NESTED]]
 
   // 1. postings: ordinal = index in seg.docIds, docFreq = list length, freq =
-  //    scoreDoc's per-term count, lists in ordinal order.
+  //    matchDoc's per-term count, lists in ordinal order.
   for (const [name, c] of CLUSTERS) {
     let bad = []
     let n = 0
@@ -878,13 +882,13 @@ section('8 · the postings and stored-fields tiles agree with the levels above')
             if (e.ord <= prev) bad.push(`${seg.id} ${term}: not in ordinal order`)
             prev = e.ord
             if (/[*?~:\s]/.test(term)) continue
-            const sc = scoreDoc(c.docs[e.id], W.parseQuery(term))
-            if ((sc.perTerm[term] ?? 0) !== e.freq) bad.push(`${seg.id} ${term}@${e.id}: freq ${e.freq} vs scoreDoc ${sc.perTerm[term]}`)
+            const sc = matchDoc(c.docs[e.id], W.parseQuery(term))
+            if ((sc.perTerm[term] ?? 0) !== e.freq) bad.push(`${seg.id} ${term}@${e.id}: freq ${e.freq} vs matchDoc ${sc.perTerm[term]}`)
           }
         }
         if (p.total !== rows.reduce((k, r) => k + r.docIds.length, 0)) bad.push(`${seg.id}: total`)
       }
-    check(`${name}: every posting is (ordinal in seg.docIds, scoreDoc's frequency), lists in ordinal order (${n} postings)`,
+    check(`${name}: every posting is (ordinal in seg.docIds, matchDoc's frequency), lists in ordinal order (${n} postings)`,
       bad.length === 0, bad.slice(0, 5).join('; '))
   }
 
@@ -1008,6 +1012,279 @@ section('8 · the postings and stored-fields tiles agree with the levels above')
       drift.length === 0, drift.join('; '))
   }
 }
+
+// ---------------------------------------------------------------------------
+section('9 · BM25 scores from statistics summed across segments')
+// The score is arithmetic over numbers from three different levels, which is
+// exactly the case this script exists for: a browser will animate a confident,
+// wrong idf at 260ms a step and nothing will look amiss. What matters is that
+// the formula is Lucene's, that the per-segment frequencies are SUMMED into one
+// per-shard idf (never a per-segment one), and that the shard-local nature of
+// those statistics — the whole of query_then_fetch — is a fact about the data
+// rather than a claim in the copy.
+// ---------------------------------------------------------------------------
+{
+  const SAMPLE = seed(SAMPLE_DOCS, OBJECT_MAPPING)
+  const patterns = W.parseQuery('search')
+  const search = searchOp.extra(SAMPLE, {
+    type: 'search', step: 4, payload: { query: 'search', routing: null },
+  }).search
+
+  // 1. the formula, against values worked out by hand from BM25Similarity.
+  const near = (a, b) => Math.abs(a - b) < 5e-4
+  check('idf is ln(1 + (docCount - docFreq + 0.5) / (docFreq + 0.5))',
+    near(idf(4, 11), 0.9808) && near(idf(3, 10), 1.1451) && near(idf(11, 32), 1.0541),
+    `${idf(4, 11)} ${idf(3, 10)} ${idf(11, 32)}`)
+  check('k1 and b are Elasticsearch\'s defaults', K1 === 1.2 && B === 0.75)
+  // Lucene leaves the textbook (k1 + 1) numerator OUT. A doc of average length
+  // with freq = k1 therefore scores exactly half its idf, which pins it.
+  check('the tf factor omits the (k1 + 1) numerator Lucene omits',
+    near(tfNorm(K1, 10, 10), 0.5), `${tfNorm(K1, 10, 10)}`)
+
+  // 2. THE aggregation this whole feature is about.
+  let bad = []
+  for (const shard of SAMPLE.shards) {
+    const st = shardStats(shard, SAMPLE.docs)
+    const segs = shard.segments.filter((g) => g.searchable).map((g) => segmentStats(g, SAMPLE.docs))
+    if (st.docCount !== segs.reduce((n, g) => n + g.docCount, 0)) bad.push(`shard ${shard.id} docCount`)
+    for (const term of st.byTerm.keys()) {
+      const summed = segs.reduce((n, g) => n + (g.byTerm.get(term)?.docFreq ?? 0), 0)
+      if (st.byTerm.get(term).docFreq !== summed) bad.push(`shard ${shard.id} "${term}"`)
+    }
+  }
+  check("a shard's docFreq is its segments' docFreqs summed, for every term",
+    bad.length === 0, bad.join(' '))
+
+  // The same LIVE documents in one segment must give the same statistics as in
+  // three: regrouping alone must not rescore anything. (A merge that also
+  // reclaims deleted docs does change them — that is the point of the delete
+  // assertions further down, and it is a different thing.)
+  const split = SAMPLE.shards[0]
+  const flat = { segments: [{ id: 'all', searchable: true,
+    docIds: split.segments.flatMap((g) => g.docIds) }] }
+  const a = shardStats(split, SAMPLE.docs), b = shardStats(flat, SAMPLE.docs)
+  check('one segment or three, the shard totals are identical (regrouping cannot rescore)',
+    a.docCount === b.docCount && a.sumTotalTermFreq === b.sumTotalTermFreq &&
+      [...a.byTerm].every(([t, e]) => e.docFreq === b.byTerm.get(t)?.docFreq),
+    `${a.docCount}/${b.docCount}`)
+
+  // 3. one idf per (shard, term) — the explain rows must carry the SHARD's
+  //    docFreq, never the docFreq of whichever segment the doc happened to be in.
+  bad = []
+  for (const shard of SAMPLE.shards) {
+    const st = shardStats(shard, SAMPLE.docs)
+    const local = computeShardSearch(shard, patterns, SAMPLE.docs, search.window)
+    for (const h of local.luceneScored)
+      for (const t of h.terms)
+        if (t.docFreq !== st.byTerm.get(t.term)?.docFreq)
+          bad.push(`shard ${shard.id} ${h.docId} "${t.term}": ${t.docFreq}`)
+  }
+  check('every candidate is scored with the SHARD\'s docFreq, not its segment\'s',
+    bad.length === 0, bad.join(' '))
+
+  // 4. the two things a term-frequency count could not express.
+  const S = (freq, len) => termScore({ freq, docFreq: 4, docCount: 11, fieldLen: len, avgFieldLen: 12 })
+  check('score rises with frequency, and saturates rather than doubling',
+    S(2, 12) > S(1, 12) && S(4, 12) > S(2, 12) && S(2, 12) < 2 * S(1, 12),
+    `${S(1, 12).toFixed(3)} ${S(2, 12).toFixed(3)} ${S(4, 12).toFixed(3)}`)
+  check('the same frequency is worth less in a longer document',
+    S(2, 6) > S(2, 12) && S(2, 12) > S(2, 24),
+    `${S(2, 6).toFixed(3)} ${S(2, 12).toFixed(3)} ${S(2, 24).toFixed(3)}`)
+
+  // 5. the tuned shard-0 demo, which BM25 has to leave alone: four matches, the
+  //    same order the 4/3/2/1 frequencies gave, and the fourth still evicted.
+  const s0 = computeShardSearch(SAMPLE.shards[0], patterns, SAMPLE.docs, search.window)
+  check('shard 0 still ranks doc-2, doc-11, doc-5, doc-8 and still evicts the fourth',
+    s0.scored.map((h) => h.docId).join() === 'doc-2,doc-11,doc-5,doc-8' &&
+      s0.topk.map((h) => h.docId).join() === 'doc-2,doc-11,doc-5',
+    `scored [${s0.scored.map((h) => h.docId)}] topk [${s0.topk.map((h) => h.docId)}]`)
+
+  // 6. query_then_fetch, asserted rather than asserted-in-prose: the shards do
+  //    NOT agree about how rare "search" is, so they score it differently.
+  const idfs = Object.fromEntries(SAMPLE.shards.map((sh) => {
+    const st = search.stats[sh.id]
+    return [sh.id, idf(st.byTerm.get('search').docFreq, st.docCount)]
+  }))
+  check('"search" has a different idf on different shards — scores are shard-local',
+    new Set(Object.values(idfs).map((v) => v.toFixed(4))).size > 1,
+    Object.entries(idfs).map(([k, v]) => `s${k}=${v.toFixed(3)}`).join(' '))
+
+  // Which is only interesting because those scores are then sorted against each
+  // other. Two documents that a scorer cannot tell apart — same frequency, same
+  // length — must therefore reach the coordinator with DIFFERENT scores.
+  const sent = Object.entries(search.returned).flatMap(([sid, hits]) =>
+    hits.map((h) => {
+      const t = computeShardSearch(SAMPLE.shards.find((x) => x.id === Number(sid)),
+        patterns, SAMPLE.docs, search.window).scored.find((x) => x.docId === h.docId)
+      return { ...h, shard: Number(sid), freq: t.terms[0].freq, len: t.terms[0].fieldLen }
+    }))
+  const twins = sent.flatMap((x, i) => sent.slice(i + 1)
+    .filter((y) => y.shard !== x.shard && y.freq === x.freq && y.len === x.len)
+    .map((y) => [x, y]))
+  check('identical documents on different shards reach the coordinator unequal',
+    twins.length > 0 && twins.every(([x, y]) => Math.abs(x.score - y.score) > 1e-9),
+    twins.map(([x, y]) => `${x.docId}@s${x.shard}=${x.score.toFixed(3)} vs ${y.docId}@s${y.shard}=${y.score.toFixed(3)}`).join('; '))
+
+  // Statistics come from the TERM DICTIONARY, which a delete does not touch —
+  // so a deleted document keeps being counted until a merge rewrites the
+  // segment. SPEC.md states this as real Elasticsearch behaviour; assert it,
+  // because it is the kind of claim that quietly stops being true.
+  {
+    const D = seed(SAMPLE_DOCS, OBJECT_MAPPING)
+    const shard0 = D.shards[0]
+    const hits = () => searchOp.extra(D, {
+      type: 'search', step: 4, payload: { query: 'search', routing: null },
+    }).search
+    const dfOf = (s) => s.stats[0].byTerm.get('search').docFreq
+    const scoreOf = (s, id) => s.perShard[0].find((h) => h.docId === id)?.score
+    const before = hits()
+
+    // A refresh applies the delete: the doc leaves the results…
+    D.docs['doc-5'].deleted = true
+    D.docs['doc-5'].purged = true
+    const purged = hits()
+    check('a refreshed delete removes the doc from the results',
+      scoreOf(before, 'doc-5') > 0 && scoreOf(purged, 'doc-5') === undefined)
+    // …but its posting entries are still on disk, so it still counts.
+    check('...and does NOT move anybody else\'s score, because docFreq still counts it',
+      dfOf(purged) === dfOf(before) &&
+        scoreOf(purged, 'doc-2') === scoreOf(before, 'doc-2'),
+      `df ${dfOf(before)} -> ${dfOf(purged)}`)
+
+    // Only a merge, which rewrites the segment, drops it from the statistics.
+    for (const seg of shard0.segments) seg.docIds = seg.docIds.filter((id) => !D.docs[id]?.purged)
+    const merged = hits()
+    check('only a MERGE drops it from the statistics, and every score then moves',
+      dfOf(merged) === dfOf(before) - 1 && scoreOf(merged, 'doc-2') > scoreOf(before, 'doc-2'),
+      `df ${dfOf(before)} -> ${dfOf(merged)}, doc-2 ${scoreOf(before, 'doc-2').toFixed(3)} -> ${scoreOf(merged, 'doc-2').toFixed(3)}`)
+  }
+
+  // mergeStats is the one roll-up function, so summing the SHARDS has to behave
+  // like summing the segments did. (Phase 2's dfs is exactly this sum.)
+  const global = mergeStats(Object.values(search.stats))
+  check('the shard stats sum into one global view (what dfs_query_then_fetch collects)',
+    global.docCount === SAMPLE.shards.reduce((n, sh) => n + shardStats(sh, SAMPLE.docs).docCount, 0) &&
+      global.byTerm.get('search').docFreq ===
+        SAMPLE.shards.reduce((n, sh) => n + (shardStats(sh, SAMPLE.docs).byTerm.get('search')?.docFreq ?? 0), 0),
+    `df ${global.byTerm.get('search').docFreq} of ${global.docCount}`)
+}
+
+
+// ---------------------------------------------------------------------------
+section('10 · dfs_query_then_fetch')
+// The two search types differ in exactly one thing: which statistics a shard
+// scores with. Everything downstream — the candidates, the per-shard cut, the
+// merge — is the same code. What makes it worth a control and a scenario is
+// that this one difference reaches the client, so that is what gets pinned: on
+// the default dataset the two search types return a DIFFERENT ranking, and they
+// do it without any shard doing different work.
+// ---------------------------------------------------------------------------
+{
+  const SAMPLE = seed(SAMPLE_DOCS, OBJECT_MAPPING)
+  const run = (dfs) =>
+    searchOp.extra(SAMPLE, {
+      type: 'search', step: 4, payload: { query: 'search', routing: null, dfs },
+    }).search
+  const qtf = run(false), dfs = run(true)
+
+  // The step list is a property of the payload — and with dfs OFF it is exactly
+  // what it was, which is what keeps every scenario's pinned opStep valid.
+  const keysOf = (payload) => searchOp.stepsFor(payload).map((x) => x.key).join()
+  check('with dfs off the search op keeps its six steps, unchanged',
+    keysOf({}) === 'coordinator,scatter,local,gather,fetch,return', keysOf({}))
+  // AFTER the coordinator, never before it: the statistics it asks for are the
+  // statistics of THIS query's terms, so there is nothing to ask about until the
+  // query has arrived. Drawn the other way round once, which is the bug this
+  // pins shut.
+  check('with dfs on it gains the statistics round trip, after the query arrives',
+    keysOf({ dfs: true }) === 'coordinator,dfs,scatter,local,gather,fetch,return',
+    keysOf({ dfs: true }))
+  const dfsKeys = searchOp.stepsFor({ dfs: true }).map((x) => x.key)
+  check('the statistics round trip never precedes the coordinator receiving the query',
+    dfsKeys.indexOf('dfs') === dfsKeys.indexOf('coordinator') + 1 &&
+      dfsKeys.indexOf('dfs') < dfsKeys.indexOf('scatter'))
+  // Everything that used to compare op.step to a literal now asks for the KEY.
+  const keyAt = (payload, step) => searchStepKey({ type: 'search', step, payload })
+  check('the phase keys survive the shift (local is step 2, or 3 under dfs)',
+    keyAt({}, 2) === 'local' && keyAt({ dfs: true }, 3) === 'local' &&
+      keyAt({}, 4) === 'fetch' && keyAt({ dfs: true }, 5) === 'fetch' &&
+      keyAt({ dfs: true }, 0) === 'coordinator' && keyAt({ dfs: true }, 1) === 'dfs')
+
+  // dfs hands every shard the SAME numbers; query_then_fetch does not.
+  const scored = (s) => Object.values(s.stats).map((st) => st.byTerm.get('search').docFreq + '/' + st.docCount)
+  check('query_then_fetch: each shard scores with its own statistics',
+    new Set(scored(qtf)).size > 1, scored(qtf).join(' '))
+  check('dfs_query_then_fetch: every shard scores with the same statistics',
+    new Set(scored(dfs)).size === 1, scored(dfs).join(' '))
+  // ...which are the shards' own, summed — mergeStats one level up, not a
+  // second way of counting.
+  const g = mergeStats(Object.values(dfs.shardOwn))
+  check('the global statistics are the shards\' own, summed',
+    dfs.stats[0].docCount === g.docCount &&
+      dfs.stats[0].byTerm.get('search').docFreq === g.byTerm.get('search').docFreq,
+    `${dfs.stats[0].byTerm.get('search').docFreq} of ${dfs.stats[0].docCount}`)
+  // A shard still knows its own figures either way — the stats step shows both.
+  check('a shard still computes its own statistics under dfs (both are shown)',
+    JSON.stringify(scored({ stats: dfs.shardOwn })) === JSON.stringify(scored(qtf)))
+
+  // THE DEMO. Every shard returns the same documents in the same order, so the
+  // only thing that changed is the statistics — and the client's ranking moves
+  // anyway. If this ever stops holding, the scenario is teaching nothing.
+  const sentOf = (s) => Object.entries(s.returned)
+    .map(([sid, h]) => `${sid}:${h.map((x) => x.docId).join('>')}`).sort().join(' ')
+  check('both search types have every shard return the same documents, in the same order',
+    sentOf(qtf) === sentOf(dfs), `\n      qtf ${sentOf(qtf)}\n      dfs ${sentOf(dfs)}`)
+
+  const rank = (s) => computeCoordinatorMerge(s).winners.map((w) => w.docId)
+  check('...and the client still gets a DIFFERENT ranking back',
+    rank(qtf).join() !== rank(dfs).join(),
+    `qtf [${rank(qtf)}] dfs [${rank(dfs)}]`)
+  // Pinned exactly, because the scenario's copy points at this row: the third
+  // result changes hands, and the document that held it drops out of the window.
+  check('"search": #3 is doc-3 (shard 1) under qtf and doc-7 (shard 2) under dfs',
+    rank(qtf)[2] === 'doc-3' && rank(dfs)[2] === 'doc-7',
+    `qtf [${rank(qtf)}] dfs [${rank(dfs)}]`)
+  const fell = dfs.merged.findIndex((h) => h.docId === 'doc-3')
+  check('...and doc-3 falls out of the top 3 entirely under dfs',
+    fell >= dfs.size, `doc-3 now at #${fell + 1} of ${dfs.merged.length}`)
+
+  // The stats zoom and the query zoom must agree about which terms a shard can
+  // report on — they are two panels over one dictionary, and the stats panel
+  // filters shardStats' keys where the query panel goes through the dictionary
+  // scan. Different code, same answer, or the two zooms teach different things.
+  const pats = W.parseQuery('search')
+  for (const shard of SAMPLE.shards) {
+    const st = shardStats(shard, SAMPLE.docs)
+    const fromStats = [...st.byTerm.keys()].filter((t) => W.matchesAny(t, pats)).sort().join()
+    const fromQuery = computeShardSearch(shard, pats, SAMPLE.docs, qtf.window).matchedTerms.join()
+    check(`shard ${shard.id}: the statistics zoom and the query zoom resolve the same terms`,
+      fromStats === fromQuery, `stats [${fromStats}] vs query [${fromQuery}]`)
+  }
+
+  // computeShardIdfs feeds the coordinator's statistics zoom, which exists to
+  // show the shards DISAGREEING before the totals replace them. It must read
+  // each shard's own view: under dfs `search.stats` is already the global one
+  // for every shard, so reading that would report unanimous agreement and the
+  // panel would have nothing to show.
+  {
+    const spread = (s) => computeShardIdfs(s).find((x) => x.term === 'search')
+    const a = spread(qtf), c = spread(dfs)
+    check('the coordinator zoom reports each shard\'s OWN idf, under both search types',
+      a.rows.map((r) => r.docFreq).join() === c.rows.map((r) => r.docFreq).join() &&
+        new Set(c.rows.map((r) => r.idf.toFixed(4))).size > 1,
+      `qtf [${a.rows.map((r) => r.docFreq)}] dfs [${c.rows.map((r) => r.docFreq)}]`)
+  }
+
+  // A routed search asks one shard, so its "global" view is that shard's own —
+  // dfs cannot make a difference it has nobody to disagree with.
+  const routed = (dfs) => searchOp.extra(SAMPLE, {
+    type: 'search', step: 4, payload: { query: 'search', routing: 'acme', dfs },
+  }).search
+  check('a routed search scores identically either way (only one shard to ask)',
+    rank(routed(false)).join() === rank(routed(true)).join(),
+    `[${rank(routed(false))}] vs [${rank(routed(true))}]`)
+}
+
 
 console.log()
 if (failures) {

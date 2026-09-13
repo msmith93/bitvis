@@ -25,15 +25,31 @@ export const OP_LABELS = Object.fromEntries(
   Object.entries(OPS).map(([type, mod]) => [type, mod.label]),
 )
 
-export const stepsFor = (type) => OPS[type]?.steps || []
-export const lastStep = (type) => stepsFor(type).length - 1
+// The steps of a LIVE op. A module may export `stepsFor(payload)` instead of a
+// fixed `steps`, and `search` does: dfs_query_then_fetch is a genuinely
+// three-phase search, so it gains a round trip in front of the scatter and the
+// FOOTER has to show that — a search type you cannot see the cost of is not
+// worth offering. Prefer this everywhere over the by-type form below.
+export function stepsOf(op) {
+  if (!op) return []
+  const mod = OPS[op.type]
+  return mod?.stepsFor?.(op.payload) ?? mod?.steps ?? []
+}
+export const lastStep = (op) => stepsOf(op).length - 1
+
+// The by-TYPE forms, for the two callers that ask about an op type in the
+// abstract rather than about the op in flight (IndexOverlay's choreography).
+// Only correct for types whose steps don't vary — which is every type but
+// search.
+export const stepsForType = (type) => OPS[type]?.steps || []
+export const lastStepOfType = (type) => stepsForType(type).length - 1
 
 // How long auto-play should dwell on the current step: the module's
 // content-aware duration() if it returns a value, else the step's static `ms`.
 export function stepDuration(op, extra = {}) {
   if (!op) return 0
   const mod = OPS[op.type]
-  return mod?.duration?.(op, extra) ?? mod?.steps[op.step]?.ms ?? 1500
+  return mod?.duration?.(op, extra) ?? stepsOf(op)[op.step]?.ms ?? 1500
 }
 
 // Derive how the cluster should LOOK at the current op step. Folding an op into
@@ -50,7 +66,7 @@ export function deriveCluster(cluster, op) {
 // Ops without a derive() (search) are read-only and never fold.
 export function applyOp(cluster, op) {
   if (!op || !OPS[op.type]?.derive) return cluster
-  return deriveCluster(cluster, { ...op, step: lastStep(op.type) })
+  return deriveCluster(cluster, { ...op, step: lastStep(op) })
 }
 
 // Transient, op-specific information for the current step (highlights, the

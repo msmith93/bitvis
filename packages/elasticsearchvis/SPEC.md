@@ -87,15 +87,53 @@ distinctions are the whole pedagogical point.
 
 ### Search (scatter-gather, query-then-fetch)
 1. **Coordinator receives the query** — query string analyzed into terms.
+1b. **Gather global term statistics** — `dfs_query_then_fetch` ONLY, and off by
+   default. The coordinator asks every shard for the document frequencies of
+   THIS query's terms and sums them, then sends the totals out with the query so
+   every shard scores on the same numbers. It sits here and can sit nowhere
+   else: the statistics are statistics *about the query's terms*, so there is
+   nothing to ask about until the query has arrived. It is a whole extra round
+   trip to every shard, which is why it is opt-in — and it can change the ranking
+   the client gets back, which is why it exists. The op's step list therefore
+   depends on its payload; with the flag off it is exactly the six steps here.
+
+   **What a shard does to answer it is NOT a search**, and the `stats` zooms
+   exist to show that. Elasticsearch's `DfsPhase` calls
+   `searcher.createWeight(rewrittenQuery, ScoreMode.COMPLETE, 1)` on a searcher
+   wrapped to record statistics; Lucene's `TermStates.build()` then seeks each
+   segment's term dictionary and reads `docFreq()` / `totalTermFreq()` out of the
+   term's metadata. It never obtains a `PostingsEnum`, never scores a document
+   and never collects a hit — it stops at the term row, with the `.doc` pointer
+   sitting right there unfollowed. That is precisely what storing `docFreq` in
+   the term metadata buys.
+
+   The coordinator's half of that round is a zoom of its own: the per-shard
+   figures arriving, summed into one document frequency and one document count,
+   and the single idf that falls out. Those totals ride back out attached to the
+   query, and each shard then scores AND cuts its own top `size` with them — so
+   dfs can change which documents a shard sends, not only what they are worth.
+
+   **The dictionary lookup is therefore paid twice**, and only that. The shard
+   answers the two phases in separate requests and only the NUMBERS go back to
+   the coordinator, never the `TermStates` they were found with, so the query
+   phase seeks the same term again. The posting walk, the scoring and the top-k
+   are paid once. dfs costs a round trip and a second lookup, not a second
+   search.
 2. **Scatter (query phase)** — coordinator fans the query out to ONE copy of
    every shard (primary or replica), spread across nodes. This is why search runs
    on all nodes. **With a routing key this is the exception**: `hash(_routing)`
    names the single shard that can hold the data, so only that shard is asked and
    the others stay idle. Routing must be supplied at index time AND query time.
 3. **Local search** — each contacted shard searches its own segments' inverted
-   indexes, scores matches, returns its local top hits (doc ids + scores only).
-   No stored field is opened to do this.
+   indexes, scores matches with **BM25 over its OWN term statistics**, and returns
+   its local top hits (doc ids + scores only). No stored field is opened to do
+   this. The statistics are the shard's, never the cluster's — that is what
+   `query_then_fetch` means, and why two shards can value the same document
+   differently.
 4. **Gather + merge + sort** — coordinator merges all shards' hits and ranks.
+   Under `query_then_fetch` those scores came from different shards' statistics,
+   so the merge sorts numbers that were not measured on the same scale. The
+   coordinator close-up says so and shows the disagreement it is sorting through.
 5. **Fetch phase** — coordinator fetches full `_source` for the winning ids.
    Each shard holding a winner maps the id back to a segment + ordinal and reads
    that row of the segment's stored fields; the fetch-step 🔍 shows it.
@@ -332,7 +370,8 @@ visible, and `npm run check` asserts the first two against the levels above:
 1. A posting is an ordinal — the doc's index in `seg.docIds` — not an `_id`.
    The chip beside it is the reader's bridge to the level above, where the same
    doc was a coloured id; the number is what the file holds.
-2. The frequency is the count `scoreDoc` uses. The scorer never sees text.
+2. The frequency is the count `matchDoc` uses, and the `tf` BM25 reads. The
+   scorer never sees text.
 3. The ordinal is also the row address of the stored-fields file. The four-hop
    chain (`.tip` → `.tim` → `.doc` → `.fdt`) is the whole lesson, and the
    postings tile is the hop that turns a term into numbers.
@@ -825,6 +864,14 @@ Documented so reviewers can verify the teaching stays honest:
   postings tile shows real ordinals and frequencies (only the file ENCODING is
   left out, deliberately — see above). `.doc` and `.fdt` file offsets are
   fake-but-stable, like the `.tim` block pointers.
+- **A pattern query collects statistics here, where real Elasticsearch would
+  not.** ES's default rewrite for `wildcard` / `fuzzy` is a constant-score one,
+  which needs no term statistics at all — so `dfs_query_then_fetch` is a no-op
+  for those queries. This app scores each expanded term on its own frequencies
+  (see the blending simplification below), so its statistics zoom shows them
+  being collected. Keeping the two consistent matters more here than matching
+  the rewrite: a zoom that collected nothing would contradict the scoring model
+  one level up.
 - **Fuzzy expansion is not blended.** Elasticsearch's default rewrite blends the
   document frequencies of the expanded terms and boosts by edit distance; here
   each matched term is scored on its own frequencies, so a close match and a
@@ -849,23 +896,51 @@ Documented so reviewers can verify the teaching stays honest:
   actually saved rather than claiming a payoff it didn't get.
 - Primary + replica are modeled as one logical shard rendered on two nodes (no
   replica lag; replica merges shown in lockstep with the primary).
-- Relevance score is term-frequency, a stand-in for BM25.
+- **Relevance is real BM25, over shard-local statistics.** Lucene's formula and
+  Elasticsearch's defaults (`k1` 1.2, `b` 0.75), including Lucene's omission of
+  the textbook `(k1 + 1)` numerator. The inputs are the ones the app already
+  draws: `docFreq` out of each segment's `.tim` term metadata, the per-doc
+  frequency out of `.doc`, and the doc's token count as its field length. A
+  shard's `docFreq` is its segments' summed — one idf per shard, as
+  `TermStates.build()` does it — and `npm run check` section 9 pins that.
+- **BM25 scores the document as ONE field.** A Lucene term is field + bytes, so
+  real BM25 runs per field with its own `docFreq` and average length. This app's
+  term dictionary is one per segment across every field (`segmentInvertedIndex`),
+  and making it per-field would mean rebuilding the FST, the block tree and the
+  automaton zoom beneath it. So a document's field length is its total token
+  count, and an unqualified query sums each matched term's contribution — closer
+  to `multi_match` / `most_fields` than to `match`, which targets one field. A
+  `field:value` clause still restricts which fields may MATCH; it does not give
+  that field its own statistics.
+- **Term statistics count deleted documents.** They come from the term
+  dictionary, and a delete does not touch it — the entries sit there until a
+  merge. So the stats are read with `includePurged`, and the visible consequence
+  is real Elasticsearch behaviour: deleting a document moves nobody's score until
+  you merge. The same reason the close-up draws a purged posting struck through
+  rather than gone.
+- **Field length is stored exactly.** Lucene encodes it into a single lossy byte
+  (the norm), so two documents of similar length can share one value. At this
+  scale the encoding would be lossless anyway — every sample document is under
+  16 terms — so modelling it would add a mechanism that visibly does nothing.
 - **The shard scores EVERY match, then slices; Lucene prunes.** Real Lucene runs
   WAND / Block-Max WAND: an upper bound per term (and per 128-doc block) is
   compared against the priority queue's current lowest score, and documents that
-  cannot beat it are skipped without being scored. This app has no such pruning
-  and cannot honestly show it — the pruning lives on the GAP between a rare
-  term's bound and a common term's, and that gap is IDF, which the
-  term-frequency score above does not have. With tf alone the bounds run
-  BACKWARDS (a term in every document would carry the highest bound), so drawing
-  the algorithm would teach the opposite of the truth. The `topk` step therefore
-  names the simplification in its blurb and links Elastic's "Magic WAND" post
+  cannot beat it are skipped without being scored. This app has no such pruning.
+  It once could not honestly HAVE any — the pruning lives on the GAP between a
+  rare term's bound and a common term's, and that gap is IDF, which the old
+  term-frequency score did not have, so the bounds ran backwards and drawing the
+  algorithm would have taught the opposite of the truth. With real BM25 that
+  objection is gone and the bounds now run the right way; what remains is scope,
+  plus a dataset small enough that a pruning animation would have little to skip.
+  The `topk` step names the simplification and links Elastic's "Magic WAND" post
   rather than animating it. Related: the `.doc` encoding zoom that would have
   carried `advance`/skip-lists is removed above, and stays removed.
 - **A nested block's score SUMS its matching children.** Elasticsearch's nested
   query defaults to `score_mode: avg`; summing is chosen because it leaves a
   one-child block's score exactly what it was, which is what keeps the tuned
-  shard-0 4/3/2/1 top-k spread intact. The dictionary and join costs — which is
+  shard-0 4/3/2/1 top-k spread intact. (Note that nested mapping also moves the
+  statistics: each child is its own Lucene doc, so it raises `docCount` and
+  lowers the average field length, which is a real Elasticsearch effect too.) The dictionary and join costs — which is
   what this lesson is about — are unaffected.
 - **The parent bitset is described, not modelled or drawn.** A `parentBitset` /
   `nextSetBit` pair in `src/cluster.js` and a "lucene docs · by ordinal" strip in

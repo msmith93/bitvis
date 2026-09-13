@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { computeCoordinatorMerge } from '../ops/search'
 import { SourceField, sourceEntries } from './sourceView'
+import { fmtScore } from '../similarity'
 
 // What the client actually gets back once a search op has run its scatter-gather
 // to completion: the true hit count plus the query's result window (the only
@@ -104,7 +105,10 @@ function ResultRow({ rank, hit, doc }) {
   const entries = sourceEntries(doc)
 
   return (
-    <li className="result-item">
+    // Addressable by RANK, so a scenario can spotlight one row — the
+    // dfs_query_then_fetch tour points at the same rank before and after, which
+    // is how the reader sees it change hands rather than being told it did.
+    <li className="result-item" data-tour={`result-${rank}`}>
       <button
         type="button"
         className="result-row"
@@ -118,7 +122,7 @@ function ResultRow({ rank, hit, doc }) {
         </span>
         {doc?.label && <span className="result-label">{doc.label}</span>}
         <span className="result-meta">
-          shard {hit.shard} · score {hit.score}
+          shard {hit.shard} · score {fmtScore(hit.score)}
         </span>
       </button>
       {open && (

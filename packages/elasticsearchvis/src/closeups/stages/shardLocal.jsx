@@ -14,6 +14,7 @@ import {
   INSPECTOR_FLIGHT_PAD_MS,
   QUERY_SCAN_MS,
 } from '../../timing'
+import { fmtScore, idf } from '../../similarity'
 import { useReveal } from '../shared'
 import { AnatomyCard, DocChip } from '../anatomy'
 
@@ -36,7 +37,10 @@ import { AnatomyCard, DocChip } from '../anatomy'
 // budget can be computed without rendering. Pure.
 function deriveShardLocal({ shard, search, docs }) {
   const patterns = search.patterns
-  const local = computeShardSearch(shard, patterns, docs, search.window)
+  // Scored with whatever the SEARCH used — its own statistics normally, the
+  // coordinator's global ones under dfs. computeShardSearch still derives the
+  // shard's own either way, so the stats step can show both.
+  const local = computeShardSearch(shard, patterns, docs, search.window, search.stats?.[shard.id])
   // Does this shard actually hold nested blocks? Only then is there a join to
   // draw — on flat data every Lucene doc is already its own document.
   const blocks = shard.segments.some(
@@ -238,6 +242,8 @@ function ShardLocalStage({ step, active, openCloseUp, model, docs, query }) {
       <div className="si-scroll">
         {step === at.expand && <ExpansionBlock local={local} />}
 
+        {step === at.stats && <StatsBlock local={local} dfs={search.dfs} />}
+
         {step >= at.postings && (
           <ResultsLane step={step} at={at} local={local} docs={docs} revealed={laneRevealed} />
         )}
@@ -334,6 +340,77 @@ function ExpansionBlock({ local }) {
   )
 }
 
+// The term statistics the shard scores with, and where they came from: each
+// segment's own docFreq, summed. The sum is the point — a shard is several
+// segments, and Lucene adds their frequencies up before computing ONE idf for
+// the whole shard (see src/invertedIndex.js). Read out of the same `.tim` term
+// metadata the segment zoom draws, before any posting list is touched.
+function StatsBlock({ local, dfs }) {
+  const { shardOwn, scoring, matchedTerms } = local
+  return (
+    <div className="si-block">
+      <p className="section-title">
+        {dfs ? 'Term statistics — collected from every shard' : 'Term statistics — this shard’s own'}
+      </p>
+      {matchedTerms.length === 0 ? (
+        <div className="ss-none">no terms matched on this shard</div>
+      ) : (
+        <div className="si-stats">
+          {matchedTerms.map((term) => {
+            const df = scoring.byTerm.get(term)?.docFreq ?? 0
+            const own = shardOwn.byTerm.get(term)?.docFreq ?? 0
+            return (
+              <div className="si-stat-row" key={term}>
+                <span className="term-chip">{term}</span>
+                <span className="si-stat-sum">
+                  {shardOwn.segments.map((seg, i) => (
+                    <span key={seg.id}>
+                      {i > 0 && <span className="si-stat-plus">+</span>}
+                      <span className="si-stat-seg" title={`docFreq in ${seg.id}`}>
+                        {seg.id} {seg.byTerm.get(term)?.docFreq ?? 0}
+                      </span>
+                    </span>
+                  ))}
+                  <span className="si-stat-eq">=</span>
+                  {/* Under dfs the shard's own sum is still what it computed —
+                      it just isn't what it scores with. Showing the replaced
+                      figure is the whole contrast, so it is struck, not hidden. */}
+                  <span className={'si-stat-df' + (dfs ? ' replaced' : '')}>
+                    docFreq {own} of {shardOwn.docCount}
+                  </span>
+                  {dfs && (
+                    <>
+                      <span className="si-stat-arrow">→</span>
+                      <span className="si-stat-df">
+                        docFreq {df} of {scoring.docCount}
+                      </span>
+                    </>
+                  )}
+                </span>
+                <span className="score">
+                  {dfs && (
+                    <span className="si-stat-idf-was">
+                      idf {fmtScore(idf(own, shardOwn.docCount))} →{' '}
+                    </span>
+                  )}
+                  idf {fmtScore(idf(df, scoring.docCount))}
+                </span>
+              </div>
+            )
+          })}
+          <div className="si-stat-foot">
+            <span className="si-stat-df">
+              avg field length {scoring.avgFieldLen.toFixed(1)} terms across{' '}
+              {scoring.docCount} Lucene doc{scoring.docCount === 1 ? '' : 's'}
+              {dfs && ' · collected from every shard, so all of them use these numbers'}
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // The persistent results lane. One chip per docId, carried across phases via
 // layoutId so framer animates every reposition: candidates → scored order →
 // ranked slots (evicted peel off) → returned list.
@@ -354,7 +431,7 @@ function ResultsLane({ step, at, local, docs, revealed }) {
     candidates: 'Candidate docs (union of posting lists)',
     intersect: 'Every clause must hit the same Lucene doc',
     join: 'Lucene docs → Elasticsearch documents',
-    score: 'Score each candidate (term-frequency stand-in)',
+    score: 'Score each candidate (BM25)',
     topk: `Top hits priority queue (size = ${local.size}, a min-heap)`,
     return: 'Local top hits → coordinator',
   }
@@ -470,18 +547,27 @@ function ResultsLane({ step, at, local, docs, revealed }) {
                       <DocChip id={it.docId} docs={docs} hit />
                       {mode === 'score' && sc && (
                         <span className="si-lane-terms">
-                          {Object.entries(sc.perTerm).map(([t, n]) => (
-                            <span key={t} className="si-tf">
-                              {t} ×{n}
+                          {/* freq × idf, damped by length — the three numbers the
+                              score is made of, in that order. fieldLen is null
+                              only when several Lucene docs of one block
+                              contributed, where no single length applies. */}
+                          {sc.terms.map((t) => (
+                            <span key={t.term} className="si-tf">
+                              {t.term} ×{t.freq} · idf {fmtScore(t.idf)}
                             </span>
                           ))}
+                          {sc.terms[0]?.fieldLen != null && (
+                            <span className="si-tf len">len {sc.terms[0].fieldLen}</span>
+                          )}
                         </span>
                       )}
-                      {mode === 'score' && sc && <span className="score">= {sc.score}</span>}
+                      {mode === 'score' && sc && (
+                        <span className="score">= {fmtScore(sc.score)}</span>
+                      )}
                       {(mode === 'topk' || mode === 'return') && (
                         <span className="score">
                           {mode === 'return' ? 'score ' : ''}
-                          {sc?.score ?? it.score}
+                          {fmtScore(sc?.score ?? it.score)}
                         </span>
                       )}
                     </motion.div>
@@ -508,7 +594,7 @@ function ResultsLane({ step, at, local, docs, revealed }) {
                 transition={{ type: 'spring', stiffness: 340, damping: 30 }}
               >
                 <DocChip id={s.docId} docs={docs} />
-                <span className="score">{s.score}</span>
+                <span className="score">{fmtScore(s.score)}</span>
               </motion.span>
             ))}
           </div>
