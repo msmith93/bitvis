@@ -1055,13 +1055,15 @@ section('9 · BM25 scores from statistics summed across segments')
   check("a shard's docFreq is its segments' docFreqs summed, for every term",
     bad.length === 0, bad.join(' '))
 
-  // The same documents in ONE segment must give the same statistics as in
-  // three — if they didn't, a merge would silently rescore the whole shard.
+  // The same LIVE documents in one segment must give the same statistics as in
+  // three: regrouping alone must not rescore anything. (A merge that also
+  // reclaims deleted docs does change them — that is the point of the delete
+  // assertions further down, and it is a different thing.)
   const split = SAMPLE.shards[0]
   const flat = { segments: [{ id: 'all', searchable: true,
     docIds: split.segments.flatMap((g) => g.docIds) }] }
   const a = shardStats(split, SAMPLE.docs), b = shardStats(flat, SAMPLE.docs)
-  check('one segment or three, the shard totals are identical (a merge cannot rescore)',
+  check('one segment or three, the shard totals are identical (regrouping cannot rescore)',
     a.docCount === b.docCount && a.sumTotalTermFreq === b.sumTotalTermFreq &&
       [...a.byTerm].every(([t, e]) => e.docFreq === b.byTerm.get(t)?.docFreq),
     `${a.docCount}/${b.docCount}`)
@@ -1122,6 +1124,40 @@ section('9 · BM25 scores from statistics summed across segments')
   check('identical documents on different shards reach the coordinator unequal',
     twins.length > 0 && twins.every(([x, y]) => Math.abs(x.score - y.score) > 1e-9),
     twins.map(([x, y]) => `${x.docId}@s${x.shard}=${x.score.toFixed(3)} vs ${y.docId}@s${y.shard}=${y.score.toFixed(3)}`).join('; '))
+
+  // Statistics come from the TERM DICTIONARY, which a delete does not touch —
+  // so a deleted document keeps being counted until a merge rewrites the
+  // segment. SPEC.md states this as real Elasticsearch behaviour; assert it,
+  // because it is the kind of claim that quietly stops being true.
+  {
+    const D = seed(SAMPLE_DOCS, OBJECT_MAPPING)
+    const shard0 = D.shards[0]
+    const hits = () => searchOp.extra(D, {
+      type: 'search', step: 4, payload: { query: 'search', routing: null },
+    }).search
+    const dfOf = (s) => s.stats[0].byTerm.get('search').docFreq
+    const scoreOf = (s, id) => s.perShard[0].find((h) => h.docId === id)?.score
+    const before = hits()
+
+    // A refresh applies the delete: the doc leaves the results…
+    D.docs['doc-5'].deleted = true
+    D.docs['doc-5'].purged = true
+    const purged = hits()
+    check('a refreshed delete removes the doc from the results',
+      scoreOf(before, 'doc-5') > 0 && scoreOf(purged, 'doc-5') === undefined)
+    // …but its posting entries are still on disk, so it still counts.
+    check('...and does NOT move anybody else\'s score, because docFreq still counts it',
+      dfOf(purged) === dfOf(before) &&
+        scoreOf(purged, 'doc-2') === scoreOf(before, 'doc-2'),
+      `df ${dfOf(before)} -> ${dfOf(purged)}`)
+
+    // Only a merge, which rewrites the segment, drops it from the statistics.
+    for (const seg of shard0.segments) seg.docIds = seg.docIds.filter((id) => !D.docs[id]?.purged)
+    const merged = hits()
+    check('only a MERGE drops it from the statistics, and every score then moves',
+      dfOf(merged) === dfOf(before) - 1 && scoreOf(merged, 'doc-2') > scoreOf(before, 'doc-2'),
+      `df ${dfOf(before)} -> ${dfOf(merged)}, doc-2 ${scoreOf(before, 'doc-2').toFixed(3)} -> ${scoreOf(merged, 'doc-2').toFixed(3)}`)
+  }
 
   // mergeStats is the one roll-up function, so summing the SHARDS has to behave
   // like summing the segments did. (Phase 2's dfs is exactly this sum.)
