@@ -25,7 +25,8 @@ order:
 | The 4-tile segment view (.tip/.tim/.doc/.fdt) | The segment close-up, `anatomy.jsx` |
 | The FST, term dictionary, automaton walk | **The on-disk models** (longest bullet — the seek/consider rule lives here) |
 | Sample data, datasets | `SAMPLE_DOCS` |
-| Analyzer, tokenization, scoring | Analysis, the per-shard inverted index |
+| BM25, idf, term statistics, why scores differ per shard | **Scoring is real BM25** |
+| Analyzer, tokenization | Analysis, the per-shard inverted index |
 | Colours, dark/light | Theming |
 | Animation timing | `src/timing.js` |
 
@@ -445,8 +446,25 @@ close-ups **nest**.
 
 - **Analysis** (`src/analyzer.js`): a small stand-in for the standard analyzer —
   lowercase + split on non-(letter/number/apostrophe). No stemming/stopwords,
-  keeping "your words → terms" obvious. Search relevance is term-frequency
-  counting (`computeSearch`), a deliberate stand-in for BM25.
+  keeping "your words → terms" obvious.
+
+- **Scoring is real BM25** (`src/similarity.js` — the arithmetic;
+  `src/invertedIndex.js`'s `segmentStats` / `shardStats` / `mergeStats` — the
+  numbers). Two things carry the weight here. First, matching and scoring are
+  SEPARATE: `matchDoc` answers "did this hit, and how often" and needs no
+  statistics (the postings tile pins its `perTerm`, and object-vs-nested only
+  ever asks whether something matched); `scoreDoc(doc, patterns, stats)` turns
+  that into a number. Don't merge them back, and don't give `scoreDoc` a
+  stats-less fallback — that would be a second scorer. Second, **the statistics
+  are the SHARD's**: each segment's `docFreq` comes out of its `.tim` term
+  metadata and they are SUMMED, then one idf is computed for the whole shard,
+  exactly as Lucene's `TermStates.build()` does. There is no such thing as a
+  per-segment idf. `mergeStats` is the one roll-up function for both levels
+  (segments → shard, and shards → global for dfs), which is what stops the search
+  types from becoming two scorers. Statistics are read with `includePurged`,
+  because a delete does not touch the term dictionary — so scores don't move
+  until a merge. `npm run check` section 9 pins all of it; `SPEC.md` carries the
+  flagged simplifications (one field, not per-field; exact field length).
   **Analysis runs once per shard COPY, and the index op must show that.**
   Elasticsearch replicates the operation, not the index: the primary indexes
   locally, forwards the DOCUMENT to each in-sync replica, and the replica runs

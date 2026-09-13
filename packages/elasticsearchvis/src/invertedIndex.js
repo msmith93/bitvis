@@ -99,3 +99,103 @@ export function segmentAnatomy(seg, docs) {
       })),
   }
 }
+
+// ---------------------------------------------------------------------------
+// Term statistics — what a scorer needs before it reads a single posting list.
+//
+// This is the other half of what a segment stores. The rows above say WHICH docs
+// hold a term; these say HOW MANY do, which is the number BM25's idf is built
+// from. Lucene keeps it in the term's metadata in `.tim` (see src/blocktree.js),
+// precisely so a scorer can read it without walking `.doc`.
+//
+// Two things here are load-bearing and easy to get wrong:
+//
+//   1. THE SUM ACROSS SEGMENTS IS THE WHOLE POINT. A shard is several segments,
+//      each with its own dictionary and its own docFreq for a term. Lucene's
+//      TermStates.build() seeks the term in every segment, adds the frequencies
+//      up, and the BM25 weight — the idf — is then computed ONCE for the shard
+//      and handed to each segment's scorer. There is no such thing as a
+//      per-segment idf, and computing one would rank the same document
+//      differently depending on which segment it happened to land in.
+//
+//   2. THE STATISTICS INCLUDE DELETED DOCUMENTS. They come from the term
+//      dictionary, and a delete does not touch it — the entries sit there until
+//      a merge rewrites the segment (which is why the close-up draws them struck
+//      through rather than gone). So `includePurged` is on here, and the visible
+//      consequence is real Elasticsearch behaviour: deleting a document does not
+//      move anybody's score until you merge.
+// ---------------------------------------------------------------------------
+
+// One Lucene doc's field length: how many tokens it holds, across every field.
+// The number BM25 divides by. Lucene stores it as a lossily-encoded byte (the
+// norm); at this scale the encoding would be exact, so it is kept as the count.
+export const docFieldLen = (doc) =>
+  Object.values(doc?.tokens ?? {}).reduce((n, terms) => n + terms.length, 0)
+
+const emptyStats = () => ({ docCount: 0, sumTotalTermFreq: 0, byTerm: new Map() })
+
+// avgFieldLen is derived rather than stored, exactly as Lucene derives it from
+// sumTotalTermFreq / docCount — so a merge of two stats can just add the two
+// totals and let the average fall out.
+const withAverage = (s) => ({
+  ...s,
+  avgFieldLen: s.docCount ? s.sumTotalTermFreq / s.docCount : 0,
+})
+
+// What ONE segment's term metadata says. Deleted-but-unmerged docs count, per (2).
+export function segmentStats(seg, docs) {
+  const s = emptyStats()
+  for (const id of seg.docIds) {
+    const doc = docs[id]
+    if (!doc) continue
+    s.docCount += 1
+    s.sumTotalTermFreq += docFieldLen(doc)
+    const seen = new Set()
+    for (const terms of Object.values(doc.tokens ?? {}))
+      for (const term of terms) {
+        if (!s.byTerm.has(term)) s.byTerm.set(term, { docFreq: 0, totalTermFreq: 0 })
+        const e = s.byTerm.get(term)
+        e.totalTermFreq += 1
+        // docFreq counts DOCUMENTS, not occurrences — once per doc however many
+        // times the term appears in it.
+        if (!seen.has(term)) {
+          e.docFreq += 1
+          seen.add(term)
+        }
+      }
+  }
+  return withAverage(s)
+}
+
+// Add several stats together. ONE function for both roll-ups that exist: the
+// per-segment stats a shard sums (query_then_fetch), and the per-shard stats the
+// coordinator sums (dfs_query_then_fetch). Keeping them on one path is what
+// stops the two modes from becoming two different scorers.
+export function mergeStats(list) {
+  const out = emptyStats()
+  for (const s of list) {
+    out.docCount += s.docCount
+    out.sumTotalTermFreq += s.sumTotalTermFreq
+    for (const [term, e] of s.byTerm) {
+      if (!out.byTerm.has(term)) out.byTerm.set(term, { docFreq: 0, totalTermFreq: 0 })
+      const o = out.byTerm.get(term)
+      o.docFreq += e.docFreq
+      o.totalTermFreq += e.totalTermFreq
+    }
+  }
+  return withAverage(out)
+}
+
+// A shard's statistics: every searchable segment's, summed — plus the per-segment
+// rows themselves, because the close-up's job is to SHOW the summing.
+export function shardStats(shard, docs) {
+  const segments = shard.segments
+    .filter((seg) => seg.searchable)
+    .map((seg) => ({ id: seg.id, ...segmentStats(seg, docs) }))
+  return { ...mergeStats(segments), segments }
+}
+
+// The document frequency a scorer should use for `term`, or 0 when the shard has
+// never seen it. Zero means the term contributes nothing here — NOT an infinitely
+// rare term, which is what feeding 0 to idf() would imply.
+export const docFreqOf = (stats, term) => stats?.byTerm.get(term)?.docFreq ?? 0

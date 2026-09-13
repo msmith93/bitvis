@@ -3,6 +3,7 @@ import { segmentAnatomy } from '../../invertedIndex'
 import { locateInShard } from '../../storedFields'
 import { INSPECTOR_DWELL_MS } from '../../timing'
 import { AnatomyCard, DocChip } from '../anatomy'
+import { fmtScore } from '../../similarity'
 
 // The close-up for a shard during the FETCH phase: the coordinator has cut the
 // global ranking and asks this shard for the _source of the winners it holds.
@@ -112,7 +113,7 @@ function ShardFetchStage({ step, openCloseUp, shardId, rows, anatomy, idsBySeg, 
               <span key={r.id} className="si-lane-item sf-winner">
                 <span className="si-rank">#{r.rank}</span>
                 <DocChip id={r.id} docs={docs} hit />
-                <span className="score">{r.score}</span>
+                <span className="score">{fmtScore(r.score)}</span>
               </span>
             ))
           ) : (

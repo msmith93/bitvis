@@ -1,6 +1,7 @@
 import { Fragment } from 'react'
 import { motion } from 'framer-motion'
 import { COORD_MERGE_STEPS, computeCoordinatorMerge } from '../../ops/search'
+import { fmtScore } from '../../similarity'
 
 // The close-up for the coordinator during the gather/fetch phases: how the
 // per-shard hit lists become one global ranking, and which full documents get
@@ -214,11 +215,40 @@ function MergeStage({ step, co, docs }) {
           </Fragment>
         ))}
       </motion.div>
+      {step === 2 && <IdfSpread idfs={co.idfs} />}
       {step === 5 && (
         <div className="si-return-note" style={{ marginTop: 10 }}>
           ↩ returned to client
         </div>
       )}
+    </div>
+  )
+}
+
+// Why the sort above is an approximation: each shard weighed the term with its
+// own idf, so two chips a place apart may not be comparable at all. Only shown
+// when the shards actually disagree — on data where they agree there is nothing
+// to warn about, and saying so anyway would teach a rule that isn't one.
+function IdfSpread({ idfs }) {
+  const split = (idfs ?? []).filter((x) => x.spread)
+  if (!split.length) return null
+  return (
+    <div className="ci-idf-spread">
+      {split.slice(0, 2).map((x) => (
+        <div className="ci-idf-row" key={x.term}>
+          <span className="term-chip">{x.term}</span>
+          {x.rows.map((r) => (
+            <span key={r.shard} className={'ci-idf-cell' + (r.docFreq ? '' : ' dim')}>
+              shard {r.shard} · {r.docFreq ? `${r.docFreq}/${r.docCount} → idf ${fmtScore(r.idf)}` : 'not held'}
+            </span>
+          ))}
+        </div>
+      ))}
+      <div className="dict-cost total">
+        The same term, weighed differently on each shard — so this ranking sorts scores
+        that were not measured on one scale. dfs_query_then_fetch collects the statistics
+        first, at the cost of a round trip.
+      </div>
     </div>
   )
 }
@@ -236,7 +266,7 @@ function HitChip({ hit, docs, rank, showShard, dim, body, delay = 0, col, row })
       {rank != null && <span className="si-rank">#{rank}</span>}
       <DocChip id={hit.docId} docs={docs} hit={!dim} />
       {body != null && <span className="ci-doc-body">{body}</span>}
-      <span className="score">{hit.score}</span>
+      <span className="score">{fmtScore(hit.score)}</span>
       {showShard && <span className="ci-shard-tag">shard {hit.shard}</span>}
     </motion.div>
   )

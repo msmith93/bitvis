@@ -120,7 +120,7 @@ This is a teaching POC, so a few things stand in for the real thing (all
 documented in [`SPEC.md`](SPEC.md)):
 
 - Routing is a deterministic string hash standing in for murmur3 `_routing`.
-- Relevance is term-frequency counting, a stand-in for BM25.
+- Relevance is BM25, scored from each shard's own term statistics.
 - Primary + replica are one logical shard rendered on two nodes (no replica lag).
 - Coordinator is fixed to node-1; shard/replica/merge tuning is not exposed.
 

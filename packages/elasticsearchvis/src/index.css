@@ -1306,6 +1306,32 @@ textarea:focus {
   font-weight: 700;
 }
 
+/* The sort step's footnote: the same term, weighed differently per shard. */
+.ci-idf-spread {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ci-idf-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ci-idf-cell {
+  font-size: 11px;
+  font-family: ui-monospace, Menlo, monospace;
+  color: var(--accent-soft);
+  background: var(--panel-2);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.ci-idf-cell.dim {
+  color: var(--muted);
+  opacity: 0.65;
+}
+
 /* ---- coordinator inspector (merge & fetch close-up) ---- */
 /* One persistent grid; the per-step column count comes from an inline
    grid-template-columns so the same chips reflow between arrangements. */
@@ -2269,6 +2295,58 @@ textarea:focus {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+/* ---- term statistics (the `stats` step of the shard close-up) ----
+   One row per matched term: each segment's docFreq, then the sum, then the one
+   idf the shard scores with. Monospace so the per-segment figures line up. */
+.si-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.si-stat-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.si-stat-sum {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: 1;
+  font-size: 11px;
+  font-family: ui-monospace, Menlo, monospace;
+}
+.si-stat-seg {
+  color: var(--muted);
+  background: var(--panel-2);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.si-stat-plus,
+.si-stat-eq {
+  color: var(--muted);
+  padding: 0 2px;
+}
+.si-stat-df {
+  color: var(--accent-text);
+  font-weight: 700;
+}
+/* Context, not a cost — so muted rather than the warn colour .dict-cost uses. */
+.si-stat-foot {
+  margin-top: 8px;
+  font-size: 11px;
+  font-family: ui-monospace, Menlo, monospace;
+  color: var(--muted);
+}
+
+/* The doc's field length sits with the per-term chips but belongs to the DOC,
+   so it is toned back to read as context rather than another term. */
+.si-tf.len {
+  color: var(--muted);
 }
 
 /* ---------------- Document list overlay (delete / undo) ---------------- */

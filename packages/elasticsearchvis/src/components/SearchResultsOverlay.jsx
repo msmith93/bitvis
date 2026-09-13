@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { computeCoordinatorMerge } from '../ops/search'
 import { SourceField, sourceEntries } from './sourceView'
+import { fmtScore } from '../similarity'
 
 // What the client actually gets back once a search op has run its scatter-gather
 // to completion: the true hit count plus the query's result window (the only
@@ -118,7 +119,7 @@ function ResultRow({ rank, hit, doc }) {
         </span>
         {doc?.label && <span className="result-label">{doc.label}</span>}
         <span className="result-meta">
-          shard {hit.shard} · score {hit.score}
+          shard {hit.shard} · score {fmtScore(hit.score)}
         </span>
       </button>
       {open && (
