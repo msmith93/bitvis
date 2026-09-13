@@ -105,7 +105,10 @@ function ResultRow({ rank, hit, doc }) {
   const entries = sourceEntries(doc)
 
   return (
-    <li className="result-item">
+    // Addressable by RANK, so a scenario can spotlight one row — the
+    // dfs_query_then_fetch tour points at the same rank before and after, which
+    // is how the reader sees it change hands rather than being told it did.
+    <li className="result-item" data-tour={`result-${rank}`}>
       <button
         type="button"
         className="result-row"

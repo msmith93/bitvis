@@ -4,6 +4,7 @@ import routing from './routing'
 import ondisk from './ondisk'
 import fuzzy from './fuzzy'
 import nested from './nested'
+import dfs from './dfs'
 
 // Guided scenarios. Each one is a self-contained module — like an op module in
 // src/ops/ — declaring `{ id, label, blurb, steps, setup? }`. Adding a scenario
@@ -70,6 +71,12 @@ import nested from './nested'
 //   indexPhase  'closed' | 'editing' | 'flying' | 'done'
 //   opType      active op's type, or null
 //   opStep      active op's step index, or -1
+//   opPhase     active SEARCH's phase by key ('dfs' | 'coordinator' | 'scatter'
+//               | 'local' | 'gather' | 'fetch' | 'return'), null otherwise.
+//               Prefer this to opStep for a search: dfs_query_then_fetch adds a
+//               step in front, so the indices move and the keys do not.
+//   dfsOn       the search form's dfs_query_then_fetch box is ticked
+//   opDfs       the RUNNING search used it (the form may have changed since)
 //   opDone      active op has reached its last step
 //   opQuery     active search's query string ('' when not a search)
 //   opRouting   active search's routing key (null when unrouted)
@@ -107,7 +114,7 @@ import nested from './nested'
 // click. The dim layer swallows everything outside the spotlight hole, so a
 // step whose copy says "do X and then Y" leaves Y unclickable unless both sit
 // inside the same target (or are named by `targetExtra`).
-export const SCENARIOS = [intro, wildcard, routing, ondisk, fuzzy, nested]
+export const SCENARIOS = [intro, wildcard, routing, ondisk, fuzzy, nested, dfs]
 
 export const DEFAULT_SCENARIO = intro.id
 

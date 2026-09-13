@@ -86,6 +86,13 @@ distinctions are the whole pedagogical point.
    ones discarded; deleted docs physically dropped. Both copies merge.
 
 ### Search (scatter-gather, query-then-fetch)
+0. **Gather global term statistics** — `dfs_query_then_fetch` ONLY, and off by
+   default. Before the query goes out, the coordinator asks every shard for its
+   document frequencies and sums them, then sends the totals out with the query
+   so every shard scores on the same numbers. It is a whole extra round trip to
+   every shard, which is why it is opt-in — and it can change the ranking the
+   client gets back, which is why it exists. The op's step list therefore depends
+   on its payload; with the flag off it is exactly the six steps below.
 1. **Coordinator receives the query** — query string analyzed into terms.
 2. **Scatter (query phase)** — coordinator fans the query out to ONE copy of
    every shard (primary or replica), spread across nodes. This is why search runs
@@ -99,6 +106,9 @@ distinctions are the whole pedagogical point.
    `query_then_fetch` means, and why two shards can value the same document
    differently.
 4. **Gather + merge + sort** — coordinator merges all shards' hits and ranks.
+   Under `query_then_fetch` those scores came from different shards' statistics,
+   so the merge sorts numbers that were not measured on the same scale. The
+   coordinator close-up says so and shows the disagreement it is sorting through.
 5. **Fetch phase** — coordinator fetches full `_source` for the winning ids.
    Each shard holding a winner maps the id back to a segment + ordinal and reads
    that row of the segment's stored fields; the fetch-step 🔍 shows it.

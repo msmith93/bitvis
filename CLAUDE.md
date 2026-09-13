@@ -129,8 +129,8 @@ The apps look interchangeable and are not. Verify before assuming.
 
 | | elasticsearchvis | cassandravis | kubevis | vespavis |
 |---|---|---|---|---|
-| Step list API | `stepsFor(type)` | `stepsFor(op)` | `stepsFor(type)` | **`stepsOf(op)`** |
-| Steps vary by payload | no | **yes** | no | **yes** (`stepsFor(payload)` on the module) |
+| Step list API | **`stepsOf(op)`** | `stepsFor(op)` | `stepsFor(type)` | **`stepsOf(op)`** |
+| Steps vary by payload | **yes** (`stepsFor(payload)`, search only) | **yes** | no | **yes** (`stepsFor(payload)` on the module) |
 | `npm run check` | yes | — | — | yes |
 | E2E tests | — | **yes** (Playwright) | — | — |
 | Close-up zooms | `src/closeups/` (+ `stages/`) | `src/closeups/` | — | — |
