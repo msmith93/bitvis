@@ -195,7 +195,7 @@ const STEPS = [
 
 export default {
   id: 'dfs',
-  label: 'Why scores depend on the shard',
+  label: 'query_then_fetch vs dfs_query_then_fetch',
   blurb: 'Run one query two ways and watch the results come back in a different order.',
   steps: STEPS,
 }

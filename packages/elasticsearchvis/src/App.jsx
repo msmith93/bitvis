@@ -691,9 +691,6 @@ export default function App() {
                 <input type="checkbox" checked={dfs} onChange={(e) => setDfs(e.target.checked)} />
                 <span>
                   dfs_query_then_fetch
-                  <em className="field-hint">
-                    collect term statistics from every shard first
-                  </em>
                 </span>
               </label>
 

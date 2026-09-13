@@ -74,7 +74,7 @@ real controls and waits for you to click them:
 | segment's term dictionary | Three zooms down to what an inverted index really is: an FST in `.tip` that picks one block of terms out of `.tim`. |
 | fuzzy search | The term index and a Levenshtein automaton walked side by side, one character at a time, until a branch dies — then what one more edit of budget costs, in states, in arcs and in blocks read. |
 | object vs nested | Index one product by hand under each mapping, watching the index form price the choice before you commit it. `object` answers "red AND XL" with a product that has no red XL; `nested` answers correctly — for a Lucene doc per variant, a join on every query, and a whole-block rewrite on every update. |
-| why scores depend on the shard | One query run twice, changing only the search type. Under `query_then_fetch` each shard rates the word's rarity against its own documents, and one of them overrates it; `dfs_query_then_fetch` collects the statistics first. Every shard returns the same documents either way — and the client still gets a different ranking back. |
+| query_then_fetch vs dfs_query_then_fetch | One query run twice, changing only the search type. Under `query_then_fetch` each shard rates the word's rarity against its own documents, and one of them overrates it; `dfs_query_then_fetch` collects the statistics first. Every shard returns the same documents either way — and the client still gets a different ranking back. |
 
 None of this is scenario-only. A `*` or a `~` in the search box runs a wildcard
 or fuzzy query, the routing field works on any dataset, and the index form takes

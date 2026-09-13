@@ -399,10 +399,11 @@ function StatsBlock({ local, dfs }) {
             )
           })}
           <div className="si-stat-foot">
-            avg field length {scoring.avgFieldLen.toFixed(1)} terms across{' '}
-            {scoring.docCount} Lucene doc{scoring.docCount === 1 ? '' : 's'} — the length
-            every candidate is measured against
-            {dfs && ' · collected from every shard, so all of them use these numbers'}
+            <span className="si-stat-df">
+              avg field length {scoring.avgFieldLen.toFixed(1)} terms across{' '}
+              {scoring.docCount} Lucene doc{scoring.docCount === 1 ? '' : 's'}
+              {dfs && ' · collected from every shard, so all of them use these numbers'}
+            </span>
           </div>
         </div>
       )}

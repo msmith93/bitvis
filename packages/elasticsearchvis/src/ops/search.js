@@ -52,14 +52,14 @@ const STEPS = [
     ms: 1400, // overridden by duration() (fan-out flights)
     title: '2 · Scatter (query phase)',
     blurb:
-      'The coordinator fans the query out to ONE copy of every shard — primary or replica — spread across the nodes. This is why a search runs on all nodes. A routing key is the exception: it names the one shard that can hold the data.',
+      'The coordinator fans the query out to ONE copy of every shard — primary or replica — spread across the nodes. A routing key is the exception: it names the one shard that can hold the data.',
   },
   {
     key: 'local',
     ms: 1600,
     title: '3 · Each shard searches locally',
     blurb:
-      'Each contacted shard searches its own segments’ inverted indexes, scores the matching docs with BM25 using its OWN term statistics, and returns only its local top hits — doc ids + scores, not the full documents.',
+      'Each contacted shard searches its own segments’ inverted indexes, scores the matching docs with BM25, and returns only its local top hits — doc ids + scores, not the full documents.',
   },
   {
     key: 'gather',
@@ -474,13 +474,7 @@ export default {
         `fuzzy: up to ${p.maxEdits} edit${p.maxEdits === 1 ? '' : 's'} — a match may differ in its very first character, so a sorted list has nothing to seek to. The real term index prunes; open the 🔍 to watch it.`,
       )
     }
-    // The term the shards disagree most about. One line, not a list: the point
-    // is that shard-local statistics disagree at all, not how many terms do.
-    const split = s.stats && computeShardIdfs(s).find((x) => x.spread)
-    if (split)
-      parts.push(
-        `“${split.term}” is not equally rare on every shard, so each scored it with its own idf — dfs_query_then_fetch is the search type that makes them agree.`,
-      )
+
     return parts.length ? parts.join(' ') : null
   },
 
@@ -517,19 +511,19 @@ const PLAIN_LOCAL_STEPS = [
     key: 'lookup',
     title: '2 · Look up terms per segment',
     blurb:
-      'A shard is several immutable segments, each with its OWN term dictionary. Every query term is looked up in every segment’s dictionary to find that term’s posting list.',
+      'A shard is several immutable segments, each with its own term dictionary. Every query term is looked up in every segment’s dictionary to find that term’s posting list.',
   },
   {
     key: 'stats',
     title: '3 · Collect term statistics',
     blurb:
-      'Each segment’s term metadata already carries that term’s docFreq, so the shard sums them and computes ONE idf before a single posting list is read. These are this shard’s own statistics, not the cluster’s — dfs_query_then_fetch is the search type that fixes that.',
+      'Each segment’s term metadata already carries that term’s docFreq, so the shard sums them and computes one idf per term before a single posting list is read.',
   },
   {
     key: 'postings',
     title: '4 · Walk the posting lists',
     blurb:
-      'Each matched term’s posting list names the docs that contain it — ids only, not the documents themselves. Their union (across terms and segments) is the candidate set. A delete is near-real-time just like a write: until a refresh applies it, a tombstoned doc is still a candidate. After the refresh its posting entries are still here — struck through — but search steps over them; only a merge removes them for good.',
+      'Each matched term’s posting list names the docs that contain it — ids only, not the documents themselves. Their union (across terms and segments) is the candidate set.',
   },
   {
     key: 'score',

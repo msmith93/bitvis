@@ -215,52 +215,11 @@ function MergeStage({ step, co, docs, dfs }) {
           </Fragment>
         ))}
       </motion.div>
-      {step === 2 && <IdfSpread idfs={co.idfs} dfs={dfs} />}
       {step === 5 && (
         <div className="si-return-note" style={{ marginTop: 10 }}>
           ↩ returned to client
         </div>
       )}
-    </div>
-  )
-}
-
-// Why the sort above is an approximation: each shard weighed the term with its
-// own idf, so two chips a place apart may not be comparable at all. Only shown
-// when the shards actually disagree — on data where they agree there is nothing
-// to warn about, and saying so anyway would teach a rule that isn't one.
-function IdfSpread({ idfs, dfs }) {
-  // Under dfs there is nothing left to warn about: the shards were handed the
-  // same numbers, so the sort above compares like with like. Say so — a reader
-  // who was shown the problem is owed the moment it goes away.
-  if (dfs)
-    return (
-      <div className="ci-idf-spread">
-        <div className="si-stat-foot">
-          Every score here came from the same global statistics, so the ranking compares
-          like with like.
-        </div>
-      </div>
-    )
-  const split = (idfs ?? []).filter((x) => x.spread)
-  if (!split.length) return null
-  return (
-    <div className="ci-idf-spread">
-      {split.slice(0, 2).map((x) => (
-        <div className="ci-idf-row" key={x.term}>
-          <span className="term-chip">{x.term}</span>
-          {x.rows.map((r) => (
-            <span key={r.shard} className={'ci-idf-cell' + (r.docFreq ? '' : ' dim')}>
-              shard {r.shard} · {r.docFreq ? `${r.docFreq}/${r.docCount} → idf ${fmtScore(r.idf)}` : 'not held'}
-            </span>
-          ))}
-        </div>
-      ))}
-      <div className="dict-cost total">
-        The same term, weighed differently on each shard — so this ranking sorts scores
-        that were not measured on one scale. dfs_query_then_fetch collects the statistics
-        first, at the cost of a round trip.
-      </div>
     </div>
   )
 }
