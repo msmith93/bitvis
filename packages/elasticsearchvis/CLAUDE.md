@@ -241,18 +241,27 @@ payload (see the bullet below), and this is the only app whose close-ups
   `build(...) → { key, title, sub, steps, dwell?, Stage, stageProps, source,
   className? }`, and `src/closeups/index.js` is the registry
   (`shardCloseUp` / `coordCloseUp` / `fetchShards` / `closeUpStillValid` /
-  `closeUpAnchor` / `buildCloseUp`). Five kinds: `shard` (the `local` phase),
-  `coordinator` (`gather` and `fetch`), `fetch` (a shard holding a winner, the
-  `fetch` phase — `stages/shardFetch.jsx`, which turns each id back into a
-  segment + ordinal), `stats` (a shard answering a dfs statistics request —
-  `stages/shardStats.jsx`), and `segment` (inside one segment, nested under any
-  of the shard-level three, with `phase: 'query' | 'fetch' | 'stats'`). The
+  `closeUpAnchor` / `buildCloseUp`). Six kinds: `shard` (the `local` phase),
+  `coordinator` (`gather` and `fetch`), `coordStats` (the coordinator summing
+  the shards' dfs statistics — `stages/coordStats.jsx`, offered on the `dfs`
+  phase where `coordinator` is offered later), `fetch` (a shard holding a
+  winner, the `fetch` phase — `stages/shardFetch.jsx`, which turns each id back
+  into a segment + ordinal), `stats` (a shard answering a dfs statistics
+  request — `stages/shardStats.jsx`), and `segment` (inside one segment, nested
+  under any of the shard-level three, with `phase: 'query' | 'fetch' | 'stats'`). The
   registry addresses those by `searchStepKey(op)`, never by step index — dfs
   moves the indices.
   **The three shard-level zooms draw the SAME segment cards on purpose** and
   differ only in what they light: query lights the dictionary then the postings,
   fetch lights only `_source`, stats lights the dictionary and STOPS. That
   comparison is the lesson; don't give any of them a card of its own.
+  The dfs round has a zoom at BOTH ends and they are deliberately one picture:
+  `shardStats` shows a shard adding its SEGMENTS up, `coordStats` shows the
+  coordinator adding those SHARDS up, in the same layout, because in the model
+  they are the same call (`mergeStats`). `computeShardIdfs` feeds the second and
+  must read `search.shardOwn`, never `search.stats` — under dfs the latter is
+  already the global view, so every shard would be reported as agreeing and the
+  panel would teach nothing. `npm run check` section 10 pins that.
   The segment zoom's `stats` phase is the `query` phase minus its last tile — it
   reuses `deriveDictionary` and `QUERY_STEPS`' middle three entries verbatim, so
   the walk and the block read are visibly the same work a search does, and only

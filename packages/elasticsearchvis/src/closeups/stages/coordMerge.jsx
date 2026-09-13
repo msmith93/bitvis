@@ -29,11 +29,11 @@ export function build({ search, docs, query, anchor }) {
     source: anchor,
     className: 'coord',
     Stage: CoordMergeStage,
-    stageProps: { co, docs, query, terms: search.terms, dfs: search.dfs },
+    stageProps: { co, docs, query, terms: search.terms },
   }
 }
 
-function CoordMergeStage({ step, co, docs, query, terms, dfs }) {
+function CoordMergeStage({ step, co, docs, query, terms }) {
   return (
     <>
       {/* Persistent query strip — the terms were already analyzed back on the
@@ -56,7 +56,7 @@ function CoordMergeStage({ step, co, docs, query, terms, dfs }) {
       </div>
 
       <div className="si-scroll">
-        <MergeStage step={step} co={co} docs={docs} dfs={dfs} />
+        <MergeStage step={step} co={co} docs={docs} />
       </div>
     </>
   )
@@ -70,7 +70,7 @@ function CoordMergeStage({ step, co, docs, query, terms, dfs }) {
 // projection (the old CoordinatorInspector's exit animation never completed and
 // the invisible backdrop kept swallowing clicks), which is why they live in one
 // container instead.
-function MergeStage({ step, co, docs, dfs }) {
+function MergeStage({ step, co, docs }) {
   // Global rank of each winner, stable across the cut/group/fetch phases.
   const rank = new Map(co.winners.map((w, i) => [w.docId, i + 1]))
 

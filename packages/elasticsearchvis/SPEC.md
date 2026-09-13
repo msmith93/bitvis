@@ -107,6 +107,12 @@ distinctions are the whole pedagogical point.
    sitting right there unfollowed. That is precisely what storing `docFreq` in
    the term metadata buys.
 
+   The coordinator's half of that round is a zoom of its own: the per-shard
+   figures arriving, summed into one document frequency and one document count,
+   and the single idf that falls out. Those totals ride back out attached to the
+   query, and each shard then scores AND cuts its own top `size` with them — so
+   dfs can change which documents a shard sends, not only what they are worth.
+
    **The dictionary lookup is therefore paid twice**, and only that. The shard
    answers the two phases in separate requests and only the NUMBERS go back to
    the coordinator, never the `TermStates` they were found with, so the query

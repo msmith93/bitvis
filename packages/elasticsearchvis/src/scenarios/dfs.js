@@ -162,6 +162,26 @@ const STEPS = [
     cta: 'Got it',
   },
   {
+    id: 'coord-stats-zoom',
+    target: '[data-tour="coord-stats-magnify"]',
+    placement: 'bottom',
+    title: 'And what does the coordinator do with them?',
+    // Reached after the reader has closed the shard and segment panels.
+    waitFor: (s) => s.opDfs && s.opPhase === 'dfs' && s.closeUpDepth === 0,
+    body: 'Every shard has now reported its own numbers. Open the 🔍 on Node 1 to watch the one idf they turn into.',
+    advanceOn: (s) => s.closeUpKind === 'coordStats',
+  },
+  {
+    id: 'one-idf',
+    target: '[data-tour="cu-stepper"]',
+    placement: 'left',
+    noDim: true,
+    title: 'The same addition, one level up',
+    waitFor: (s) => s.closeUpKind === 'coordStats' && s.closeUpStep >= 2,
+    body: 'A shard adds its segments together; the coordinator adds the shards together. The totals go back out with the query, and each shard uses them to score and to pick its top hits.',
+    cta: 'Got it',
+  },
+  {
     id: 'resume-dfs',
     target: '[data-tour="stepper-play"]',
     placement: 'top',

@@ -57,7 +57,7 @@ const { ANY, compileAutomaton, dfaStep, intersectTrace } = await import(SRC + 'a
 const { buildBlock, OBJECT_MAPPING, makeMapping } = await import(SRC + 'mapping.js')
 const { matchDoc, scoreDoc, computeShardSearch, localSearchSteps } = await import(SRC + 'ops/search.js')
 const searchOp = (await import(SRC + 'ops/search.js')).default
-const { computeCoordinatorMerge, searchStepKey } = await import(SRC + 'ops/search.js')
+const { computeCoordinatorMerge, searchStepKey, computeShardIdfs } = await import(SRC + 'ops/search.js')
 const { segmentInvertedIndex, segmentStats, shardStats, mergeStats } = await import(SRC + 'invertedIndex.js')
 const { idf, tfNorm, termScore, K1, B } = await import(SRC + 'similarity.js')
 const { buildPostings, postingsWalk } = await import(SRC + 'postings.js')
@@ -1259,6 +1259,20 @@ section('10 · dfs_query_then_fetch')
     const fromQuery = computeShardSearch(shard, pats, SAMPLE.docs, qtf.window).matchedTerms.join()
     check(`shard ${shard.id}: the statistics zoom and the query zoom resolve the same terms`,
       fromStats === fromQuery, `stats [${fromStats}] vs query [${fromQuery}]`)
+  }
+
+  // computeShardIdfs feeds the coordinator's statistics zoom, which exists to
+  // show the shards DISAGREEING before the totals replace them. It must read
+  // each shard's own view: under dfs `search.stats` is already the global one
+  // for every shard, so reading that would report unanimous agreement and the
+  // panel would have nothing to show.
+  {
+    const spread = (s) => computeShardIdfs(s).find((x) => x.term === 'search')
+    const a = spread(qtf), c = spread(dfs)
+    check('the coordinator zoom reports each shard\'s OWN idf, under both search types',
+      a.rows.map((r) => r.docFreq).join() === c.rows.map((r) => r.docFreq).join() &&
+        new Set(c.rows.map((r) => r.idf.toFixed(4))).size > 1,
+      `qtf [${a.rows.map((r) => r.docFreq)}] dfs [${c.rows.map((r) => r.docFreq)}]`)
   }
 
   // A routed search asks one shard, so its "global" view is that shard's own —

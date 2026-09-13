@@ -698,16 +698,20 @@ export const COORD_MERGE_STEPS = [
 // scores that were not measured on the same scale. Derived, never written into
 // copy, because it is only a lesson if the numbers are the live ones.
 export function computeShardIdfs(search) {
-  const sids = Object.keys(search.stats)
+  const sids = Object.keys(search.shardOwn)
     .map(Number)
     .sort((a, b) => a - b)
-  const terms = [...new Set(sids.flatMap((sid) => [...search.stats[sid].byTerm.keys()]))]
+  const terms = [...new Set(sids.flatMap((sid) => [...search.shardOwn[sid].byTerm.keys()]))]
     .filter((t) => matchesAny(t, search.patterns))
     .sort((a, b) => a.localeCompare(b))
   return terms
     .map((term) => {
       const rows = sids.map((shard) => {
-        const st = search.stats[shard]
+        // Deliberately shardOwn, never `stats`: this is each shard's OWN reading,
+        // which is what the coordinator receives in the dfs round and what it
+        // then replaces. Under dfs `stats` is already the global view, so
+        // reading it here would report every shard as agreeing.
+        const st = search.shardOwn[shard]
         const docFreq = st.byTerm.get(term)?.docFreq ?? 0
         return {
           shard,
@@ -753,7 +757,6 @@ export function computeCoordinatorMerge(search) {
     from,
     size,
     n: size,
-    idfs: computeShardIdfs(search),
   }
 }
 

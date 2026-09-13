@@ -17,6 +17,7 @@ export default function ClusterStage({
   playing,
   onZoom,
   onCoordZoom,
+  onCoordStatsZoom,
   onFetchZoom,
   onStatsZoom,
 }) {
@@ -133,6 +134,18 @@ export default function ClusterStage({
               <span className="node-name">{node.name}</span>
               {node.id === COORDINATOR && (
                 <span className="badge-coord">coordinator</span>
+              )}
+              {/* dfs only: what the coordinator does with the numbers the
+                  shards just sent — the other half of the round trip. */}
+              {node.id === COORDINATOR && type === 'search' && phase === 'dfs' && (
+                <button
+                  className="magnify-btn coord"
+                  data-tour="coord-stats-magnify"
+                  title="Zoom into the coordinator merging the shards' term statistics"
+                  onClick={() => onCoordStatsZoom?.()}
+                >
+                  🔍
+                </button>
               )}
               {node.id === COORDINATOR &&
                 type === 'search' &&

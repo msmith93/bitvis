@@ -104,7 +104,9 @@ export default function App() {
   // shard is open" for a scenario that only needs to know nothing is on top.
   const zoomShard =
     rootCloseUp?.kind === 'shard' || rootCloseUp?.kind === 'fetch' ? rootCloseUp.shard : null
-  const coordZoom = rootCloseUp?.kind === 'coordinator'
+  // Either coordinator-rooted zoom counts: a step that only needs to know the
+  // reader is looking at Node 1 should not care which of the two it opened.
+  const coordZoom = rootCloseUp?.kind === 'coordinator' || rootCloseUp?.kind === 'coordStats'
 
   // Where the innermost close-up's own mini-stepper has got to, reported up by
   // CloseUp. A tour step needs this to wait for a beat INSIDE a panel — the
@@ -730,6 +732,7 @@ export default function App() {
             playing={playing}
             onZoom={(id) => openCloseUp({ kind: 'shard', shard: id })}
             onCoordZoom={() => openCloseUp({ kind: 'coordinator' })}
+            onCoordStatsZoom={() => openCloseUp({ kind: 'coordStats' })}
             onFetchZoom={(id) => openCloseUp({ kind: 'fetch', shard: id })}
             onStatsZoom={(id) => openCloseUp({ kind: 'stats', shard: id })}
           />

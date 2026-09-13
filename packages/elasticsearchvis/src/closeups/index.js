@@ -3,6 +3,7 @@ import * as coordMerge from './stages/coordMerge'
 import * as segment from './stages/segment'
 import * as shardFetch from './stages/shardFetch'
 import * as shardStats from './stages/shardStats'
+import * as coordStats from './stages/coordStats'
 import { segmentInvertedIndex } from '../invertedIndex'
 import { computeCoordinatorMerge, searchStepKey } from '../ops/search'
 import { matchesAny } from '../wildcard'
@@ -16,6 +17,8 @@ import { matchesAny } from '../wildcard'
 // A close-up handle (`cu`) is a small plain object:
 //   { kind: 'shard', shard }                        — a serving shard's local search
 //   { kind: 'coordinator' }                         — the coordinator's merge & fetch
+//   { kind: 'coordStats' }                          — the coordinator summing the
+//                                                     shards' dfs statistics
 //   { kind: 'fetch', shard }                        — a shard answering GET _source
 //   { kind: 'stats', shard }                        — a shard answering a dfs
 //                                                     statistics request
@@ -50,11 +53,13 @@ export function shardCloseUp(op, shardId, search) {
   return null
 }
 
-// The zoom offered on the coordinator's node column.
+// The zoom offered on the coordinator's node column. Two of them: summing the
+// shards' term statistics during the dfs round, and merging their hits later.
 export function coordCloseUp(op) {
-  return op?.type === 'search' && SEARCH_GATHER_KEYS.includes(searchStepKey(op))
-    ? 'coordinator'
-    : null
+  if (op?.type !== 'search') return null
+  const key = searchStepKey(op)
+  if (key === 'dfs') return 'coordStats'
+  return SEARCH_GATHER_KEYS.includes(key) ? 'coordinator' : null
 }
 
 // Auto-close: is this open close-up still valid for the current op/step? Only
@@ -62,6 +67,7 @@ export function coordCloseUp(op) {
 export function closeUpStillValid(op, cu, search) {
   if (!cu || !op) return false
   if (cu.kind === 'coordinator') return coordCloseUp(op) === 'coordinator'
+  if (cu.kind === 'coordStats') return coordCloseUp(op) === 'coordStats'
   if (cu.kind === 'shard') return shardCloseUp(op, cu.shard, search) === 'shard'
   if (cu.kind === 'fetch') return shardCloseUp(op, cu.shard, search) === 'fetch'
   if (cu.kind === 'stats') return shardCloseUp(op, cu.shard, search) === 'stats'
@@ -73,6 +79,7 @@ export function closeUpStillValid(op, cu, search) {
 export function closeUpAnchor(cu, search) {
   switch (cu.kind) {
     case 'coordinator':
+    case 'coordStats':
       return '[data-coordinator]'
     // The fetch goes to the copy that served the query, so both zooms spring
     // out of the same card.
@@ -110,6 +117,8 @@ export function buildCloseUp(cu, { op, derived, search }) {
     }
     case 'coordinator':
       return coordMerge.build({ search, docs: derived.docs, query, anchor })
+    case 'coordStats':
+      return coordStats.build({ search, query, anchor })
     case 'fetch': {
       const shard = derived.shards.find((s) => s.id === cu.shard)
       if (!shard || !fetchShards(search)[cu.shard]) return null

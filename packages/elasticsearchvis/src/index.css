@@ -1331,6 +1331,19 @@ textarea:focus {
   color: var(--muted);
   opacity: 0.65;
 }
+/* A shard's own figure, once the totals have replaced it. Struck rather than
+   hidden: being superseded is the whole lesson of the dfs round. */
+.ci-idf-cell.replaced {
+  color: var(--muted);
+  text-decoration: line-through;
+  opacity: 0.75;
+}
+/* The summed answer every shard is about to be handed. */
+.ci-idf-cell.total {
+  color: var(--accent-text);
+  font-weight: 700;
+  background: var(--sink);
+}
 
 /* ---- coordinator inspector (merge & fetch close-up) ---- */
 /* One persistent grid; the per-step column count comes from an inline
@@ -1341,6 +1354,13 @@ textarea:focus {
      than full segment anatomy, so it needs far less room than the shard one
      and would otherwise sit in a lot of empty panel. */
   height: min(640px, 92vh);
+}
+/* The statistics variant holds one row per query term rather than a ranked
+   list, so it sizes to its content instead — a plain term would otherwise sit
+   in most of a 640px panel. Capped, because a wildcard expands to many rows. */
+.shard-inspector.coord.coord-stats {
+  height: auto;
+  max-height: min(640px, 92vh);
 }
 .ci-stage {
   display: grid;
